@@ -516,7 +516,11 @@ class FlowEngine:
             self.guard_broken = bool(selected_zone and selected_zone.broken is not None)
             self.guard_broken_at = selected_zone.broken if selected_zone else None
             self.flow_has_fvg = selected_zone is not None
-            self.seed_impulse = selected_zone.impulse if selected_zone else i - 1
+            # Match Pine flowSeedImpulse: an unguarded Rule 2 has no
+            # reversalImpulse (na). 0.2.1 incorrectly substituted i - 1,
+            # rejecting the first eligible continuation FVG as "old".
+            self.seed_impulse = (selected_zone.impulse if selected_zone is not None
+                                 else None if rule == 2 else i - 1)
             self.structural_reverse_lo, self.structural_reverse_hi = bar.low, bar.high
             self.structural_reverse_lo_i = self.structural_reverse_hi_i = i
             self.candidate_cont = self.candidate_rev = None
