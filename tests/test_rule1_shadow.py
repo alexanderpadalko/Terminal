@@ -55,9 +55,17 @@ class TestRuleOneGates(unittest.TestCase):
         self.assertFalse(facts["opposite_liquidity_capture"])
         self.assertFalse(would)
 
-    def test_missing_higher_data_does_not_fabricate_confirmation(self):
-        facts, fail, _, would = checks(all_higher_ready=False)
-        self.assertIn("higher_sources_ready", fail)
+    def test_missing_other_higher_sources_does_not_block_valid_selected_event(self):
+        # Pine f_mtfBundle does not require D1/W1/MN1 to all be available.
+        facts, fail, outcome, would = checks(all_higher_ready=False)
+        self.assertFalse(facts["higher_sources_ready"])
+        self.assertEqual(fail, ())
+        self.assertTrue(would)
+        self.assertEqual(outcome, "WOULD_TRIGGER_RULE_1")
+
+    def test_missing_selected_capture_still_blocks_rule_one(self):
+        facts, fail, outcome, would = checks(capture=None, all_higher_ready=False)
+        self.assertIn("opposite_liquidity_capture", fail)
         self.assertFalse(would)
 
     def test_no_guard_no_fvg_no_capture_produces_all_blockers(self):
@@ -144,6 +152,27 @@ class TestShadowReplay(unittest.TestCase):
         rows = audit_rule_one_shadow(self.analysis, self.audit)
         self.assertEqual(rows[-1].outcome, "OVERRIDDEN_BY_RULE_2")
         self.assertFalse(rows[-1].would_trigger)
+
+    def test_archived_opposite_is_visible_but_not_used_for_confirmation(self):
+        # Short is older in the same D1 source stack; the newer long is live.
+        older_short = Capture("D1", -1, BASE + timedelta(hours=1),
+                              "MAX/IDM", 9.198, False)
+        newer_long = Capture("D1", 1, BASE + timedelta(hours=2),
+                             "FVG", 9.042, True, 9.042, 8.67)
+        for i, c in enumerate(self.candles):
+            self.audit[i] = CaptureState(
+                c.time, c.time + timedelta(hours=1), READY.copy(),
+                newer_long, 3, source_active={"D1": newer_long},
+                source_histories={"D1": (older_short, newer_long)})
+        rows = audit_rule_one_shadow(self.analysis, self.audit)
+        last = rows[-1]
+        self.assertFalse(last.would_trigger)
+        self.assertIn("opposite_liquidity_capture", last.blockers)
+        self.assertEqual(last.suppressed_opposite_capture, older_short)
+        self.assertEqual(last.suppressed_reason, "ARCHIVED_IN_SOURCE_STACK")
+        serialized = serialize_shadow_rule_one(rows)["latest_closed"]
+        self.assertEqual(serialized["higher_capture"]["side"], 1)
+        self.assertEqual(serialized["suppressed_opposite_capture"]["side"], -1)
 
     def test_one_h1_bar_is_not_published_before_close(self):
         rows = audit_rule_one_shadow(self.analysis, self.audit,
