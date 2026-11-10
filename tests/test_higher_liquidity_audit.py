@@ -97,6 +97,16 @@ class TestHigherLiquidityAudit(unittest.TestCase):
         self.assertEqual([(f.side, f.lo, f.hi, f.rule) for f in from_audit.flows],
                          [(f.side, f.lo, f.hi, f.rule) for f in base.flows])
 
+    def test_latest_summary_ignores_unfinished_h1(self):
+        higher = src_d1(candle(DAY - timedelta(days=1), 9, 11))
+        lower = h1(candle(DAY + timedelta(hours=10), 8.8, 10),
+                   candle(DAY + timedelta(hours=11), 9.0, 10))
+        aud = audit_higher_captures(lower, {"D1": higher},
+                                    asof=DAY + timedelta(hours=11, minutes=20))
+        summary = serialize_audit(aud)
+        self.assertEqual(summary["latest"]["h1_open"], lower.candles[0].time.isoformat())
+        self.assertEqual(summary["latest"]["selected_capture"]["side"], 1)
+
     def test_asof_never_unlocks_h1_before_close(self):
         higher = src_d1(candle(DAY - timedelta(days=1), 9, 11))
         lower = h1(candle(DAY + timedelta(hours=10), 8.5, 10))
