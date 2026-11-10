@@ -46,6 +46,10 @@ class ShadowRuleOneRow:
     higher_capture: Capture | None = None
     source_status: dict[str, str] = field(default_factory=dict)
     would_trigger: bool = False
+    suppressed_opposite_capture: Capture | None = None
+    suppressed_reason: str | None = None
+    higher_source_active: dict[str, Capture | None] = field(default_factory=dict)
+    higher_selection_reason: str = ""
 
 
 def check_rule_one(*, side: int, guard_present: bool,
@@ -77,7 +81,11 @@ def check_rule_one(*, side: int, guard_present: bool,
             and opposite_fvg["formed_at"] > capture.captured_at
         ),
     }
-    blockers = tuple(key for key, passes in checks.items() if not passes)
+    # Pine f_mtfBundle() does not require *all three* higher timeframes to
+    # be present. Its one selected usable confirmation is sufficient. Keep
+    # higher_sources_ready informational, not a false hard blocker.
+    blockers = tuple(key for key, passes in checks.items()
+                     if not passes and key != "higher_sources_ready")
     eligible = not blockers
     if eligible and actual_rule == 2:
         return checks, (), "OVERRIDDEN_BY_RULE_2", False
@@ -212,6 +220,21 @@ def audit_rule_one_shadow(h1: "Analysis", captures: list[CaptureState],
                         and bars[c.formed].time > capture.captured_at]
             chosen = max(eligible or candidates, key=lambda c: (c.formed, c.start))
         opposite = _candidate_summary(chosen, bars) if chosen else None
+        # For investigation, show an opposite capture hidden by the newer
+        # selected direction. It is NOT permitted to confirm Rule 1 unless
+        # it becomes the selected event after source cancellation/fallback.
+        ignored = []
+        opposite_direction = -state.side
+        for tf in SOURCES:
+            stack = captured.source_histories.get(tf, ())
+            for earlier in stack:
+                if earlier.side == opposite_direction and earlier != capture:
+                    is_source_active = earlier == captured.source_active.get(tf)
+                    ignored.append((earlier, "SOURCE_ACTIVE_BUT_TF_SUPERSEDED"
+                                    if is_source_active else "ARCHIVED_IN_SOURCE_STACK"))
+        suppressed, suppressed_reason = (max(
+            ignored, key=lambda item: (item[0].captured_at, SOURCES.index(item[0].source_tf)))
+            if ignored else (None, None))
         checks, blockers, outcome, would_trigger = check_rule_one(
             side=state.side, guard_present=guard is not None,
             first_broken_at=guard_broken_at, opposite_fvg=opposite,
@@ -229,7 +252,9 @@ def audit_rule_one_shadow(h1: "Analysis", captures: list[CaptureState],
         output.append(ShadowRuleOneRow(
             bar.time, end, state.side, post.rule, outcome, blockers,
             checks, first_guard, guard_broken_at, opposite,
-            capture, captured.source_status.copy(), would_trigger
+            capture, captured.source_status.copy(), would_trigger,
+            suppressed, suppressed_reason, captured.source_active.copy(),
+            captured.selection_reason
         ))
     return output
 
@@ -258,6 +283,11 @@ def serialize_shadow_rule_one(rows: list[ShadowRuleOneRow]) -> dict:
             "opposite_fvg": opposite,
             "higher_capture": serialize_capture(r.higher_capture),
             "higher_source_status": r.source_status,
+            "higher_active_by_tf": {tf: serialize_capture(r.higher_source_active.get(tf))
+                                    for tf in SOURCES},
+            "higher_selection_reason": r.higher_selection_reason,
+            "suppressed_opposite_capture": serialize_capture(r.suppressed_opposite_capture),
+            "suppressed_reason": r.suppressed_reason,
         }
 
     confirmed = [r for r in rows if r.outcome != "H1_NOT_CLOSED"]
