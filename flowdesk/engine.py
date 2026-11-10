@@ -348,6 +348,7 @@ class FlowState:
     last_change_at: Optional[datetime] = None
     last_change_rule: int = 0
     range_origin: str = ""
+    guard_balanced: bool = False
 
 
 class FlowEngine:
@@ -537,7 +538,8 @@ class FlowEngine:
                           self.guard, self.guard_broken, pair,
                           range_start_at=at(self.start), range_low_at=at(self.lo_i),
                           range_high_at=at(self.hi_i), last_change_at=at(self.last_change_i),
-                          last_change_rule=self.last_change_rule, range_origin=self.range_origin)
+                          last_change_rule=self.last_change_rule, range_origin=self.range_origin,
+                          guard_balanced=bool(self.guard and self.guard.balanced))
         self.history.append(state)
         return state
 
@@ -553,6 +555,7 @@ class Analysis:
     flow_source_tf: str = ""
     flow_status: str = "LOCAL_PRELIMINARY"
     flow_source_note: str = ""
+    liquidity_audit: list = field(default_factory=list)  # H1-only Rule 1 preview
 
 
 def _project_h1_flows(
@@ -632,6 +635,7 @@ def _project_h1_flows(
             range_start_at=h.range_start_at, range_low_at=h.range_low_at,
             range_high_at=h.range_high_at, last_change_at=h.last_change_at,
             last_change_rule=h.last_change_rule, range_origin=h.range_origin,
+            guard_balanced=h.guard_balanced,
         ))
         prior_close = chart_close
     return flows
@@ -640,6 +644,7 @@ def _project_h1_flows(
 def analyze(
     candles: list[Candle], timeframe: str = "H1", exclude_gaps: bool = True,
     *, higher_h1: Analysis | None = None, asof: datetime | None = None,
+    higher_liquidity: dict[str, Analysis] | None = None,
 ) -> Analysis:
     """Local structure/FVG; a separate H1 source is mandatory for low-TF flow."""
     if timeframe not in ("M1", "M5", "H1", "D1", "W1", "MN1"):
@@ -663,5 +668,9 @@ def analyze(
         note = "Поток H1; только закрытые H1 свечи" if higher_h1 is not None and higher_h1.candles else "Ряд H1 отсутствует; направление потока не рассчитывается"
         return Analysis(candles, structure.current_segments(), fvg.zones, projected, pairs,
                         timeframe, "H1", origin, note)
-    return Analysis(candles, structure.current_segments(), fvg.zones, flow.history, pairs,
-                    timeframe, timeframe, "LOCAL_PRELIMINARY", "Собственный поток, алгоритм ещё не сверен с Pine")
+    result = Analysis(candles, structure.current_segments(), fvg.zones, flow.history, pairs,
+                      timeframe, timeframe, "LOCAL_PRELIMINARY", "Собственный поток, алгоритм ещё не сверен с Pine")
+    if timeframe == "H1" and higher_liquidity is not None:
+        from .liquidity import audit_higher_captures
+        result.liquidity_audit = audit_higher_captures(result, higher_liquidity, asof=asof)
+    return result
