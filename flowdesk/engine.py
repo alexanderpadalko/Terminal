@@ -557,6 +557,7 @@ class Analysis:
     flow_source_note: str = ""
     liquidity_audit: list = field(default_factory=list)  # H1-only D/W/M preview
     rule1_shadow: list = field(default_factory=list)  # H1-only; never applied to flow
+    session_info: dict = field(default_factory=dict)  # MOEX source-cleaning provenance
 
 
 def _project_h1_flows(
