@@ -24,7 +24,8 @@ from . import __version__
 from .engine import Analysis, analyze
 from .liquidity import serialize_audit
 from .rule1_shadow import serialize_shadow_rule_one
-from .market_data import Candle, MOSCOW, TIMEFRAMES, download_moex, read_csv, infer_timeframe
+from .market_data import (Candle, MOSCOW, TIMEFRAMES, load_moex_session_bundle,
+                          exclude_opening_auction, read_csv, infer_timeframe)
 
 BACKGROUND = QColor("#0c131e")
 GRID = QColor("#202b3b")
@@ -68,24 +69,26 @@ class MarketWorker(QThread):
 
     def run(self):
         try:
-            bars = download_moex(self.symbol, self.tf, limit=3000, board=self.board)
+            bars, series, session_info = load_moex_session_bundle(
+                self.symbol, self.tf, board=self.board, display_limit=3000)
             higher: dict[str, Analysis] = {}
             order = ["M1", "M5", "H1", "D1", "W1", "MN1"]
-            # Fetch and analyze from highest TF down: H1 capture audit needs
-            # already-calculated D/W/M structural pairs and working FVG.
+            # All higher TFs originate from ONE cleaned H1 series, not native
+            # D/W/M OHLC which could still embed removed auction prices.
             for tf in ["MN1", "W1", "D1", "H1"]:
                 if order.index(tf) > order.index(self.tf):
-                    try:
-                        older = download_moex(self.symbol, tf, limit=3000 if tf == "H1" else 1600, board=self.board)
-                        higher[tf] = analyze(older, tf, higher_liquidity=higher if tf == "H1" else None,
-                                             asof=datetime.now(timezone.utc))
-                    except Exception:
-                        # Missing higher data never fabricates a capture; missing
-                        # H1 still leaves the M1/M5 flow unknown.
-                        pass
-            main = analyze(bars, self.tf, higher_h1=higher.get("H1"),
+                    source = series[tf]
+                    older = source[-(3000 if tf == "H1" else 1600):]
+                    higher[tf] = analyze(
+                        older, tf,
+                        higher_liquidity=higher if tf == "H1" else None,
+                        asof=datetime.now(timezone.utc))
+                    higher[tf].session_info = session_info.copy()
+            main = analyze(bars, self.tf,
+                           higher_h1=higher.get("H1"),
                            higher_liquidity=higher if self.tf == "H1" else None,
                            asof=datetime.now(timezone.utc))
+            main.session_info = session_info.copy()
             self.loaded.emit(main, higher, self.symbol)
         except Exception as e:
             self.failed.emit(f"{type(e).__name__}: {e}")
@@ -510,6 +513,11 @@ class MainWindow(QMainWindow):
             candles = read_csv(path)
             detected = infer_timeframe(candles)
             tf = detected or self.tf.currentText()
+            if tf in ("M1", "M5", "H1"):
+                candles = exclude_opening_auction(candles, tf,
+                                                  board=self.board.currentText())
+            if not candles:
+                raise ValueError("В CSV не осталось свечей после фильтрации аукциона")
             self.tf.setCurrentText(tf)
             # Never apply a prior H1 CSV from another instrument to a newly
             # opened lower-TF CSV. User explicitly imports the matching H1.
@@ -531,6 +539,9 @@ class MainWindow(QMainWindow):
             inferred = infer_timeframe(candles)
             if inferred != "H1":
                 raise ValueError(f"Ожидается часовой CSV H1. Определён: {inferred or 'не удалось определить'}")
+            candles = exclude_opening_auction(candles, "H1", board=self.board.currentText())
+            if not candles:
+                raise ValueError("В H1 CSV не осталось свечей после фильтрации аукциона")
             parent = analyze(candles, "H1")
             lower = self.analysis
             if (candles[-1].time < lower.candles[0].time or
@@ -589,7 +600,8 @@ class MainWindow(QMainWindow):
                 if col == 0:
                     item.setForeground(UP if z.side == 1 else DOWN)
                 self.zones_table.setItem(i, col, item)
-        self.status.setText(f"{source} · {len(analysis.candles)} свечей · {len(analysis.fvg)} FVG · {len(analysis.segments)} отрезков · {analysis.flow_source_note} · НЕ сверено с Pine")
+        session_desc = " · Аукцион открытия исключён на всех ТФ" if analysis.session_info else ""
+        self.status.setText(f"{source} · {len(analysis.candles)} свечей · {len(analysis.fvg)} FVG · {len(analysis.segments)} отрезков{session_desc} · {analysis.flow_source_note} · НЕ сверено с Pine")
 
     def _pair_text(self, state) -> str:
         pair = state.liquidity
@@ -620,7 +632,10 @@ class MainWindow(QMainWindow):
                 "flow_source_tf": a.flow_source_tf,
                 "flow_status": a.flow_status,
                 "flow_source_note": a.flow_source_note,
-                "caveats": ["Rule 1 SHADOW ONLY, no flow changes; FVG/HTF chronology unverified", "Rule 2/3 not verified against TradingView", "Quotes may be delayed", "MOEX candle alignment and sessions not parity-verified"],
+                "session_info": a.session_info if a.session_info else {
+                    "mode": "CSV_SESSION_FILTERED_FOR_M1_M5_H1_OR_ASSUMED_FOR_HIGHER",
+                    "warning": "Для D/W/M CSV требуется экспорт сессии без аукциона из TradingView"},
+                "caveats": ["Rule 1 SHADOW ONLY, no flow changes; FVG/HTF chronology unverified", "Rule 2/3 not verified against TradingView", "Quotes may be delayed", "Special MOEX sessions/older TF history need TradingView session parity checks"],
                 "bars": len(a.candles),
                 "candles": [{"time": c.time.isoformat(), "open": c.open, "high": c.high, "low": c.low, "close": c.close, "volume": c.volume} for c in a.candles],
                 "flows": [{"time": c.time.isoformat(), "side": f.side, "lo": f.lo, "hi": f.hi, "start": f.start, "rule": f.rule, "diagnosis": f.diagnosis,
