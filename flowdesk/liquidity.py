@@ -56,6 +56,14 @@ class CaptureState:
     conflicts: tuple[str, ...] = ()
     # Only NEW events on this H1 bar. Active capture may persist for many bars.
     new_events: tuple[Capture, ...] = ()
+    # Historical captures are NOT independently active long/short signals.
+    # Per Pine, the final entry of EACH source stack is active; then the newest
+    # across sources wins. Older entries can reappear only after FVG cancellation.
+    source_active: dict[str, Capture | None] = field(default_factory=dict)
+    source_histories: dict[str, tuple[Capture, ...]] = field(default_factory=dict)
+    cancelled: tuple[Capture, ...] = ()
+    restored: tuple[Capture, ...] = ()
+    selection_reason: str = ""
 
 
 @dataclass(slots=True)
@@ -71,6 +79,21 @@ class _SourceState:
 
     def current(self) -> Capture | None:
         return self.captured[-1] if self.captured else None
+
+
+def select_pine_capture(source_active: dict[str, Capture | None]) -> Capture | None:
+    """Pine f_newerCapture(): select ONE newest event; D1 wins equal-time ties.
+
+    A suppressed opposite event must NOT confirm Rule 1, even if the source
+    history retains it for restoration after a later FVG cancellation.
+    """
+    chosen = None
+    for tf in SOURCES:
+        candidate = source_active.get(tf)
+        if candidate is not None and (chosen is None or
+                                      candidate.captured_at >= chosen.captured_at):
+            chosen = candidate
+    return chosen
 
 
 def audit_higher_captures(h1: "Analysis", sources: dict[str, "Analysis"],
@@ -104,6 +127,8 @@ def audit_higher_captures(h1: "Analysis", sources: dict[str, "Analysis"],
             continue
         statuses: dict[str, str] = {}
         current_new: list[Capture] = []
+        cancelled: list[Capture] = []
+        restored: list[Capture] = []
         conflicts: list[str] = []
         eligible = 0
         for tf in SOURCES:
@@ -134,15 +159,25 @@ def audit_higher_captures(h1: "Analysis", sources: dict[str, "Analysis"],
                             or (snapshot.side == -1 and newer_close >= snapshot.guard.top)):
                         closing_zone_rejected = True
             if last_closed > st.last_validated:
+                # Pine f_flowLiquidityEvents cancels FVG captures ONLY on the
+                # close of their own higher TF, then exposes the newest entry
+                # still present in that source's history stack.
                 for j in range(st.last_validated + 1, last_closed + 1):
                     latest = src.candles[j]
                     t = e[j]
-                    st.captured = [old for old in st.captured if not (
-                        old.from_fvg and t > old.captured_at and (
-                            latest.close <= old.zone_bottom if old.side == 1
-                            else latest.close >= old.zone_top
-                        )
-                    )]
+                    before = st.current()
+                    kept = []
+                    for old in st.captured:
+                        rejected = (old.from_fvg and t > old.captured_at and
+                                    (latest.close <= old.zone_bottom if old.side == 1
+                                     else latest.close >= old.zone_top))
+                        if rejected:
+                            cancelled.append(old)
+                        else:
+                            kept.append(old)
+                    st.captured = kept
+                    if before != st.current() and st.current() is not None:
+                        restored.append(st.current())
                 st.last_validated = last_closed
 
             if pair.high_key != st.high_key:
@@ -189,13 +224,27 @@ def audit_higher_captures(h1: "Analysis", sources: dict[str, "Analysis"],
             st.captured.append(new)
             current_new.append(new)
 
-        # In Pine, a registered later opposite capture supersedes the earlier
-        # opposite direction, even if a different source TF produced it.
-        ranked = [(states[tf].current(), order) for order, tf in enumerate(SOURCES)]
-        ranked = [(c, order) for c, order in ranked if c is not None]
-        picked = max(ranked, key=lambda x: (x[0].captured_at, x[1]))[0] if ranked else None
+        # Do NOT independently promote the latest long and latest short:
+        # Pine chooses one active direction after reducing each source stack.
+        active = {tf: states[tf].current() for tf in SOURCES}
+        picked = select_pine_capture(active)
+        previous = result[-1].selected if result else None
+        if picked == previous:
+            reason = "UNCHANGED"
+        elif picked in restored:
+            reason = "RESTORED_AFTER_SOURCE_FVG_CANCEL"
+        elif picked is None:
+            reason = "NO_ACTIVE_CONFIRMATION"
+        elif picked in current_new:
+            reason = "NEW_CAPTURE_SELECTED"
+        elif cancelled:
+            reason = "SOURCE_FVG_CANCEL_FALLBACK"
+        else:
+            reason = "SOURCE_PRIORITY_CHANGED"
+        histories = {tf: tuple(states[tf].captured) for tf in SOURCES}
         result.append(CaptureState(bar.time, closed_at, statuses, picked, eligible,
-                                   tuple(conflicts), tuple(current_new)))
+                                   tuple(conflicts), tuple(current_new), active, histories,
+                                   tuple(cancelled), tuple(restored), reason))
     return result
 
 
@@ -221,11 +270,34 @@ def serialize_audit(audit: list[CaptureState]) -> dict:
                    for s in audit for c in s.new_events],
         "conflicts": [{"h1_open": s.h1_open.isoformat(), "source_tf": tf}
                       for s in audit for tf in s.conflicts],
+        # Selection transitions and reversions are inspectable without
+        # incorrectly claiming that two opposite confirmations are both live.
+        "selection_changes": [{
+            "h1_open": s.h1_open.isoformat(),
+            "selected": serialize_capture(s.selected),
+            "selected_long": serialize_capture(s.selected if s.selected and s.selected.side == 1 else None),
+            "selected_short": serialize_capture(s.selected if s.selected and s.selected.side == -1 else None),
+            "source_active": {tf: serialize_capture(s.source_active.get(tf)) for tf in SOURCES},
+            "source_history": {tf: [serialize_capture(c) for c in s.source_histories.get(tf, ())]
+                               for tf in SOURCES},
+            "cancelled": [serialize_capture(c) for c in s.cancelled],
+            "restored": [serialize_capture(c) for c in s.restored],
+            "reason": s.selection_reason,
+        } for s in audit if s.selection_reason != "UNCHANGED" and
+            "H1_NOT_CLOSED" not in s.source_status.values()],
         "latest": (None if last_closed is None else {
             "h1_open": last_closed.h1_open.isoformat(),
             "h1_closed_at": last_closed.h1_closed_at.isoformat(),
             "source_status": last_closed.source_status,
             "available_sources": last_closed.available_sources,
             "selected_capture": serialize_capture(last_closed.selected),
+            "selected_long": serialize_capture(last_closed.selected if last_closed.selected and
+                                                last_closed.selected.side == 1 else None),
+            "selected_short": serialize_capture(last_closed.selected if last_closed.selected and
+                                                 last_closed.selected.side == -1 else None),
+            "source_active": {tf: serialize_capture(last_closed.source_active.get(tf)) for tf in SOURCES},
+            "source_history": {tf: [serialize_capture(c) for c in last_closed.source_histories.get(tf, ())]
+                               for tf in SOURCES},
+            "reason": last_closed.selection_reason,
         }),
     }
