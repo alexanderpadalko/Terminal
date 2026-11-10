@@ -207,6 +207,10 @@ def serialize_capture(c: Capture | None) -> dict | None:
 
 
 def serialize_audit(audit: list[CaptureState]) -> dict:
+    # An unfinished H1 may be present in ISS. Never display it as the latest
+    # *confirmed* higher-liquidity state; use the last closed H1 instead.
+    last_closed = next((s for s in reversed(audit)
+                        if "H1_NOT_CLOSED" not in s.source_status.values()), None)
     return {
         "status": "PRELIMINARY_DIAGNOSTIC_ONLY",
         "note": "№1 НЕ переключает поток. Подтверждение по Pine ещё не проверено; сессии MOEX и баровые границы могут отличаться.",
@@ -216,11 +220,11 @@ def serialize_audit(audit: list[CaptureState]) -> dict:
                    for s in audit for c in s.new_events],
         "conflicts": [{"h1_open": s.h1_open.isoformat(), "source_tf": tf}
                       for s in audit for tf in s.conflicts],
-        "latest": (None if not audit else {
-            "h1_open": audit[-1].h1_open.isoformat(),
-            "h1_closed_at": audit[-1].h1_closed_at.isoformat(),
-            "source_status": audit[-1].source_status,
-            "available_sources": audit[-1].available_sources,
-            "selected_capture": serialize_capture(audit[-1].selected),
+        "latest": (None if last_closed is None else {
+            "h1_open": last_closed.h1_open.isoformat(),
+            "h1_closed_at": last_closed.h1_closed_at.isoformat(),
+            "source_status": last_closed.source_status,
+            "available_sources": last_closed.available_sources,
+            "selected_capture": serialize_capture(last_closed.selected),
         }),
     }
