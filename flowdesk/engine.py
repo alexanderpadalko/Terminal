@@ -341,6 +341,13 @@ class FlowState:
     source_tf: str = ""
     source_bar_time: Optional[datetime] = None
     source_confirmed_at: Optional[datetime] = None
+    # Provenance of the displayed H1 interval, even when mapped to M1/M5.
+    range_start_at: Optional[datetime] = None
+    range_low_at: Optional[datetime] = None
+    range_high_at: Optional[datetime] = None
+    last_change_at: Optional[datetime] = None
+    last_change_rule: int = 0
+    range_origin: str = ""
 
 
 class FlowEngine:
@@ -368,6 +375,9 @@ class FlowEngine:
         self.origin_locked = False
         self.seed_impulse = None
         self.flow_has_fvg = False
+        self.last_change_i: Optional[int] = None
+        self.last_change_rule: int = 0
+        self.range_origin = ""
         self.history: list[FlowState] = []
 
     def _zone_candidate(self, zone: FVG, movement: Movement, candles: list[Candle], i: int) -> Optional[Candidate]:
@@ -401,6 +411,9 @@ class FlowEngine:
             self.structural_reverse_hi = bar.high
             self.structural_reverse_lo_i = self.structural_reverse_hi_i = i
             rule, message = 0, "Первое подтверждённое структурное плечо"
+            self.last_change_i = i
+            self.last_change_rule = 0
+            self.range_origin = "Старт по структурному плечу"
 
         if self.side and self.guard is not None and self.guard.broken is not None:
             self.guard_broken = True
@@ -508,9 +521,19 @@ class FlowEngine:
             self.structural_reverse_lo_i = self.structural_reverse_hi_i = i
             self.candidate_cont = self.candidate_rev = None
             self.extension_i = self.extension_leg_start = None
+            self.last_change_i = i
+            self.last_change_rule = rule
+            self.range_origin = message
+
+        def at(index: Optional[int]) -> Optional[datetime]:
+            return candles[index].time if index is not None and 0 <= index < len(candles) else None
+
         state = FlowState(i, self.side, self.lo, self.hi, self.start, self.previous, rule,
                           message or ("Лонг" if self.side == 1 else "Шорт" if self.side == -1 else "Инициализация"),
-                          self.guard, self.guard_broken, pair)
+                          self.guard, self.guard_broken, pair,
+                          range_start_at=at(self.start), range_low_at=at(self.lo_i),
+                          range_high_at=at(self.hi_i), last_change_at=at(self.last_change_i),
+                          last_change_rule=self.last_change_rule, range_origin=self.range_origin)
         self.history.append(state)
         return state
 
@@ -602,6 +625,9 @@ def _project_h1_flows(
             guard=h.guard, guard_broken=h.guard_broken, liquidity=h.liquidity,
             source_tf="H1", source_bar_time=h1_starts[source_idx],
             source_confirmed_at=confirmed_at,
+            range_start_at=h.range_start_at, range_low_at=h.range_low_at,
+            range_high_at=h.range_high_at, last_change_at=h.last_change_at,
+            last_change_rule=h.last_change_rule, range_origin=h.range_origin,
         ))
         prior_close = chart_close
     return flows
