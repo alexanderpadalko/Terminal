@@ -563,7 +563,16 @@ class MainWindow(QMainWindow):
         else:
             caption, color = "ОЖИДАНИЕ", "#edb974"
         self.flow_label.setText(f"Поток: {colored(caption, color)} · <b>алгоритм не сверен с TradingView</b>")
-        self.state_label.setText(f"Диапазон: {short_number(state.lo) if state.lo is not None else '—'} — {short_number(state.hi) if state.hi is not None else '—'}<br>Рабочий FVG: {'есть' if state.guard and not state.guard_broken else 'нет'}<br>Пара IDM: {self._pair_text(state)}")
+        def at(dt):
+            return dt.strftime("%d.%m %H:%M") if dt is not None else "—"
+        origin_line = (
+            f"<br>0 от H1: {at(state.range_low_at)}"
+            f" · 1 от H1: {at(state.range_high_at)}"
+            if state.side != 0 else ""
+        )
+        self.state_label.setText(f"Диапазон: {short_number(state.lo) if state.lo is not None else '—'} — {short_number(state.hi) if state.hi is not None else '—'}"
+                                 f"{origin_line}<br>Рабочий FVG: {'есть' if state.guard and not state.guard_broken else 'нет'}"
+                                 f"<br>Пара IDM: {self._pair_text(state)}")
         events = [(analysis.candles[s.i].time.strftime("%d.%m %H:%M"), s.diagnosis) for s in analysis.flows if s.rule in (2, 3)]
         self.events.setPlainText("\n".join(f"{t}  {reason}" for t, reason in events[-18:][::-1]) or "Нет подтверждённых по времени событий H1 №2/№3 (или ряд H1 отсутствует)")
         zones = analysis.fvg[-17:][::-1]
@@ -612,15 +621,37 @@ class MainWindow(QMainWindow):
                 "flows": [{"time": c.time.isoformat(), "side": f.side, "lo": f.lo, "hi": f.hi, "start": f.start, "rule": f.rule, "diagnosis": f.diagnosis,
                            "source_tf": f.source_tf or a.flow_source_tf,
                            "source_h1_open": f.source_bar_time.isoformat() if f.source_bar_time else None,
-                           "source_h1_closed_at": f.source_confirmed_at.isoformat() if f.source_confirmed_at else None}
+                           "source_h1_closed_at": f.source_confirmed_at.isoformat() if f.source_confirmed_at else None,
+                           "range_start_at": f.range_start_at.isoformat() if f.range_start_at else None,
+                           "range_low_at": f.range_low_at.isoformat() if f.range_low_at else None,
+                           "range_high_at": f.range_high_at.isoformat() if f.range_high_at else None,
+                           "last_change_at": f.last_change_at.isoformat() if f.last_change_at else None,
+                           "last_change_rule": f.last_change_rule,
+                           "range_origin": f.range_origin}
                           for c, f in zip(a.candles, a.flows)],
                 "fvg": [{"time": a.candles[z.created].time.isoformat(), "start": z.start, "side": z.side, "top": z.top, "bottom": z.bottom, "balanced": z.balanced, "broken_at": z.broken} for z in a.fvg],
                 "h1_reference": (None if "H1" not in self.parents else {
                     "source": "MOEX separate H1" if self.source.startswith("MOEX:") else "User CSV H1",
                     "bars": len(self.parents["H1"].candles),
                     "events": [{"time": self.parents["H1"].candles[f.i].time.isoformat(), "side": f.side,
-                                "lo": f.lo, "hi": f.hi, "rule": f.rule}
-                               for f in self.parents["H1"].flows if f.rule in (1, 2, 3)]
+                                "lo": f.lo, "hi": f.hi, "rule": f.rule,
+                                "range_origin": f.range_origin,
+                                "range_start_at": f.range_start_at.isoformat() if f.range_start_at else None,
+                                "range_low_at": f.range_low_at.isoformat() if f.range_low_at else None,
+                                "range_high_at": f.range_high_at.isoformat() if f.range_high_at else None}
+                               for f in self.parents["H1"].flows if f.rule in (1, 2, 3)],
+                    "candles": [{"time": c.time.isoformat(), "open": c.open, "high": c.high,
+                                 "low": c.low, "close": c.close, "volume": c.volume}
+                                for c in self.parents["H1"].candles],
+                    "flows": [{"time": c.time.isoformat(), "side": f.side, "lo": f.lo, "hi": f.hi,
+                               "rule": f.rule, "start": f.start,
+                               "range_start_at": f.range_start_at.isoformat() if f.range_start_at else None,
+                               "range_low_at": f.range_low_at.isoformat() if f.range_low_at else None,
+                               "range_high_at": f.range_high_at.isoformat() if f.range_high_at else None,
+                               "last_change_at": f.last_change_at.isoformat() if f.last_change_at else None,
+                               "last_change_rule": f.last_change_rule,
+                               "range_origin": f.range_origin}
+                              for c, f in zip(self.parents["H1"].candles, self.parents["H1"].flows)]
                 }),
             }
             Path(path).write_text(json.dumps(dump, ensure_ascii=False, indent=2), encoding="utf-8")
