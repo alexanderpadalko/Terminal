@@ -27,9 +27,10 @@ def period_end(candle: Candle, tf: str) -> datetime:
         return t.replace(year=t.year + (t.month == 12), month=t.month % 12 + 1,
                          day=1, hour=0, minute=0, second=0, microsecond=0)
     if tf == "W1":
-        return candle.time + timedelta(days=7)
+        start = candle.time.replace(hour=0, minute=0, second=0, microsecond=0)
+        return start - timedelta(days=start.weekday()) + timedelta(days=7)
     if tf == "D1":
-        return candle.time + timedelta(days=1)
+        return candle.time.replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1)
     raise ValueError("Unknown higher timeframe")
 
 
