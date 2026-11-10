@@ -27,8 +27,10 @@ class TestHigherLiquidityAudit(unittest.TestCase):
     def test_period_end_month_and_week(self):
         self.assertEqual(period_end(candle(datetime(2026, 12, 1, tzinfo=MOSCOW)), "MN1"),
                          datetime(2027, 1, 1, tzinfo=MOSCOW))
-        self.assertEqual(period_end(candle(datetime(2026, 11, 2, tzinfo=MOSCOW)), "W1"),
+        self.assertEqual(period_end(candle(datetime(2026, 11, 2, 10, tzinfo=MOSCOW)), "W1"),
                          datetime(2026, 11, 9, tzinfo=MOSCOW))
+        self.assertEqual(period_end(candle(datetime(2026, 11, 2, 7, tzinfo=MOSCOW)), "D1"),
+                         datetime(2026, 11, 3, tzinfo=MOSCOW))
 
     def test_unavailable_higher_source_has_no_fake_capture(self):
         lower = h1(candle(DAY + timedelta(hours=10), 8, 12),
