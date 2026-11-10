@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
 from . import __version__
 from .engine import Analysis, analyze
 from .liquidity import serialize_audit
+from .rule1_shadow import serialize_shadow_rule_one
 from .market_data import Candle, MOSCOW, TIMEFRAMES, download_moex, read_csv, infer_timeframe
 
 BACKGROUND = QColor("#0c131e")
@@ -576,7 +577,7 @@ class MainWindow(QMainWindow):
         self.state_label.setText(f"Диапазон: {short_number(state.lo) if state.lo is not None else '—'} — {short_number(state.hi) if state.hi is not None else '—'}"
                                  f"{origin_line}<br>Рабочий FVG: {'есть' if state.guard and not state.guard_broken else 'нет'}"
                                  f"<br>Пара IDM: {self._pair_text(state)}"
-                                 f"<br>№1: аудит старшей ликвидности (без переключения потока)")
+                                 f"<br>№1: теневой расчёт H1 + D/W/M (без переключения потока)")
         events = [(analysis.candles[s.i].time.strftime("%d.%m %H:%M"), s.diagnosis) for s in analysis.flows if s.rule in (2, 3)]
         self.events.setPlainText("\n".join(f"{t}  {reason}" for t, reason in events[-18:][::-1]) or "Нет подтверждённых по времени событий H1 №2/№3 (или ряд H1 отсутствует)")
         zones = analysis.fvg[-17:][::-1]
@@ -619,7 +620,7 @@ class MainWindow(QMainWindow):
                 "flow_source_tf": a.flow_source_tf,
                 "flow_status": a.flow_status,
                 "flow_source_note": a.flow_source_note,
-                "caveats": ["Rule 1 higher liquidity PREVIEW ONLY, not used to turn flow", "Rule 2/3 not verified against TradingView", "Quotes may be delayed", "MOEX candle alignment and sessions not parity-verified"],
+                "caveats": ["Rule 1 SHADOW ONLY, no flow changes; FVG/HTF chronology unverified", "Rule 2/3 not verified against TradingView", "Quotes may be delayed", "MOEX candle alignment and sessions not parity-verified"],
                 "bars": len(a.candles),
                 "candles": [{"time": c.time.isoformat(), "open": c.open, "high": c.high, "low": c.low, "close": c.close, "volume": c.volume} for c in a.candles],
                 "flows": [{"time": c.time.isoformat(), "side": f.side, "lo": f.lo, "hi": f.hi, "start": f.start, "rule": f.rule, "diagnosis": f.diagnosis,
@@ -636,6 +637,8 @@ class MainWindow(QMainWindow):
                 "fvg": [{"time": a.candles[z.created].time.isoformat(), "start": z.start, "side": z.side, "top": z.top, "bottom": z.bottom, "balanced": z.balanced, "broken_at": z.broken} for z in a.fvg],
                 "rule1_higher_liquidity": serialize_audit(a.liquidity_audit if a.timeframe == "H1" else
                                                          self.parents["H1"].liquidity_audit if "H1" in self.parents else []),
+                "rule1_shadow": serialize_shadow_rule_one(a.rule1_shadow if a.timeframe == "H1" else
+                                                           self.parents["H1"].rule1_shadow if "H1" in self.parents else []),
                 "h1_reference": (None if "H1" not in self.parents else {
                     "source": "MOEX separate H1" if self.source.startswith("MOEX:") else "User CSV H1",
                     "bars": len(self.parents["H1"].candles),
