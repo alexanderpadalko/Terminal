@@ -67,19 +67,21 @@ class MarketWorker(QThread):
     def run(self):
         try:
             bars = download_moex(self.symbol, self.tf, limit=3000, board=self.board)
-            main = analyze(bars, self.tf)
             higher: dict[str, Analysis] = {}
             order = ["M1", "M5", "H1", "D1", "W1", "MN1"]
             for tf in ["H1", "D1", "W1", "MN1"]:
                 if order.index(tf) > order.index(self.tf):
-                    # D/W/M candles are separate time series, not fabricated
-                    # from incomplete 1-minute downloaded history.
+                    # A separate H1 series is REQUIRED for M1/M5 flow; DO NOT
+                    # silently fallback to local M1/M5 FlowEngine if unavailable.
                     try:
-                        older = download_moex(self.symbol, tf, limit=1600, board=self.board)
+                        older = download_moex(self.symbol, tf, limit=3000 if tf == "H1" else 1600, board=self.board)
                         higher[tf] = analyze(older, tf)
                     except Exception:
-                        # Main graph works even when a parent series is missing.
+                        # Lower candle chart and FVG remain available, but if
+                        # H1 failed, flow will be marked unknown.
                         pass
+            main = analyze(bars, self.tf,
+                           higher_h1=higher.get("H1"), asof=datetime.now(timezone.utc))
             self.loaded.emit(main, higher, self.symbol)
         except Exception as e:
             self.failed.emit(f"{type(e).__name__}: {e}")
@@ -337,6 +339,7 @@ class MainWindow(QMainWindow):
         self.worker: MarketWorker | None = None
         self.source = "DEMO (синтетические свечи)"
         self.analysis: Analysis | None = None
+        self.parents: dict[str, Analysis] = {}
         self.chart = CandleChart()
         self._build_ui()
         self._show_data(analyze(demo_data(), "H1"), {}, self.source)
@@ -371,6 +374,10 @@ class MainWindow(QMainWindow):
         self.csv_button = QPushButton("Открыть CSV")
         self.csv_button.clicked.connect(self.open_csv)
         header.addWidget(self.csv_button)
+        self.h1_button = QPushButton("Добавить H1 CSV")
+        self.h1_button.setToolTip("На M1/M5 импорт отдельной истории H1 для потока. Без неё поток не рассчитывается.")
+        self.h1_button.clicked.connect(self.open_h1_csv)
+        header.addWidget(self.h1_button)
         self.export_button = QPushButton("Экспорт диагностики")
         self.export_button.clicked.connect(self.export_diagnostics)
         header.addWidget(self.export_button)
@@ -500,18 +507,54 @@ class MainWindow(QMainWindow):
             detected = infer_timeframe(candles)
             tf = detected or self.tf.currentText()
             self.tf.setCurrentText(tf)
+            # Never apply a prior H1 CSV from another instrument to a newly
+            # opened lower-TF CSV. User explicitly imports the matching H1.
             analysis = analyze(candles, tf)
             self._show_data(analysis, {}, f"CSV: {Path(path).name}")
         except Exception as exc:
             QMessageBox.critical(self, "Ошибка CSV", str(exc))
 
+    def open_h1_csv(self):
+        if (not self.analysis or self.analysis.timeframe not in ("M1", "M5")
+                or not self.source.startswith("CSV:")):
+            QMessageBox.information(self, "Источник H1", "Сначала откройте CSV M1/M5 того же инструмента. Для MOEX H1 загружается автоматически.")
+            return
+        path, _ = QFileDialog.getOpenFileName(self, "CSV H1 того же инструмента", "", "CSV (*.csv);;Все файлы (*.*)")
+        if not path:
+            return
+        try:
+            candles = read_csv(path)
+            inferred = infer_timeframe(candles)
+            if inferred != "H1":
+                raise ValueError(f"Ожидается часовой CSV H1. Определён: {inferred or 'не удалось определить'}")
+            parent = analyze(candles, "H1")
+            lower = self.analysis
+            if (candles[-1].time < lower.candles[0].time or
+                    candles[0].time > lower.candles[-1].time):
+                raise ValueError("Интервалы H1 и младшего CSV не пересекаются. Проверьте тикер и даты.")
+            updated = analyze(lower.candles, lower.timeframe, higher_h1=parent)
+            updated.flow_status = "H1_CSV_PROVISIONAL"
+            updated.flow_source_note = f"H1 из CSV {Path(path).name}; тот же тикер требуется проверить вручную"
+            self._show_data(updated, {"H1": parent}, self.source)
+        except Exception as exc:
+            QMessageBox.critical(self, "Ошибка импорта H1", str(exc))
+
     def _show_data(self, analysis: Analysis, parents: dict, source: str):
         self.source = source
         self.analysis = analysis
+        self.parents = parents
         self.chart.set_analysis(analysis, parents)
         state = analysis.flows[-1]
         price = analysis.candles[-1].close
-        self.instrument_label.setText(f"<b>{source}</b> · {analysis.timeframe}<br>Последняя свеча: {analysis.candles[-1].time.strftime('%d.%m.%Y %H:%M %Z')}")
+        flow_origin = ("H1, только закрытые свечи" if analysis.timeframe in ("M1", "M5") else
+                       f"{analysis.timeframe}, локальный предварительный расчёт")
+        if analysis.flow_status == "H1_UNAVAILABLE":
+            flow_origin = "H1 недоступен — поток отключён"
+        self.instrument_label.setText(
+            f"<b>{source}</b> · {analysis.timeframe}<br>"
+            f"Последняя свеча: {analysis.candles[-1].time.strftime('%d.%m.%Y %H:%M %Z')}<br>"
+            f"Источник потока: <b>{flow_origin}</b>"
+        )
         self.price_label.setText(short_number(price))
         if state.side == 1:
             caption, color = "ЛОНГ", "#20c997"
@@ -519,10 +562,10 @@ class MainWindow(QMainWindow):
             caption, color = "ШОРТ", "#f46b82"
         else:
             caption, color = "ОЖИДАНИЕ", "#edb974"
-        self.flow_label.setText(f"Поток: {colored(caption, color)} · <b>предварительно</b>")
-        self.state_label.setText(f"Диапазон: {short_number(state.lo) if state.lo is not None else '—'} — {short_number(state.hi) if state.hi is not None else '—'}<br>Рабочий FVG: {'есть' if state.guard and state.guard.active else 'нет'}<br>Пара IDM: {self._pair_text(state)}")
+        self.flow_label.setText(f"Поток: {colored(caption, color)} · <b>алгоритм не сверен с TradingView</b>")
+        self.state_label.setText(f"Диапазон: {short_number(state.lo) if state.lo is not None else '—'} — {short_number(state.hi) if state.hi is not None else '—'}<br>Рабочий FVG: {'есть' if state.guard and not state.guard_broken else 'нет'}<br>Пара IDM: {self._pair_text(state)}")
         events = [(analysis.candles[s.i].time.strftime("%d.%m %H:%M"), s.diagnosis) for s in analysis.flows if s.rule in (2, 3)]
-        self.events.setPlainText("\n".join(f"{t}  {reason}" for t, reason in events[-18:][::-1]) or "Нет событий №2/№3 в загруженной истории")
+        self.events.setPlainText("\n".join(f"{t}  {reason}" for t, reason in events[-18:][::-1]) or "Нет подтверждённых по времени событий H1 №2/№3 (или ряд H1 отсутствует)")
         zones = analysis.fvg[-17:][::-1]
         self.zones_table.setRowCount(len(zones))
         for i, z in enumerate(zones):
@@ -532,7 +575,7 @@ class MainWindow(QMainWindow):
                 if col == 0:
                     item.setForeground(UP if z.side == 1 else DOWN)
                 self.zones_table.setItem(i, col, item)
-        self.status.setText(f"{source} · {len(analysis.candles)} свечей · {len(analysis.fvg)} FVG · {len(analysis.segments)} отрезков · расчёты пока не сверены")
+        self.status.setText(f"{source} · {len(analysis.candles)} свечей · {len(analysis.fvg)} FVG · {len(analysis.segments)} отрезков · {analysis.flow_source_note} · НЕ сверено с Pine")
 
     def _pair_text(self, state) -> str:
         pair = state.liquidity
@@ -546,7 +589,8 @@ class MainWindow(QMainWindow):
         bar = self.analysis.candles[i]
         flow = self.analysis.flows[i]
         dirtext = "LONG" if flow.side == 1 else "SHORT" if flow.side == -1 else "WAIT"
-        self.hover_info.setText(f"{bar.time.strftime('%d.%m.%Y %H:%M')} · O {short_number(bar.open)} · H {short_number(bar.high)} · L {short_number(bar.low)} · C {short_number(bar.close)} · {dirtext}")
+        h1_info = (f" · H1 закрыта {flow.source_confirmed_at.strftime('%d.%m %H:%M')}" if flow.source_confirmed_at else "")
+        self.hover_info.setText(f"{bar.time.strftime('%d.%m.%Y %H:%M')} · O {short_number(bar.open)} · H {short_number(bar.high)} · L {short_number(bar.low)} · C {short_number(bar.close)} · {dirtext}{h1_info}")
 
     def export_diagnostics(self):
         if not self.analysis:
@@ -559,10 +603,25 @@ class MainWindow(QMainWindow):
             dump = {
                 "product": "FlowDesk", "version": __version__, "parity": "UNVERIFIED",
                 "source": self.source, "timeframe": a.timeframe, "no_orders": True,
-                "caveats": ["Rule 1 MTF confirmation not implemented", "Rule 2/3 not verified against TradingView", "Quotes may be delayed"],
+                "flow_source_tf": a.flow_source_tf,
+                "flow_status": a.flow_status,
+                "flow_source_note": a.flow_source_note,
+                "caveats": ["Rule 1 MTF confirmation not implemented", "Rule 2/3 not verified against TradingView", "Quotes may be delayed", "MOEX candle alignment and sessions not parity-verified"],
                 "bars": len(a.candles),
-                "flows": [{"time": c.time.isoformat(), "side": f.side, "lo": f.lo, "hi": f.hi, "start": f.start, "rule": f.rule, "diagnosis": f.diagnosis} for c, f in zip(a.candles, a.flows)],
+                "candles": [{"time": c.time.isoformat(), "open": c.open, "high": c.high, "low": c.low, "close": c.close, "volume": c.volume} for c in a.candles],
+                "flows": [{"time": c.time.isoformat(), "side": f.side, "lo": f.lo, "hi": f.hi, "start": f.start, "rule": f.rule, "diagnosis": f.diagnosis,
+                           "source_tf": f.source_tf or a.flow_source_tf,
+                           "source_h1_open": f.source_bar_time.isoformat() if f.source_bar_time else None,
+                           "source_h1_closed_at": f.source_confirmed_at.isoformat() if f.source_confirmed_at else None}
+                          for c, f in zip(a.candles, a.flows)],
                 "fvg": [{"time": a.candles[z.created].time.isoformat(), "start": z.start, "side": z.side, "top": z.top, "bottom": z.bottom, "balanced": z.balanced, "broken_at": z.broken} for z in a.fvg],
+                "h1_reference": (None if "H1" not in self.parents else {
+                    "source": "MOEX separate H1" if self.source.startswith("MOEX:") else "User CSV H1",
+                    "bars": len(self.parents["H1"].candles),
+                    "events": [{"time": self.parents["H1"].candles[f.i].time.isoformat(), "side": f.side,
+                                "lo": f.lo, "hi": f.hi, "rule": f.rule}
+                               for f in self.parents["H1"].flows if f.rule in (1, 2, 3)]
+                }),
             }
             Path(path).write_text(json.dumps(dump, ensure_ascii=False, indent=2), encoding="utf-8")
             self.status.setText(f"Экспортировано: {path}")

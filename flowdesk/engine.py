@@ -11,6 +11,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import Optional
+from bisect import bisect_left, bisect_right
+from datetime import datetime, timedelta
 from .market_data import Candle
 
 
@@ -336,6 +338,9 @@ class FlowState:
     guard: Optional[FVG] = None
     guard_broken: bool = False
     liquidity: Optional[PairSnapshot] = None
+    source_tf: str = ""
+    source_bar_time: Optional[datetime] = None
+    source_confirmed_at: Optional[datetime] = None
 
 
 class FlowEngine:
@@ -447,7 +452,7 @@ class FlowEngine:
                         self.guard_broken = False
                         self.guard_broken_at = None
                         self.flow_has_fvg = True
-                if cand.start > self.start:
+                if self.start is not None and cand.start > self.start:
                     if self.side == zone.side and not (self.seed_impulse is not None and cand.start <= self.seed_impulse):
                         if self.candidate_cont is None or cand.start > self.candidate_cont.start:
                             self.candidate_cont = cand
@@ -518,20 +523,115 @@ class Analysis:
     flows: list[FlowState]
     pairs: list[PairSnapshot]
     timeframe: str
+    flow_source_tf: str = ""
+    flow_status: str = "LOCAL_PRELIMINARY"
+    flow_source_note: str = ""
 
 
-def analyze(candles: list[Candle], timeframe: str = "H1", exclude_gaps: bool = True) -> Analysis:
+def _project_h1_flows(
+    lower: list[Candle], lower_tf: str, h1: Analysis | None,
+    *, asof: datetime | None = None,
+) -> list[FlowState]:
+    """Project *closed* H1 snapshots onto M1/M5 without future data.
+
+    Source H1 candles are stamped at the START of the hour. Their analysis is
+    visible on the lower chart only at/after the end of that hour. The rule
+    event is emitted once, on the lower candle whose closing time crosses the
+    H1 close. An absent H1 source leaves the low-TF flow unknown; never replace
+    it with the local lower-timeframe FlowEngine.
+
+    NOTE: 'closed H1 candle' is not 'parity-verified Pine calculation'.
+    """
+    if lower_tf not in ("M1", "M5"):
+        raise ValueError("Проекция H1 поддерживается только на M1/M5")
+    if h1 is not None and h1.timeframe != "H1":
+        raise ValueError("Для M1/M5 необходим именно ряд H1")
+    if h1 is not None and len(h1.candles) != len(h1.flows):
+        raise ValueError("История H1 повреждена: число свечей и потоков отличается")
+    step = timedelta(minutes=1 if lower_tf == "M1" else 5)
+    flows: list[FlowState] = []
+    if h1 is None or not h1.candles:
+        return [FlowState(i, diagnosis="НЕТ H1: поток не рассчитывается на M1/M5",
+                          source_tf="H1") for i in range(len(lower))]
+    h1_ends = [b.time + timedelta(hours=1) for b in h1.candles]
+    h1_starts = [b.time for b in h1.candles]
+    lower_starts = [b.time for b in lower]
+    prior_close = None
+    for i, candle in enumerate(lower):
+        chart_close = candle.time + step
+        # The current unfinished lower candle may exist in ISS: it must not
+        # unlock a future H1 snapshot merely because its nominal close is later.
+        eligible_until = min(chart_close, asof) if asof is not None else chart_close
+        source_idx = bisect_right(h1_ends, eligible_until) - 1
+        if source_idx < 0:
+            flows.append(FlowState(i, diagnosis="Ожидание закрытой свечи H1",
+                                   source_tf="H1"))
+            prior_close = chart_close
+            continue
+        h = h1.flows[source_idx]
+        confirmed_at = h1_ends[source_idx]
+        # Preserve old event timing: a Rule 2/3 event occurs on one lower
+        # candle, not on every one of the 12/60 candles within an hour.
+        event_now = (
+            h.rule in (1, 2, 3) and confirmed_at <= chart_close and
+            (prior_close is not None and prior_close < confirmed_at or
+             prior_close is None and candle.time < confirmed_at)
+        )
+        rule = h.rule if event_now else 0
+        status = (h.diagnosis if event_now else
+                  "H1: " + ("Лонг" if h.side == 1 else "Шорт" if h.side == -1 else "Ожидание"))
+        # Original H1 index numbers cannot be plotted as M5/M1 x-coordinates.
+        # Translate both current and previous flow indices via timestamps.
+        start = None
+        if h.start is not None and 0 <= h.start < len(h1_starts):
+            start = bisect_left(lower_starts, h1_starts[h.start])
+        previous = None
+        if h.previous is not None:
+            prev_start, prev_end, lo, hi, side = h.previous
+            if (isinstance(prev_start, int) and isinstance(prev_end, int)
+                    and 0 <= prev_start < len(h1_starts)
+                    and 0 <= prev_end < len(h1_starts)):
+                previous = (
+                    bisect_left(lower_starts, h1_starts[prev_start]),
+                    max(0, bisect_left(lower_starts, h1_ends[prev_end]) - 1),
+                    lo, hi, side,
+                )
+        flows.append(FlowState(
+            i=i, side=h.side, lo=h.lo, hi=h.hi, start=start,
+            previous=previous, rule=rule, diagnosis=status,
+            guard=h.guard, guard_broken=h.guard_broken, liquidity=h.liquidity,
+            source_tf="H1", source_bar_time=h1_starts[source_idx],
+            source_confirmed_at=confirmed_at,
+        ))
+        prior_close = chart_close
+    return flows
+
+
+def analyze(
+    candles: list[Candle], timeframe: str = "H1", exclude_gaps: bool = True,
+    *, higher_h1: Analysis | None = None, asof: datetime | None = None,
+) -> Analysis:
+    """Local structure/FVG; a separate H1 source is mandatory for low-TF flow."""
     if timeframe not in ("M1", "M5", "H1", "D1", "W1", "MN1"):
         raise ValueError("Неизвестный таймфрейм")
     structure = StructureEngine()
     fvg = FVGEngine(timeframe, exclude_gaps)
-    flow = FlowEngine()
     pair = PairEngine()
+    low_tf = timeframe in ("M1", "M5")
+    flow = None if low_tf else FlowEngine()
     pairs = []
     for i, bar in enumerate(candles):
         sp = structure.step(bar, i)
         ps = pair.step(bar, sp)
         zone = fvg.step(bar)
-        flow.step(bar, i, sp, zone, candles, ps)
+        if flow is not None:
+            flow.step(bar, i, sp, zone, candles, ps)
         pairs.append(ps)
-    return Analysis(candles, structure.current_segments(), fvg.zones, flow.history, pairs, timeframe)
+    if low_tf:
+        projected = _project_h1_flows(candles, timeframe, higher_h1, asof=asof)
+        origin = "H1_CONFIRMED_CANDLES" if higher_h1 is not None and higher_h1.candles else "H1_UNAVAILABLE"
+        note = "Поток H1; только закрытые H1 свечи" if higher_h1 is not None and higher_h1.candles else "Ряд H1 отсутствует; направление потока не рассчитывается"
+        return Analysis(candles, structure.current_segments(), fvg.zones, projected, pairs,
+                        timeframe, "H1", origin, note)
+    return Analysis(candles, structure.current_segments(), fvg.zones, flow.history, pairs,
+                    timeframe, timeframe, "LOCAL_PRELIMINARY", "Собственный поток, алгоритм ещё не сверен с Pine")
