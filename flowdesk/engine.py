@@ -555,7 +555,8 @@ class Analysis:
     flow_source_tf: str = ""
     flow_status: str = "LOCAL_PRELIMINARY"
     flow_source_note: str = ""
-    liquidity_audit: list = field(default_factory=list)  # H1-only Rule 1 preview
+    liquidity_audit: list = field(default_factory=list)  # H1-only D/W/M preview
+    rule1_shadow: list = field(default_factory=list)  # H1-only; never applied to flow
 
 
 def _project_h1_flows(
@@ -673,4 +674,6 @@ def analyze(
     if timeframe == "H1" and higher_liquidity is not None:
         from .liquidity import audit_higher_captures
         result.liquidity_audit = audit_higher_captures(result, higher_liquidity, asof=asof)
+        from .rule1_shadow import audit_rule_one_shadow
+        result.rule1_shadow = audit_rule_one_shadow(result, result.liquidity_audit, asof=asof)
     return result
