@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING
 
-from .market_data import Candle
+from .market_data import Candle, candle_close_time
 
 if TYPE_CHECKING:
     from .engine import Analysis
@@ -22,16 +22,9 @@ SOURCES = ("MN1", "W1", "D1")  # Most distant -> closest (tie goes to closest).
 
 def period_end(candle: Candle, tf: str) -> datetime:
     """Calendar source-bar close, not a guessed close from the next trade."""
-    if tf == "MN1":
-        t = candle.time
-        return t.replace(year=t.year + (t.month == 12), month=t.month % 12 + 1,
-                         day=1, hour=0, minute=0, second=0, microsecond=0)
-    if tf == "W1":
-        start = candle.time.replace(hour=0, minute=0, second=0, microsecond=0)
-        return start - timedelta(days=start.weekday()) + timedelta(days=7)
-    if tf == "D1":
-        return candle.time.replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1)
-    raise ValueError("Unknown higher timeframe")
+    if tf not in SOURCES:
+        raise ValueError("Unknown higher timeframe")
+    return candle_close_time(candle, tf)
 
 
 @dataclass(slots=True, frozen=True)

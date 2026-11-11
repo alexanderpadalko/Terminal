@@ -9,11 +9,12 @@ strategy or a verified Pine reimplementation.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from copy import deepcopy
+from dataclasses import dataclass, field, replace
 from typing import Optional
 from bisect import bisect_left, bisect_right
 from datetime import datetime, timedelta
-from .market_data import Candle
+from .market_data import Candle, candle_close_time
 
 
 @dataclass(slots=True)
@@ -349,6 +350,7 @@ class FlowState:
     last_change_rule: int = 0
     range_origin: str = ""
     guard_balanced: bool = False
+    live_range: bool = False
 
 
 class FlowEngine:
@@ -558,6 +560,19 @@ class Analysis:
     liquidity_audit: list = field(default_factory=list)  # H1-only D/W/M preview
     rule1_shadow: list = field(default_factory=list)  # H1-only; never applied to flow
     session_info: dict = field(default_factory=dict)  # MOEX source-cleaning provenance
+    asof: datetime | None = None
+    confirmed_fvg: list[FVG] | None = None  # frozen before live-bar visual updates
+
+    def is_confirmed(self, i: int) -> bool:
+        return self.asof is None or candle_close_time(self.candles[i], self.timeframe) <= self.asof
+
+    @property
+    def confirmed_bars(self) -> int:
+        return sum(self.is_confirmed(i) for i in range(len(self.candles)))
+
+    @property
+    def published_fvg(self) -> list[FVG]:
+        return self.confirmed_fvg if self.confirmed_fvg is not None else self.fvg
 
 
 def _project_h1_flows(
@@ -594,6 +609,8 @@ def _project_h1_flows(
         # The current unfinished lower candle may exist in ISS: it must not
         # unlock a future H1 snapshot merely because its nominal close is later.
         eligible_until = min(chart_close, asof) if asof is not None else chart_close
+        if h1.asof is not None:
+            eligible_until = min(eligible_until, h1.asof)
         source_idx = bisect_right(h1_ends, eligible_until) - 1
         if source_idx < 0:
             flows.append(FlowState(i, diagnosis="Ожидание закрытой свечи H1",
@@ -651,27 +668,65 @@ def analyze(
     """Local structure/FVG; a separate H1 source is mandatory for low-TF flow."""
     if timeframe not in ("M1", "M5", "H1", "D1", "W1", "MN1"):
         raise ValueError("Неизвестный таймфрейм")
+    if asof is not None and asof.tzinfo is None:
+        raise ValueError("Время расчёта должно содержать часовой пояс")
     structure = StructureEngine()
     fvg = FVGEngine(timeframe, exclude_gaps)
     pair = PairEngine()
     low_tf = timeframe in ("M1", "M5")
     flow = None if low_tf else FlowEngine()
     pairs = []
+    confirmed_fvg = None
     for i, bar in enumerate(candles):
+        closed_at = candle_close_time(bar, timeframe)
+        confirmed = asof is None or closed_at <= asof
+        if not confirmed and confirmed_fvg is None:
+            # Live chart zones may change, but must never mutate guards in
+            # already published flow snapshots or higher-TF projections.
+            confirmed_fvg = fvg.zones
+            fvg = deepcopy(fvg)
         sp = structure.step(bar, i)
         ps = pair.step(bar, sp)
         zone = fvg.step(bar)
         if flow is not None:
-            flow.step(bar, i, sp, zone, candles, ps)
+            if confirmed:
+                state = flow.step(bar, i, sp, zone, candles, ps)
+                state.source_tf = timeframe
+                state.source_bar_time = bar.time
+                state.source_confirmed_at = closed_at
+            else:
+                previous = flow.history[-1] if flow.history else FlowState(i)
+                snapshot = replace(
+                    previous, i=i, rule=0,
+                    diagnosis=f"Ожидание закрытия {timeframe}; сохранён подтверждённый поток",
+                    source_tf=timeframe, live_range=False)
+                # Pine f_liveFlow permits only a same-direction, same-origin
+                # wick extension. A provisional reversal/continuation cannot
+                # replace the published flow or its guard before close.
+                if asof is not None and bar.time <= asof and previous.side:
+                    preview = deepcopy(flow, {id(flow.history): []})
+                    developing = preview.step(bar, i, sp, zone, candles, ps)
+                    if developing.side == previous.side and developing.start == previous.start:
+                        if previous.side == 1 and developing.hi > previous.hi:
+                            snapshot.hi = developing.hi
+                            snapshot.range_high_at = developing.range_high_at
+                            snapshot.live_range = True
+                        elif previous.side == -1 and developing.lo < previous.lo:
+                            snapshot.lo = developing.lo
+                            snapshot.range_low_at = developing.range_low_at
+                            snapshot.live_range = True
+                flow.history.append(snapshot)
         pairs.append(ps)
     if low_tf:
         projected = _project_h1_flows(candles, timeframe, higher_h1, asof=asof)
         origin = "H1_CONFIRMED_CANDLES" if higher_h1 is not None and higher_h1.candles else "H1_UNAVAILABLE"
         note = "Поток H1; только закрытые H1 свечи" if higher_h1 is not None and higher_h1.candles else "Ряд H1 отсутствует; направление потока не рассчитывается"
         return Analysis(candles, structure.current_segments(), fvg.zones, projected, pairs,
-                        timeframe, "H1", origin, note)
+                        timeframe, "H1", origin, note, asof=asof,
+                        confirmed_fvg=confirmed_fvg)
     result = Analysis(candles, structure.current_segments(), fvg.zones, flow.history, pairs,
-                      timeframe, timeframe, "LOCAL_PRELIMINARY", "Собственный поток, алгоритм ещё не сверен с Pine")
+                      timeframe, timeframe, "LOCAL_PRELIMINARY", "Поток по закрытым свечам; алгоритм ещё не сверен с Pine",
+                      asof=asof, confirmed_fvg=confirmed_fvg)
     if timeframe == "H1" and higher_liquidity is not None:
         from .liquidity import audit_higher_captures
         result.liquidity_audit = audit_higher_captures(result, higher_liquidity, asof=asof)

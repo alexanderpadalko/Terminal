@@ -18,15 +18,17 @@ from PySide6.QtWidgets import (
     QApplication, QCheckBox, QComboBox, QFileDialog, QFrame, QGridLayout,
     QHBoxLayout, QLabel, QLineEdit, QMainWindow, QMessageBox, QPlainTextEdit,
     QPushButton, QSplitter, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
+    QInputDialog,
 )
 
 from . import __version__
 from .engine import Analysis, analyze
+from .pipeline import analyze_timeframes, source_coverage
 from .liquidity import serialize_audit
 from .rule1_shadow import serialize_shadow_rule_one
 from .market_data import (Candle, MOSCOW, TIMEFRAMES, load_moex_session_bundle,
                           exclude_opening_auction, load_session_overrides,
-                          read_csv, infer_timeframe)
+                          read_csv, infer_timeframe, candle_close_time)
 
 BACKGROUND = QColor("#0c131e")
 GRID = QColor("#202b3b")
@@ -72,24 +74,13 @@ class MarketWorker(QThread):
         try:
             bars, series, session_info = load_moex_session_bundle(
                 self.symbol, self.tf, board=self.board, display_limit=3000)
-            higher: dict[str, Analysis] = {}
-            order = ["M1", "M5", "H1", "D1", "W1", "MN1"]
-            # All higher TFs originate from ONE cleaned H1 series, not native
-            # D/W/M OHLC which could still embed removed auction prices.
-            for tf in ["MN1", "W1", "D1", "H1"]:
-                if order.index(tf) > order.index(self.tf):
-                    source = series[tf]
-                    older = source[-(3000 if tf == "H1" else 1600):]
-                    higher[tf] = analyze(
-                        older, tf,
-                        higher_liquidity=higher if tf == "H1" else None,
-                        asof=datetime.now(timezone.utc))
-                    higher[tf].session_info = session_info.copy()
-            main = analyze(bars, self.tf,
-                           higher_h1=higher.get("H1"),
-                           higher_liquidity=higher if self.tf == "H1" else None,
-                           asof=datetime.now(timezone.utc))
-            main.session_info = session_info.copy()
+            # The chart window does not limit the calculation history.
+            # Retain all loaded H1/D/W/M and use ONE timestamp for the bundle.
+            if self.tf in ("M1", "M5"):
+                series[self.tf] = bars
+            main, higher = analyze_timeframes(
+                series, self.tf, asof=datetime.now(timezone.utc),
+                provenance={tf: session_info for tf in series})
             self.loaded.emit(main, higher, self.symbol)
         except Exception as e:
             self.failed.emit(f"{type(e).__name__}: {e}")
@@ -230,11 +221,7 @@ class CandleChart(QWidget):
                 if not parent.candles:
                     continue
                 times = [b.time.timestamp() for b in candles]
-                for z in parent.fvg[-14:]:
-                    # Closed-source restriction: exclude the latest parent candle,
-                    # which may still be developing in ISS.
-                    if z.created >= len(parent.candles) - 1:
-                        continue
+                for z in parent.published_fvg[-14:]:
                     left_ts = parent.candles[z.start].time.timestamp()
                     right_ts = parent.candles[z.broken].time.timestamp() if z.broken is not None else candles[-1].time.timestamp()
                     a = bisect.bisect_left(times, left_ts)
@@ -382,9 +369,9 @@ class MainWindow(QMainWindow):
         self.csv_button = QPushButton("Открыть CSV")
         self.csv_button.clicked.connect(self.open_csv)
         header.addWidget(self.csv_button)
-        self.h1_button = QPushButton("Добавить H1 CSV")
-        self.h1_button.setToolTip("На M1/M5 импорт отдельной истории H1 для потока. Без неё поток не рассчитывается.")
-        self.h1_button.clicked.connect(self.open_h1_csv)
+        self.h1_button = QPushButton("Добавить старший CSV")
+        self.h1_button.setToolTip("H1 для M1/M5; D1/W1/MN1 для старшей ликвидности. CSV того же инструмента и сессии.")
+        self.h1_button.clicked.connect(self.open_parent_csv)
         header.addWidget(self.h1_button)
         self.export_button = QPushButton("Экспорт диагностики")
         self.export_button.clicked.connect(self.export_diagnostics)
@@ -459,6 +446,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(splitter, 1)
         self.status = QLabel()
         self.status.setObjectName("status")
+        self.status.setWordWrap(True)
         layout.addWidget(self.status)
         self.chart.crosshair.connect(self._hover)
         self._style()
@@ -523,39 +511,57 @@ class MainWindow(QMainWindow):
             self.tf.setCurrentText(tf)
             # Never apply a prior H1 CSV from another instrument to a newly
             # opened lower-TF CSV. User explicitly imports the matching H1.
-            analysis = analyze(candles, tf)
+            analysis, _ = analyze_timeframes({tf: candles}, tf)
             self._show_data(analysis, {}, f"CSV: {Path(path).name}")
         except Exception as exc:
             QMessageBox.critical(self, "Ошибка CSV", str(exc))
 
-    def open_h1_csv(self):
-        if (not self.analysis or self.analysis.timeframe not in ("M1", "M5")
-                or not self.source.startswith("CSV:")):
-            QMessageBox.information(self, "Источник H1", "Сначала откройте CSV M1/M5 того же инструмента. Для MOEX H1 загружается автоматически.")
+    def open_parent_csv(self):
+        if not self.analysis:
             return
-        path, _ = QFileDialog.getOpenFileName(self, "CSV H1 того же инструмента", "", "CSV (*.csv);;Все файлы (*.*)")
-        if not path:
+        paths, _ = QFileDialog.getOpenFileNames(
+            self, "Старшие CSV того же инструмента и торговой сессии", "", "CSV (*.csv);;Все файлы (*.*)")
+        if not paths:
             return
         try:
-            candles = read_csv(path)
-            inferred = infer_timeframe(candles)
-            if inferred != "H1":
-                raise ValueError(f"Ожидается часовой CSV H1. Определён: {inferred or 'не удалось определить'}")
-            candles = exclude_opening_auction(candles, "H1", board=self.board.currentText(),
-                                              overrides=load_session_overrides())
-            if not candles:
-                raise ValueError("В H1 CSV не осталось свечей после фильтрации аукциона")
-            parent = analyze(candles, "H1")
-            lower = self.analysis
-            if (candles[-1].time < lower.candles[0].time or
-                    candles[0].time > lower.candles[-1].time):
-                raise ValueError("Интервалы H1 и младшего CSV не пересекаются. Проверьте тикер и даты.")
-            updated = analyze(lower.candles, lower.timeframe, higher_h1=parent)
-            updated.flow_status = "H1_CSV_PROVISIONAL"
-            updated.flow_source_note = f"H1 из CSV {Path(path).name}; тот же тикер требуется проверить вручную"
-            self._show_data(updated, {"H1": parent}, self.source)
+            main = self.analysis
+            series = {tf: parent.candles for tf, parent in self.parents.items()}
+            series[main.timeframe] = main.candles
+            provenance = {tf: parent.session_info for tf, parent in self.parents.items()}
+            provenance[main.timeframe] = main.session_info
+            allowed = [tf for tf in ("H1", "D1", "W1", "MN1")
+                       if TIMEFRAMES.index(tf) > TIMEFRAMES.index(main.timeframe)]
+            if not allowed:
+                raise ValueError("Для MN1 старший таймфрейм не предусмотрен")
+            imported = set()
+            for path in paths:
+                candles = read_csv(path)
+                tf = infer_timeframe(candles)
+                if tf is None:
+                    tf, accepted = QInputDialog.getItem(
+                        self, "Таймфрейм CSV", f"ТФ файла {Path(path).name}:", allowed, 0, False)
+                    if not accepted:
+                        return
+                if tf not in allowed or tf in imported:
+                    raise ValueError(f"Недопустимый или повторный старший ТФ: {tf}")
+                if tf == "H1":
+                    candles = exclude_opening_auction(
+                        candles, tf, board=self.board.currentText(), overrides=load_session_overrides())
+                if not candles:
+                    raise ValueError("В CSV не осталось свечей")
+                # A long-term period may open before the visible main range.
+                if (candle_close_time(candles[-1], tf) <= main.candles[0].time or
+                        candles[0].time > main.candles[-1].time):
+                    raise ValueError(f"{Path(path).name}: периоды не пересекаются. Проверьте тикер и даты.")
+                series[tf] = candles
+                provenance[tf] = {"mode": "USER_CSV", "file": Path(path).name,
+                                  "session": "USER_SELECTED", "symbol_verified": False}
+                imported.add(tf)
+            updated, parents = analyze_timeframes(series, main.timeframe, provenance=provenance)
+            updated.flow_source_note += "; добавлены старшие CSV того же инструмента (тикер проверяется вручную)"
+            self._show_data(updated, parents, self.source)
         except Exception as exc:
-            QMessageBox.critical(self, "Ошибка импорта H1", str(exc))
+            QMessageBox.critical(self, "Ошибка импорта старших CSV", str(exc))
 
     def _show_data(self, analysis: Analysis, parents: dict, source: str):
         self.source = source
@@ -565,7 +571,7 @@ class MainWindow(QMainWindow):
         state = analysis.flows[-1]
         price = analysis.candles[-1].close
         flow_origin = ("H1, только закрытые свечи" if analysis.timeframe in ("M1", "M5") else
-                       f"{analysis.timeframe}, локальный предварительный расчёт")
+                       f"{analysis.timeframe}, только закрытые свечи")
         if analysis.flow_status == "H1_UNAVAILABLE":
             flow_origin = "H1 недоступен — поток отключён"
         self.instrument_label.setText(
@@ -603,8 +609,11 @@ class MainWindow(QMainWindow):
                 if col == 0:
                     item.setForeground(UP if z.side == 1 else DOWN)
                 self.zones_table.setItem(i, col, item)
-        session_desc = " · Аукцион открытия исключён на всех ТФ" if analysis.session_info else ""
-        self.status.setText(f"{source} · {len(analysis.candles)} свечей · {len(analysis.fvg)} FVG · {len(analysis.segments)} отрезков{session_desc} · {analysis.flow_source_note} · НЕ сверено с Pine")
+        session_desc = " · Аукцион открытия исключён на всех ТФ" if analysis.session_info.get("higher_from_clean_h1") else ""
+        coverage = " · ".join(
+            f"{tf}: {p.confirmed_bars} закрытых ({p.candles[0].time:%d.%m.%Y}–{p.candles[-1].time:%d.%m.%Y})"
+            for tf, p in parents.items() if p.candles and tf in ("D1", "W1", "MN1"))
+        self.status.setText(f"{source} · {len(analysis.candles)} свечей ({analysis.confirmed_bars} закрытых) · {len(analysis.fvg)} FVG{session_desc} · {analysis.flow_source_note} · {coverage} · НЕ сверено с Pine")
 
     def _pair_text(self, state) -> str:
         pair = state.liquidity
@@ -635,6 +644,7 @@ class MainWindow(QMainWindow):
                 "flow_source_tf": a.flow_source_tf,
                 "flow_status": a.flow_status,
                 "flow_source_note": a.flow_source_note,
+                "calculation": source_coverage(a),
                 "session_info": a.session_info if a.session_info else {
                     "mode": "CSV_SESSION_FILTERED_FOR_M1_M5_H1_OR_ASSUMED_FOR_HIGHER",
                     "warning": "Для D/W/M CSV требуется экспорт сессии без аукциона из TradingView"},
@@ -642,16 +652,19 @@ class MainWindow(QMainWindow):
                 "bars": len(a.candles),
                 "candles": [{"time": c.time.isoformat(), "open": c.open, "high": c.high, "low": c.low, "close": c.close, "volume": c.volume} for c in a.candles],
                 "flows": [{"time": c.time.isoformat(), "side": f.side, "lo": f.lo, "hi": f.hi, "start": f.start, "rule": f.rule, "diagnosis": f.diagnosis,
+                           "bar_confirmed": a.is_confirmed(i), "live_range": f.live_range,
                            "source_tf": f.source_tf or a.flow_source_tf,
-                           "source_h1_open": f.source_bar_time.isoformat() if f.source_bar_time else None,
-                           "source_h1_closed_at": f.source_confirmed_at.isoformat() if f.source_confirmed_at else None,
+                           "source_bar_open": f.source_bar_time.isoformat() if f.source_bar_time else None,
+                           "source_closed_at": f.source_confirmed_at.isoformat() if f.source_confirmed_at else None,
+                           "source_h1_open": f.source_bar_time.isoformat() if f.source_bar_time and f.source_tf == "H1" else None,
+                           "source_h1_closed_at": f.source_confirmed_at.isoformat() if f.source_confirmed_at and f.source_tf == "H1" else None,
                            "range_start_at": f.range_start_at.isoformat() if f.range_start_at else None,
                            "range_low_at": f.range_low_at.isoformat() if f.range_low_at else None,
                            "range_high_at": f.range_high_at.isoformat() if f.range_high_at else None,
                            "last_change_at": f.last_change_at.isoformat() if f.last_change_at else None,
                            "last_change_rule": f.last_change_rule,
                            "range_origin": f.range_origin}
-                          for c, f in zip(a.candles, a.flows)],
+                          for i, (c, f) in enumerate(zip(a.candles, a.flows))],
                 "fvg": [{"time": a.candles[z.created].time.isoformat(), "start": z.start, "side": z.side, "top": z.top, "bottom": z.bottom, "balanced": z.balanced, "broken_at": z.broken} for z in a.fvg],
                 "rule1_higher_liquidity": serialize_audit(a.liquidity_audit if a.timeframe == "H1" else
                                                          self.parents["H1"].liquidity_audit if "H1" in self.parents else []),
@@ -659,8 +672,10 @@ class MainWindow(QMainWindow):
                                                            self.parents["H1"].rule1_shadow if "H1" in self.parents else []),
                 "higher_timeframes": {
                     tf: {
-                        "source": "MOEX_CLEAN_H1_PHYSICAL_CALENDAR" if a.session_info
-                                  else "CSV_OR_SUPPLIED_HIGHER_TF",
+                        "source": ("MOEX_CLEAN_H1_PHYSICAL_CALENDAR"
+                                   if p.session_info.get("higher_from_clean_h1") else "CSV_OR_SUPPLIED_HIGHER_TF"),
+                        "source_info": p.session_info,
+                        "coverage": source_coverage(p),
                         "bars": len(p.candles),
                         "candles": [{"time": c.time.isoformat(), "open": c.open,
                                      "high": c.high, "low": c.low, "close": c.close,
@@ -681,18 +696,25 @@ class MainWindow(QMainWindow):
                         "flows": [{"time": c.time.isoformat(),
                                    "side": f.side, "lo": f.lo, "hi": f.hi,
                                    "rule": f.rule,
+                                   "bar_confirmed": p.is_confirmed(i),
+                                   "live_range": f.live_range,
+                                   "source_closed_at": (f.source_confirmed_at.isoformat()
+                                                        if f.source_confirmed_at else None),
                                    "range_start_at": (f.range_start_at.isoformat()
                                                       if f.range_start_at else None),
                                    "last_change_at": (f.last_change_at.isoformat()
                                                       if f.last_change_at else None)}
-                                  for c, f in zip(p.candles, p.flows)]
+                                  for i, (c, f) in enumerate(zip(p.candles, p.flows))]
                     }
                     for tf in ("D1", "W1", "MN1")
                     for p in [a if a.timeframe == tf else self.parents.get(tf)]
                     if p is not None
                 },
                 "h1_reference": (None if "H1" not in self.parents else {
-                    "source": "MOEX separate H1" if self.source.startswith("MOEX:") else "User CSV H1",
+                    "source": ("User CSV H1" if self.parents["H1"].session_info.get("mode") == "USER_CSV"
+                               else "MOEX separate H1" if self.source.startswith("MOEX:") else "User CSV H1"),
+                    "source_info": self.parents["H1"].session_info,
+                    "coverage": source_coverage(self.parents["H1"]),
                     "bars": len(self.parents["H1"].candles),
                     "events": [{"time": self.parents["H1"].candles[f.i].time.isoformat(), "side": f.side,
                                 "lo": f.lo, "hi": f.hi, "rule": f.rule,

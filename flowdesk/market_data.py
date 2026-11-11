@@ -124,6 +124,25 @@ def period_floor(dt: datetime, tf: str) -> datetime:
     raise ValueError(f"Неизвестный ТФ: {tf}")
 
 
+def candle_close_time(candle: Candle, tf: str) -> datetime:
+    """Nominal interval end; higher periods use Moscow chart boundaries.
+
+    This is a conservative calendar cutoff, not an exchange session-close
+    timestamp. Do not infer completion from the presence of the next bar.
+    """
+    if tf in ("M1", "M5", "H1"):
+        return candle.time + timedelta(minutes={"M1": 1, "M5": 5, "H1": 60}[tf])
+    start = period_floor(candle.time.astimezone(MOSCOW), tf)
+    if tf == "D1":
+        return start + timedelta(days=1)
+    if tf == "W1":
+        return start + timedelta(days=7)
+    if tf == "MN1":
+        return start.replace(year=start.year + (start.month == 12),
+                             month=start.month % 12 + 1, day=1)
+    raise ValueError(f"Неизвестный ТФ: {tf}")
+
+
 def aggregate(candles: list[Candle], tf: str, tz: ZoneInfo = MOSCOW,
               *, moex_trading_day: bool = False,
               auction_overrides: dict | None = None) -> list[Candle]:
@@ -292,7 +311,7 @@ def _iss_download(symbol: str, interval: int, *, days: int, limit: int,
         params = urllib.parse.urlencode({"interval": interval, "from": frm, "till": to,
                                          "start": start, "iss.meta": "off", "iss.only": "candles"})
         req = urllib.request.Request(urlbase + "?" + params,
-                                     headers={"User-Agent": "FlowDesk/0.2.8 (MOEX-calendar chart parity audit)",
+                                     headers={"User-Agent": "FlowDesk/0.2.9 (confirmed source candles)",
                                               "Accept": "application/json"})
         with urllib.request.urlopen(req, timeout=timeout) as response:
             payload = json.load(response)
