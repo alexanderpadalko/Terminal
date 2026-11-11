@@ -6,6 +6,7 @@ from datetime import datetime
 from unittest.mock import patch
 
 from flowdesk.market_data import _iss_download, load_moex_session_bundle, Candle, MOSCOW
+from flowdesk.moex_calendar import SessionOverride, REGULAR
 
 
 def response(rows):
@@ -33,7 +34,7 @@ class TestArchiveDownload(unittest.TestCase):
         bars = [Candle(day.replace(hour=9), 9, 10, 8, 9)]
         with patch('flowdesk.market_data._iss_download', return_value=bars):
             _, sources, info = load_moex_session_bundle('AFKS', 'H1',
-                                                       auction_overrides={day.date(): None})
+                                                       auction_overrides={day.date(): SessionOverride(None, REGULAR, day.date())})
         self.assertEqual(sources['H1'], bars)
         self.assertEqual(info['observed_legacy_trading_days'], [])
 
