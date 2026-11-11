@@ -132,6 +132,20 @@ class TestMarketCache(unittest.TestCase):
         self.assertIs(original, first)
         self.assertNotEqual(parents['D1'].candles, days)
 
+    def test_quote_refresh_cannot_confirm_an_unchanged_partial_csv(self):
+        first, _, _ = self.seed()
+        days = [Candle(BASE, 8, 9, 7, 8)]
+        imported_at = first.asof
+        self.now = BASE + timedelta(days=1, hours=3)
+        with patch('flowdesk.market_cache.load_moex_session_bundle', return_value=bundle()):
+            result, parents, info = self.service.view(
+                'AFKS', 'TQBR', 'H1', refresh=True, overrides={'D1': days},
+                provenance={'D1': {'mode': 'USER_CSV', 'observed_asof': imported_at.isoformat()}})
+        self.assertEqual(parents['D1'].confirmed_bars, 0)
+        self.assertEqual(result.asof, imported_at)
+        self.assertEqual(info['asof'], imported_at.isoformat())
+        self.assertIn('CSV D1', info['warning'])
+
 
 if __name__ == '__main__':
     unittest.main()

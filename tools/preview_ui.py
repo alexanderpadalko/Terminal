@@ -4,17 +4,22 @@ import os
 import sys
 from pathlib import Path
 
-os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
+# Windows' offscreen plugin can draw empty glyph boxes. Render the real
+# Windows backend into an unmapped widget, using the installed system fonts.
+os.environ['QT_QPA_PLATFORM'] = 'windows' if os.name == 'nt' else 'offscreen'
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from PySide6.QtCore import QPointF
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QFontMetrics
 from PySide6.QtWidgets import QApplication
 from flowdesk.gui import MainWindow
 
 app = QApplication([])
 window = MainWindow()
+window.setAttribute(Qt.WidgetAttribute.WA_DontShowOnScreen)
 window.resize(1440, 900)
 window.show()
 app.processEvents()
+assert QFontMetrics(window.font()).inFontUcs4(ord('П')), 'Russian font glyphs unavailable in preview'
 window.chart.cursor_x = (window.chart.x0 + window.chart.x1) / 2
 window.chart.cursor_y = (window.chart.top + window.chart.bottom) / 2
 window.chart.update()

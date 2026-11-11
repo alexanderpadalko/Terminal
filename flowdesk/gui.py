@@ -766,7 +766,8 @@ class MainWindow(QMainWindow):
                     raise ValueError(f"{Path(path).name}: периоды не пересекаются. Проверьте тикер и даты.")
                 series[tf] = candles
                 provenance[tf] = {"mode": "USER_CSV", "file": Path(path).name,
-                                  "session": "USER_SELECTED", "symbol_verified": False}
+                                  "session": "USER_SELECTED", "symbol_verified": False,
+                                  "observed_asof": (main.asof or datetime.now(timezone.utc)).isoformat()}
                 imported.add(tf)
             updated, parents = analyze_timeframes(series, main.timeframe, asof=main.asof, provenance=provenance)
             if self.source.startswith('MOEX:'):

@@ -16,7 +16,7 @@ from pathlib import Path
 
 from .market_data import (Candle, MOSCOW, TIMEFRAMES, _iss_download, aggregate,
                           exclude_opening_auction, load_moex_session_bundle,
-                          load_session_overrides, normalize)
+                          load_session_overrides, normalize, candle_close_time)
 from .pipeline import analyze_timeframes
 
 # Bump when cleaning/calendar semantics change; never reuse incompatible OHLC.
@@ -175,7 +175,15 @@ class MarketService:
             self.memory.popitem(last=False)
         series = snapshot.sources()
         if overrides:
-            main, parents = analyze_timeframes({**series, **overrides}, tf, asof=snapshot.asof,
+            cutoff = snapshot.asof
+            for source_tf, bars in overrides.items():
+                observed = (provenance or {}).get(source_tf, {}).get('observed_asof')
+                if observed and bars:
+                    observed = datetime.fromisoformat(observed)
+                    if candle_close_time(bars[-1], source_tf) > observed and observed < cutoff:
+                        cutoff = observed
+                        warning = (warning + ' · ' if warning else '') + f'Расчёт ограничен снимком незакрытого CSV {source_tf}; обновите импорт для продолжения'
+            main, parents = analyze_timeframes({**series, **overrides}, tf, asof=cutoff,
                                                provenance={**{t: snapshot.metadata for t in series}, **(provenance or {})})
         else:
             if not snapshot.analyses:
@@ -188,4 +196,4 @@ class MarketService:
             parents = {t: a for t, a in snapshot.analyses.items()
                        if TIMEFRAMES.index(t) > TIMEFRAMES.index(tf)}
         return main, parents, {'symbol': symbol, 'board': board, 'tf': tf, 'tier': tier,
-                               'asof': snapshot.asof.isoformat(), 'warning': warning}
+                               'asof': main.asof.isoformat(), 'warning': warning}
