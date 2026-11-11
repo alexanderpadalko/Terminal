@@ -367,9 +367,10 @@ class CandleChart(QWidget):
     def paintEvent(self, event: QPaintEvent):
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
-        p.fillRect(self.rect(), BACKGROUND)
+        colors = CHART_PALETTES[self.visual_theme]
+        p.fillRect(self.rect(), colors["background"])
         if self.analysis is None or not self.analysis.candles:
-            p.setPen(TEXT)
+            p.setPen(colors["text"])
             p.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, "Загрузите CSV или инструмент MOEX")
             return
         candles = self.analysis.candles
@@ -402,19 +403,21 @@ class CandleChart(QWidget):
         for j in range(7):
             value = lowest + (highest - lowest) * j / 6
             Y = y(value)
-            p.setPen(QPen(GRID, 1))
+            p.setPen(QPen(colors["grid"], 0.8))
             p.drawLine(QPointF(self.x0, Y), QPointF(self.x1, Y))
-            p.setPen(TEXT)
+            p.setPen(colors["text"])
             p.drawText(QRectF(self.x1 + 8, Y - 11, 80, 20), 0, short_number(value))
         for j in range(7):
             idx = first + int(j * (count - 1) / 6)
-            p.setPen(QPen(GRID, 1))
+            p.setPen(QPen(colors["grid"], 0.8))
             p.drawLine(QPointF(x(idx), self.top), QPointF(x(idx), self.bottom))
-            p.setPen(TEXT)
+            p.setPen(colors["text"])
             p.drawText(QRectF(x(idx) - 52, self.bottom + 10, 104, 20), int(Qt.AlignmentFlag.AlignCenter), candles[idx].time.strftime("%d.%m %H:%M" if self.analysis.timeframe in ("M1", "M5", "H1", "H4") else "%d.%m.%Y"))
         p.save()
         p.setClipRect(QRectF(self.x0, self.top, self.x1 - self.x0, self.bottom - self.top))
         # FVG backgrounds and edges: local zones preserve break candle bounds.
+        # Labels are de-duplicated by position for adjacent/overlapping zones.
+        self._zone_labels = []
         if self.show_fvg:
             local_zones = self.analysis.fvg[-300:]
             for z in local_zones:
@@ -452,68 +455,89 @@ class CandleChart(QWidget):
                 ratio_b = (b - seg.a) / (seg.b - seg.a)
                 ya = seg.pa + (seg.pb - seg.pa) * ratio_a
                 yb = seg.pa + (seg.pb - seg.pa) * ratio_b
-                pen = QPen(UP if seg.side == 1 else DOWN, 2.2)
+                pen = QPen(colors["structure_up"] if seg.side == 1
+                           else colors["structure_down"], 1.6 if self.visual_theme == "tv" else 2.2)
                 if not seg.confirmed:
                     pen.setStyle(Qt.PenStyle.DashLine)
                 p.setPen(pen)
                 p.drawLine(QPointF(x(a), y(ya)), QPointF(x(b), y(yb)))
-        # Candles: draw over FVG and structure with high-contrast wicks/bodies.
+        # TV mode uses white/black bodies with dark outlines and thin wicks.
+        # Candles are painted after the transparent structure and FVG layers.
         for i in range(first, last):
             bar = candles[i]
-            color = UP if bar.close >= bar.open else DOWN
+            rising = bar.close >= bar.open
+            color = colors["candle_up"] if rising else colors["candle_down"]
             center = x(i)
-            p.setPen(QPen(color, 1.2))
+            p.setPen(QPen(colors["wick"] or color,
+                          0.85 if self.visual_theme == "tv" else 1.2))
             p.drawLine(QPointF(center, y(bar.high)), QPointF(center, y(bar.low)))
             body_w = max(2.0, min(18.0, stride * 0.62))
             a, b = y(bar.open), y(bar.close)
-            p.fillRect(QRectF(center - body_w / 2, min(a, b), body_w, max(1.3, abs(b - a))), color)
+            body = QRectF(center - body_w / 2, min(a, b),
+                          body_w, max(1.3, abs(b - a)))
+            p.fillRect(body, color)
+            if self.visual_theme == "tv":
+                p.setPen(QPen(colors["candle_up_outline"] if rising else
+                              colors["candle_down_outline"], 0.7))
+                p.drawRect(body)
         # Current and previous flow 0, 0.4, 0.5, 0.6, 1.0.
         if self.show_flow and self.analysis.flows:
             st = self.analysis.flows[last - 1]
             if st.side and st.lo is not None and st.hi is not None:
                 starts = max(first, st.start or first)
-                for t, color in zip((0.0, 0.4, 0.5, 0.6, 1.0), (QColor("#4da95c"), QColor("#4da95c"), QColor("#afafb8"), QColor("#dc6574"), QColor("#dc6574"))):
+                for t, color in zip((0.0, 0.4, 0.5, 0.6, 1.0),
+                                    colors["flow_lines"]):
                     price = st.lo + (st.hi - st.lo) * t
-                    p.setPen(QPen(color, 1.5))
+                    p.setPen(QPen(color, 1.25 if self.visual_theme == "tv" else 1.5))
                     Y = y(price)
                     p.drawLine(QPointF(x(starts), Y), QPointF(self.x1, Y))
-                    p.drawText(QRectF(self.x1 - 49, Y - 15, 50, 14), int(Qt.AlignmentFlag.AlignRight), str(t))
+                    p.setFont(QFont("Segoe UI", 8))
+                    caption = (f"{t:g} ({short_number(price)})"
+                               if self.visual_theme == "tv" else str(t))
+                    p.drawText(QRectF(self.x1 - 122, Y - 17, 116, 15),
+                               int(Qt.AlignmentFlag.AlignRight), caption)
             if self.show_previous and st.previous:
                 old_start, old_end, old_lo, old_hi, _ = st.previous
                 if old_lo is not None and old_hi is not None:
                     for r in (0.0, 0.4, 0.5, 0.6, 1.0):
                         Y = y(old_lo + (old_hi - old_lo) * r)
-                        pen = QPen(QColor(85, 111, 144, 110), 1)
+                        pen = QPen(colors["previous"], 0.9)
                         pen.setStyle(Qt.PenStyle.DashLine)
                         p.setPen(pen)
                         p.drawLine(QPointF(x(max(first, old_start)), Y), QPointF(x(min(last - 1, max(first, old_end))), Y))
         p.restore()
-        # Price marker and floating header.
+        # Price axis marker is neutral in TV mode; preserve color in dark mode.
         latest = candles[last - 1]
-        color = UP if latest.close >= latest.open else DOWN
-        p.fillRect(QRectF(self.x1 + 3, min(self.bottom, max(self.top, y(latest.close))) - 10, 82, 20), color)
-        p.setPen(QColor("#09151d"))
+        color = colors["candle_up"] if latest.close >= latest.open else colors["candle_down"]
+        p.fillRect(QRectF(self.x1 + 3, min(self.bottom, max(self.top, y(latest.close))) - 10, 82, 20),
+                   colors["price_marker"] or color)
+        p.setPen(colors["price_marker_text"])
         p.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
         p.drawText(QRectF(self.x1 + 5, min(self.bottom, max(self.top, y(latest.close))) - 10, 80, 20), int(Qt.AlignmentFlag.AlignCenter), short_number(latest.close))
-        p.setPen(TEXT)
+        p.setPen(colors["text"])
         p.setFont(QFont("Segoe UI", 10, QFont.Weight.Bold))
         hover_i = first + math.floor((self.cursor_x - self.x0) / span * count) if self.cursor_x is not None else -1
         header_bar = candles[hover_i] if first <= hover_i < last and self.cursor_y is not None and self.top <= self.cursor_y <= self.bottom else latest
         p.drawText(QRectF(self.x0, 0, max(150, self.width() - 120), 23), 0,
                    f"{self.analysis.timeframe}   {header_bar.time:%d.%m %H:%M}   O {short_number(header_bar.open)}   H {short_number(header_bar.high)}   L {short_number(header_bar.low)}   C {short_number(header_bar.close)}")
         if self.cursor_x is not None and self.x0 <= self.cursor_x <= self.x1 and self.top <= self.cursor_y <= self.bottom:
-            pen = QPen(QColor("#8395a8"), 1, Qt.PenStyle.DashLine)
+            pen = QPen(colors["crosshair"], 0.85, Qt.PenStyle.DashLine)
             p.setPen(pen)
             snap_x = x(min(last - 1, max(first, hover_i)))
             p.drawLine(QPointF(snap_x, self.top), QPointF(snap_x, self.bottom))
             p.drawLine(QPointF(self.x0, self.cursor_y), QPointF(self.x1, self.cursor_y))
             price = lowest + (self.bottom - self.cursor_y) / max(1, self.bottom - self.top) * (highest - lowest)
-            p.fillRect(QRectF(self.x1 + 3, self.cursor_y - 10, 82, 20), QColor('#34465c'))
-            p.setPen(TEXT)
-            p.drawText(QRectF(self.x1 + 5, self.cursor_y - 10, 80, 20), int(Qt.AlignmentFlag.AlignCenter), short_number(price))
-            p.fillRect(QRectF(snap_x - 65, self.bottom + 5, 130, 22), QColor('#34465c'))
-            p.drawText(QRectF(snap_x - 65, self.bottom + 5, 130, 22), int(Qt.AlignmentFlag.AlignCenter), header_bar.time.strftime('%d.%m.%Y %H:%M'))
-        p.setPen(QColor("#8294a9"))
+            p.fillRect(QRectF(self.x1 + 3, self.cursor_y - 10, 82, 20),
+                       colors["tooltip_bg"])
+            p.setPen(colors["tooltip_text"])
+            p.drawText(QRectF(self.x1 + 5, self.cursor_y - 10, 80, 20),
+                       int(Qt.AlignmentFlag.AlignCenter), short_number(price))
+            p.fillRect(QRectF(snap_x - 65, self.bottom + 5, 130, 22),
+                       colors["tooltip_bg"])
+            p.drawText(QRectF(snap_x - 65, self.bottom + 5, 130, 22),
+                       int(Qt.AlignmentFlag.AlignCenter),
+                       header_bar.time.strftime('%d.%m.%Y %H:%M'))
+        p.setPen(colors["text"])
         p.setFont(QFont("Segoe UI", 8))
         p.drawText(QRectF(self.x0, self.height() - 32, self.width() - 170, 20), 0,
                    "Колесо: масштаб под курсором · Shift+колесо: история · Шкала цены: масштаб/сдвиг · End: последние · F: автоцена")
