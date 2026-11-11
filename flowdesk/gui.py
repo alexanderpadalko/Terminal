@@ -38,6 +38,52 @@ UP = QColor("#20c997")
 DOWN = QColor("#f46b82")
 ACCENT = QColor("#66a8ff")
 
+# TV mode is the default; the previous dark palette remains available.
+# Only paint/UI colors are defined here. Market data and indicator calculations
+# must not depend on the selected visual theme.
+CHART_PALETTES = {
+    "tv": {
+        "background": QColor("#898989"),
+        "grid": QColor(119, 119, 119, 95),
+        "text": QColor("#292b2f"),
+        "structure_up": QColor("#007f70"),
+        "structure_down": QColor("#a31831"),
+        "candle_up": QColor("#ffffff"),
+        "candle_down": QColor("#111111"),
+        "candle_up_outline": QColor("#444444"),
+        "candle_down_outline": QColor("#171717"),
+        "wick": QColor("#353535"),
+        "flow_lines": (QColor("#21652c"), QColor("#21652c"),
+                       QColor("#65666a"), QColor("#9d2638"), QColor("#9d2638")),
+        "previous": QColor(62, 62, 62, 105),
+        "crosshair": QColor("#434343"),
+        "tooltip_bg": QColor("#343434"),
+        "tooltip_text": QColor("#ffffff"),
+        "price_marker": QColor("#161616"),
+        "price_marker_text": QColor("#ffffff"),
+    },
+    "dark": {
+        "background": BACKGROUND,
+        "grid": GRID,
+        "text": TEXT,
+        "structure_up": UP,
+        "structure_down": DOWN,
+        "candle_up": UP,
+        "candle_down": DOWN,
+        "candle_up_outline": UP,
+        "candle_down_outline": DOWN,
+        "wick": None,
+        "flow_lines": (QColor("#4da95c"), QColor("#4da95c"),
+                       QColor("#afafb8"), QColor("#dc6574"), QColor("#dc6574")),
+        "previous": QColor(85, 111, 144, 110),
+        "crosshair": QColor("#8395a8"),
+        "tooltip_bg": QColor("#34465c"),
+        "tooltip_text": TEXT,
+        "price_marker": None,
+        "price_marker_text": QColor("#09151d"),
+    },
+}
+
 
 def short_number(x: float) -> str:
     return f"{x:,.4f}".rstrip("0").rstrip(".").replace(",", " ")
@@ -93,17 +139,36 @@ class TimeframeBar(QWidget):
             self.buttons[tf] = button
             layout.addWidget(button)
         self.buttons[self._current].setChecked(True)
-        self.setStyleSheet("""
-            QWidget#timeframeBar { background: #101010; border-radius: 8px; }
-            QWidget#timeframeBar QToolButton {
-                background: transparent; color: #dfdfdf; border: none;
-                border-radius: 10px; padding: 0; font-size: 18px;
-            }
-            QWidget#timeframeBar QToolButton:hover { background: #262626; }
-            QWidget#timeframeBar QToolButton:checked { background: #303030; color: #ffffff; }
-            QWidget#timeframeBar QToolButton:focus { border: 1px solid #666666; }
-            QWidget#timeframeBar QToolButton:disabled { color: #6c6c6c; }
-        """)
+        self.set_theme("tv")
+
+    def set_theme(self, theme: str):
+        if theme == "tv":
+            self.setStyleSheet("""
+                QWidget#timeframeBar { background: #dedede; border-radius: 6px; }
+                QWidget#timeframeBar QToolButton {
+                    background: transparent; color: #393939; border: none;
+                    border-radius: 6px; padding: 0; font-size: 16px;
+                }
+                QWidget#timeframeBar QToolButton:hover { background: #cccccc; }
+                QWidget#timeframeBar QToolButton:checked {
+                    background: #ffffff; color: #111111; font-weight: 700;
+                    border: 1px solid #bcbcbc;
+                }
+                QWidget#timeframeBar QToolButton:focus { border: 1px solid #848484; }
+                QWidget#timeframeBar QToolButton:disabled { color: #aaaaaa; }
+            """)
+        else:
+            self.setStyleSheet("""
+                QWidget#timeframeBar { background: #101010; border-radius: 8px; }
+                QWidget#timeframeBar QToolButton {
+                    background: transparent; color: #dfdfdf; border: none;
+                    border-radius: 10px; padding: 0; font-size: 18px;
+                }
+                QWidget#timeframeBar QToolButton:hover { background: #262626; }
+                QWidget#timeframeBar QToolButton:checked { background: #303030; color: #ffffff; }
+                QWidget#timeframeBar QToolButton:focus { border: 1px solid #666666; }
+                QWidget#timeframeBar QToolButton:disabled { color: #6c6c6c; }
+            """)
 
     def currentText(self):
         return self._current
@@ -155,6 +220,8 @@ class CandleChart(QWidget):
         self.show_fvg = True
         self.show_flow = True
         self.show_previous = True
+        self.visual_theme = "tv"
+        self._zone_labels = []
         self.viewport = ChartView()
         self.price_range = None
         self.last_price_range = None
@@ -168,6 +235,12 @@ class CandleChart(QWidget):
         self.x1 = 100
         self.top = 26
         self.bottom = 80
+
+    def set_theme(self, theme: str):
+        if theme not in CHART_PALETTES:
+            raise ValueError(f"Неизвестная тема графика: {theme}")
+        self.visual_theme = theme
+        self.update()
 
     def set_analysis(self, analysis: Analysis, parents: dict[str, Analysis] | None = None):
         self.analysis = analysis
@@ -313,9 +386,10 @@ class CandleChart(QWidget):
     def paintEvent(self, event: QPaintEvent):
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
-        p.fillRect(self.rect(), BACKGROUND)
+        colors = CHART_PALETTES[self.visual_theme]
+        p.fillRect(self.rect(), colors["background"])
         if self.analysis is None or not self.analysis.candles:
-            p.setPen(TEXT)
+            p.setPen(colors["text"])
             p.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, "Загрузите CSV или инструмент MOEX")
             return
         candles = self.analysis.candles
@@ -348,19 +422,21 @@ class CandleChart(QWidget):
         for j in range(7):
             value = lowest + (highest - lowest) * j / 6
             Y = y(value)
-            p.setPen(QPen(GRID, 1))
+            p.setPen(QPen(colors["grid"], 0.8))
             p.drawLine(QPointF(self.x0, Y), QPointF(self.x1, Y))
-            p.setPen(TEXT)
+            p.setPen(colors["text"])
             p.drawText(QRectF(self.x1 + 8, Y - 11, 80, 20), 0, short_number(value))
         for j in range(7):
             idx = first + int(j * (count - 1) / 6)
-            p.setPen(QPen(GRID, 1))
+            p.setPen(QPen(colors["grid"], 0.8))
             p.drawLine(QPointF(x(idx), self.top), QPointF(x(idx), self.bottom))
-            p.setPen(TEXT)
+            p.setPen(colors["text"])
             p.drawText(QRectF(x(idx) - 52, self.bottom + 10, 104, 20), int(Qt.AlignmentFlag.AlignCenter), candles[idx].time.strftime("%d.%m %H:%M" if self.analysis.timeframe in ("M1", "M5", "H1", "H4") else "%d.%m.%Y"))
         p.save()
         p.setClipRect(QRectF(self.x0, self.top, self.x1 - self.x0, self.bottom - self.top))
         # FVG backgrounds and edges: local zones preserve break candle bounds.
+        # Labels are de-duplicated by position for adjacent/overlapping zones.
+        self._zone_labels = []
         if self.show_fvg:
             local_zones = self.analysis.fvg[-300:]
             for z in local_zones:
@@ -398,95 +474,137 @@ class CandleChart(QWidget):
                 ratio_b = (b - seg.a) / (seg.b - seg.a)
                 ya = seg.pa + (seg.pb - seg.pa) * ratio_a
                 yb = seg.pa + (seg.pb - seg.pa) * ratio_b
-                pen = QPen(UP if seg.side == 1 else DOWN, 2.2)
+                pen = QPen(colors["structure_up"] if seg.side == 1
+                           else colors["structure_down"], 1.6 if self.visual_theme == "tv" else 2.2)
                 if not seg.confirmed:
                     pen.setStyle(Qt.PenStyle.DashLine)
                 p.setPen(pen)
                 p.drawLine(QPointF(x(a), y(ya)), QPointF(x(b), y(yb)))
-        # Candles: draw over FVG and structure with high-contrast wicks/bodies.
+        # TV mode uses white/black bodies with dark outlines and thin wicks.
+        # Candles are painted after the transparent structure and FVG layers.
         for i in range(first, last):
             bar = candles[i]
-            color = UP if bar.close >= bar.open else DOWN
+            rising = bar.close >= bar.open
+            color = colors["candle_up"] if rising else colors["candle_down"]
             center = x(i)
-            p.setPen(QPen(color, 1.2))
+            p.setPen(QPen(colors["wick"] or color,
+                          0.85 if self.visual_theme == "tv" else 1.2))
             p.drawLine(QPointF(center, y(bar.high)), QPointF(center, y(bar.low)))
             body_w = max(2.0, min(18.0, stride * 0.62))
             a, b = y(bar.open), y(bar.close)
-            p.fillRect(QRectF(center - body_w / 2, min(a, b), body_w, max(1.3, abs(b - a))), color)
+            body = QRectF(center - body_w / 2, min(a, b),
+                          body_w, max(1.3, abs(b - a)))
+            p.fillRect(body, color)
+            if self.visual_theme == "tv":
+                p.setPen(QPen(colors["candle_up_outline"] if rising else
+                              colors["candle_down_outline"], 0.7))
+                p.drawRect(body)
         # Current and previous flow 0, 0.4, 0.5, 0.6, 1.0.
         if self.show_flow and self.analysis.flows:
             st = self.analysis.flows[last - 1]
             if st.side and st.lo is not None and st.hi is not None:
                 starts = max(first, st.start or first)
-                for t, color in zip((0.0, 0.4, 0.5, 0.6, 1.0), (QColor("#4da95c"), QColor("#4da95c"), QColor("#afafb8"), QColor("#dc6574"), QColor("#dc6574"))):
+                for t, color in zip((0.0, 0.4, 0.5, 0.6, 1.0),
+                                    colors["flow_lines"]):
                     price = st.lo + (st.hi - st.lo) * t
-                    p.setPen(QPen(color, 1.5))
+                    p.setPen(QPen(color, 1.25 if self.visual_theme == "tv" else 1.5))
                     Y = y(price)
                     p.drawLine(QPointF(x(starts), Y), QPointF(self.x1, Y))
-                    p.drawText(QRectF(self.x1 - 49, Y - 15, 50, 14), int(Qt.AlignmentFlag.AlignRight), str(t))
+                    p.setFont(QFont("Segoe UI", 8))
+                    caption = (f"{t:g} ({short_number(price)})"
+                               if self.visual_theme == "tv" else str(t))
+                    p.drawText(QRectF(self.x1 - 122, Y - 17, 116, 15),
+                               int(Qt.AlignmentFlag.AlignRight), caption)
             if self.show_previous and st.previous:
                 old_start, old_end, old_lo, old_hi, _ = st.previous
                 if old_lo is not None and old_hi is not None:
                     for r in (0.0, 0.4, 0.5, 0.6, 1.0):
                         Y = y(old_lo + (old_hi - old_lo) * r)
-                        pen = QPen(QColor(85, 111, 144, 110), 1)
+                        pen = QPen(colors["previous"], 0.9)
                         pen.setStyle(Qt.PenStyle.DashLine)
                         p.setPen(pen)
                         p.drawLine(QPointF(x(max(first, old_start)), Y), QPointF(x(min(last - 1, max(first, old_end))), Y))
         p.restore()
-        # Price marker and floating header.
+        # Prevent price-axis tags from overlapping when the crosshair is
+        # hovering near the latest close (only presentation, no data mutation).
         latest = candles[last - 1]
-        color = UP if latest.close >= latest.open else DOWN
-        p.fillRect(QRectF(self.x1 + 3, min(self.bottom, max(self.top, y(latest.close))) - 10, 82, 20), color)
-        p.setPen(QColor("#09151d"))
-        p.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
-        p.drawText(QRectF(self.x1 + 5, min(self.bottom, max(self.top, y(latest.close))) - 10, 80, 20), int(Qt.AlignmentFlag.AlignCenter), short_number(latest.close))
-        p.setPen(TEXT)
+        color = colors["candle_up"] if latest.close >= latest.open else colors["candle_down"]
+        last_price_y = min(self.bottom, max(self.top, y(latest.close)))
+        hover_on_chart = (self.cursor_x is not None and self.cursor_y is not None
+                          and self.x0 <= self.cursor_x <= self.x1
+                          and self.top <= self.cursor_y <= self.bottom)
+        if not (hover_on_chart and abs(self.cursor_y - last_price_y) < 22):
+            p.fillRect(QRectF(self.x1 + 3, last_price_y - 10, 82, 20),
+                       colors["price_marker"] or color)
+            p.setPen(colors["price_marker_text"])
+            p.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
+            p.drawText(QRectF(self.x1 + 5, last_price_y - 10, 80, 20),
+                       int(Qt.AlignmentFlag.AlignCenter), short_number(latest.close))
+        p.setPen(colors["text"])
         p.setFont(QFont("Segoe UI", 10, QFont.Weight.Bold))
         hover_i = first + math.floor((self.cursor_x - self.x0) / span * count) if self.cursor_x is not None else -1
         header_bar = candles[hover_i] if first <= hover_i < last and self.cursor_y is not None and self.top <= self.cursor_y <= self.bottom else latest
         p.drawText(QRectF(self.x0, 0, max(150, self.width() - 120), 23), 0,
                    f"{self.analysis.timeframe}   {header_bar.time:%d.%m %H:%M}   O {short_number(header_bar.open)}   H {short_number(header_bar.high)}   L {short_number(header_bar.low)}   C {short_number(header_bar.close)}")
         if self.cursor_x is not None and self.x0 <= self.cursor_x <= self.x1 and self.top <= self.cursor_y <= self.bottom:
-            pen = QPen(QColor("#8395a8"), 1, Qt.PenStyle.DashLine)
+            pen = QPen(colors["crosshair"], 0.85, Qt.PenStyle.DashLine)
             p.setPen(pen)
             snap_x = x(min(last - 1, max(first, hover_i)))
             p.drawLine(QPointF(snap_x, self.top), QPointF(snap_x, self.bottom))
             p.drawLine(QPointF(self.x0, self.cursor_y), QPointF(self.x1, self.cursor_y))
             price = lowest + (self.bottom - self.cursor_y) / max(1, self.bottom - self.top) * (highest - lowest)
-            p.fillRect(QRectF(self.x1 + 3, self.cursor_y - 10, 82, 20), QColor('#34465c'))
-            p.setPen(TEXT)
-            p.drawText(QRectF(self.x1 + 5, self.cursor_y - 10, 80, 20), int(Qt.AlignmentFlag.AlignCenter), short_number(price))
-            p.fillRect(QRectF(snap_x - 65, self.bottom + 5, 130, 22), QColor('#34465c'))
-            p.drawText(QRectF(snap_x - 65, self.bottom + 5, 130, 22), int(Qt.AlignmentFlag.AlignCenter), header_bar.time.strftime('%d.%m.%Y %H:%M'))
-        p.setPen(QColor("#8294a9"))
+            p.fillRect(QRectF(self.x1 + 3, self.cursor_y - 10, 82, 20),
+                       colors["tooltip_bg"])
+            p.setPen(colors["tooltip_text"])
+            p.drawText(QRectF(self.x1 + 5, self.cursor_y - 10, 80, 20),
+                       int(Qt.AlignmentFlag.AlignCenter), short_number(price))
+            p.fillRect(QRectF(snap_x - 65, self.bottom + 5, 130, 22),
+                       colors["tooltip_bg"])
+            p.drawText(QRectF(snap_x - 65, self.bottom + 5, 130, 22),
+                       int(Qt.AlignmentFlag.AlignCenter),
+                       header_bar.time.strftime('%d.%m.%Y %H:%M'))
+        p.setPen(colors["text"])
         p.setFont(QFont("Segoe UI", 8))
         p.drawText(QRectF(self.x0, self.height() - 32, self.width() - 170, 20), 0,
                    "Колесо: масштаб под курсором · Shift+колесо: история · Шкала цены: масштаб/сдвиг · End: последние · F: автоцена")
         p.end()
 
     def _draw_zone(self, p, x0, x1, y0, y1, side, broken, tf, stride, parent=False):
-        if x1 < x0:
+        """Draw transparent FVG with a right-aligned, collision-aware caption."""
+        if x1 <= x0:
             return
         low_y, high_y = min(y0, y1), max(y0, y1)
         height = max(1.5, high_y - low_y)
-        if height < 1.5:
-            return
-        if broken:
-            bg, edge = QColor(243, 169, 45, 40), QColor(241, 173, 70, 130)
-        elif side == 1:
-            bg, edge = QColor(24, 196, 145, 38 if not parent else 28), QColor(19, 148, 123, 135)
+        if self.visual_theme == "tv":
+            if broken:
+                bg, edge = QColor(176, 135, 68, 16), QColor(117, 94, 58, 75)
+            elif side == 1:
+                bg, edge = QColor(26, 111, 89, 34 if parent else 26), QColor(16, 89, 72, 115)
+            else:
+                bg, edge = QColor(151, 42, 57, 45 if parent else 35), QColor(131, 38, 50, 115)
         else:
-            bg, edge = QColor(221, 70, 100, 38 if not parent else 28), QColor(204, 74, 95, 135)
+            if broken:
+                bg, edge = QColor(243, 169, 45, 40), QColor(241, 173, 70, 130)
+            elif side == 1:
+                bg, edge = QColor(24, 196, 145, 38 if not parent else 28), QColor(19, 148, 123, 135)
+            else:
+                bg, edge = QColor(221, 70, 100, 38 if not parent else 28), QColor(204, 74, 95, 135)
         p.fillRect(QRectF(x0, low_y, x1 - x0, height), bg)
-        p.setPen(QPen(edge, 1))
+        p.setPen(QPen(edge, 0.85))
         p.drawRect(QRectF(x0, low_y, x1 - x0, height))
-        p.setPen(QPen(edge, 0.8, Qt.PenStyle.DotLine))
+        p.setPen(QPen(edge, 0.75, Qt.PenStyle.DotLine))
         p.drawLine(QPointF(x0, (y0 + y1) / 2), QPointF(x1, (y0 + y1) / 2))
-        if x1 - x0 > 65 and height >= 20:
-            p.setPen(TEXT)
-            p.setFont(QFont("Segoe UI", 8))
-            p.drawText(QRectF(x0 + 3, low_y + 2, min(98, x1 - x0 - 4), 14), 0, f"{tf} {'↑' if side == 1 else '↓'} FVG")
+        if x1 - x0 >= 68 and height >= 18:
+            short_tf = {"D1": "D", "W1": "W", "MN1": "M"}.get(tf, tf)
+            label = f"FVG {short_tf}"
+            width = min(98.0, x1 - x0 - 9.0)
+            label_rect = QRectF(x1 - width - 4, low_y + (height - 16) / 2, width, 16)
+            if not any(label_rect.intersects(existing) for existing in self._zone_labels):
+                self._zone_labels.append(label_rect)
+                p.setPen(edge if self.visual_theme == "tv" else CHART_PALETTES["dark"]["text"])
+                p.setFont(QFont("Segoe UI", 8))
+                p.drawText(label_rect, int(Qt.AlignmentFlag.AlignRight |
+                                           Qt.AlignmentFlag.AlignVCenter), label)
 
 
 class MainWindow(QMainWindow):
@@ -567,6 +685,17 @@ class MainWindow(QMainWindow):
         self.auto_checkbox.setChecked(True)
         self.auto_checkbox.setToolTip("Обновлять открытый инструмент MOEX через минуту после завершения запроса. Данные ISS поступают с задержкой около 15 минут.")
         navigation.addWidget(self.auto_checkbox)
+        navigation.addSpacing(10)
+        navigation.addWidget(QLabel("Тема:"))
+        self.visual_style = QComboBox()
+        self.visual_style.addItem("TradingView", "tv")
+        self.visual_style.addItem("Тёмная", "dark")
+        self.visual_style.setToolTip("Оформление графика. Не влияет на свечи и алгоритмы.")
+        self.visual_style.currentIndexChanged.connect(self._change_theme)
+        navigation.addWidget(self.visual_style)
+        self.panel_checkbox = QCheckBox("Панель")
+        self.panel_checkbox.setToolTip("Показать диагностику, последние FVG и события")
+        navigation.addWidget(self.panel_checkbox)
         navigation.addStretch()
         self.data_age = QLabel('')
         navigation.addWidget(self.data_age)
@@ -636,6 +765,10 @@ class MainWindow(QMainWindow):
         panel.addWidget(self.hover_info)
         splitter.addWidget(right)
         splitter.setSizes([1030, 320])
+        self.right_panel = right
+        self.panel_checkbox.toggled.connect(self.right_panel.setVisible)
+        # TV preset gives the price chart the maximum available width.
+        self.right_panel.hide()
         layout.addWidget(splitter, 1)
         self.status = QLabel()
         self.status.setObjectName("status")
@@ -646,21 +779,58 @@ class MainWindow(QMainWindow):
         self._style()
 
     def _style(self):
-        self.setStyleSheet("""
-        QMainWindow, QWidget { background: #101925; color: #d5e1ef; font-family: 'Segoe UI'; font-size: 12px; }
-        #brand { font-size: 18px; font-weight: 800; color: #86b8ff; letter-spacing: 1px; }
-        #section { font-weight: 700; font-size: 13px; color: #9bb2c9; margin-top: 6px; }
-        #warning { background: #302822; color: #eeb985; border: 1px solid #71533c; padding: 8px; border-radius: 5px; }
-        #bigPrice { font-size: 24px; font-weight: 700; color: #f1f6ff; }
-        #status { color: #9aaec1; font-size: 11px; }
-        QLineEdit, QComboBox, QPushButton { background: #1d2b3d; color: #e5edf7; border: 1px solid #34465c; padding: 7px; border-radius: 4px; }
-        QPushButton:hover { background: #294565; border: 1px solid #4f81b6; }
-        QPushButton:disabled { color: #798ba1; background: #1b2431; }
-        QPlainTextEdit, QTableWidget { background: #172231; color: #d6dfec; border: 1px solid #2a3a50; gridline-color: #2a3a50; }
-        QHeaderView::section { background: #1b2b3d; color: #c6d6e8; padding: 5px; border: 0px; }
-        QCheckBox { spacing: 9px; padding: 3px; }
-        QSplitter::handle { background: #25384d; width: 3px; }
-        """)
+        """Main chrome follows the chart preset without changing calculations."""
+        if self.chart.visual_theme == "tv":
+            self.setStyleSheet("""
+                QMainWindow, QWidget {
+                    background: #e6e6e6; color: #252525;
+                    font-family: 'Segoe UI'; font-size: 12px;
+                }
+                #brand { font-size: 18px; font-weight: 800; color: #262626; letter-spacing: 1px; }
+                #section { font-weight: 700; font-size: 13px; color: #525252; margin-top: 6px; }
+                #warning {
+                    background: #e5dfd7; color: #67513c;
+                    border: 1px solid #c9bba8; padding: 7px; border-radius: 4px;
+                }
+                #bigPrice { font-size: 24px; font-weight: 700; color: #161616; }
+                #status { color: #5e5e5e; font-size: 11px; }
+                QLineEdit, QComboBox, QPushButton {
+                    background: #f8f8f8; color: #272727;
+                    border: 1px solid #bcbcbc; padding: 7px; border-radius: 4px;
+                }
+                QPushButton:hover { background: #d5d5d5; border: 1px solid #969696; }
+                QPushButton:disabled { color: #888888; background: #eeeeee; }
+                QPlainTextEdit, QTableWidget {
+                    background: #f3f3f3; color: #2a2a2a;
+                    border: 1px solid #c6c6c6; gridline-color: #d9d9d9;
+                }
+                QHeaderView::section {
+                    background: #d9d9d9; color: #343434; padding: 5px; border: 0px;
+                }
+                QCheckBox { spacing: 9px; padding: 3px; }
+                QSplitter::handle { background: #c5c5c5; width: 3px; }
+            """)
+        else:
+            self.setStyleSheet("""
+                QMainWindow, QWidget { background: #101925; color: #d5e1ef; font-family: 'Segoe UI'; font-size: 12px; }
+                #brand { font-size: 18px; font-weight: 800; color: #86b8ff; letter-spacing: 1px; }
+                #section { font-weight: 700; font-size: 13px; color: #9bb2c9; margin-top: 6px; }
+                #warning { background: #302822; color: #eeb985; border: 1px solid #71533c; padding: 8px; border-radius: 5px; }
+                #bigPrice { font-size: 24px; font-weight: 700; color: #f1f6ff; }
+                #status { color: #9aaec1; font-size: 11px; }
+                QLineEdit, QComboBox, QPushButton { background: #1d2b3d; color: #e5edf7; border: 1px solid #34465c; padding: 7px; border-radius: 4px; }
+                QPushButton:hover { background: #294565; border: 1px solid #4f81b6; }
+                QPushButton:disabled { color: #798ba1; background: #1b2431; }
+                QPlainTextEdit, QTableWidget { background: #172231; color: #d6dfec; border: 1px solid #2a3a50; gridline-color: #2a3a50; }
+                QHeaderView::section { background: #1b2b3d; color: #c6d6e8; padding: 5px; border: 0px; }
+                QCheckBox { spacing: 9px; padding: 3px; }
+                QSplitter::handle { background: #25384d; width: 3px; }
+            """)
+        self.tf.set_theme(self.chart.visual_theme)
+
+    def _change_theme(self, *_):
+        self.chart.set_theme(self.visual_style.currentData())
+        self._style()
 
     def _toggle(self, key: str, value: bool):
         setattr(self.chart, key, value)
