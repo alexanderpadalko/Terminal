@@ -299,6 +299,7 @@ class Session:
 
     def summary(self, destination, selector):
         times = self.message_times
+        period_boundary = any(f'interval="{tf}"' in selector for tf in ('W1', 'm1', 'm3', 'Q1'))
         return {'label': self.label, 'destination': destination, 'selector': selector,
                 'authenticated': self.auth is not None, 'commands': dict(self.commands),
                 'data_messages': len(times), 'received_rows': self.received_rows,
@@ -306,7 +307,9 @@ class Session:
                 'first_message_after_subscribe_seconds': times[0] - self.started if times and self.started else None,
                 'data_span_seconds': times[-1] - times[0] if len(times) > 1 else 0,
                 'interarrival_seconds': stats([b - a for a, b in zip(times, times[1:])]),
-                'ages_seconds': {field: {'all': stats([x['age_seconds'] for x in values]),
+                'ages_seconds': {field: {'interpretation': ('PERIOD_BOUNDARY_NOT_FEED_LATENCY'
+                                                           if field == 'TILL' and period_boundary else 'FIELD_AGE_REQUIRES_CHANNEL_CONTEXT'),
+                                        'all': stats([x['age_seconds'] for x in values]),
                                         'updates': stats([x['age_seconds'] for x in values if x['packet_type'] == 'updates']),
                                         'samples': values[:3] + values[-3:]}
                                  for field, values in self.ages.items()},
@@ -388,7 +391,8 @@ async def run(args, evidence):
               'measurement_notes': [
                   'HTTP Date is a coarse gateway clock reference, not an independent exchange/NTP clock.',
                   'TIME age includes feed delay, batching, trade inactivity and network latency.',
-                  'TILL is the last candle event time; historical snapshot ages do not establish feed delay.',
+                  'TILL is interval-dependent; for W/M/Q it can be a future period boundary, not an event time.',
+                  'Historical snapshot ages do not establish feed delay; D1 may have different freshness from M1.',
                   'No HTTP requests are made inside stream observation windows.',
                   'A channel error is reported separately from handshake/authentication failure.',
                   'Success on a hosted runner does not prove reachability from the user PC.']}
