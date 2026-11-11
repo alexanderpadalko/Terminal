@@ -30,6 +30,29 @@ class TestChartView(unittest.TestCase):
         view.zoom(0.82, 0.5, 5)
         self.assertEqual(view.window(5), (0, 5))
 
+    def test_right_padding_is_visual_only_and_can_be_dragged(self):
+        view = ChartView(count=100, offset=0)
+        self.assertEqual(view.right_padding, 16)
+        original = view.window(1000)
+        view.drag_chart(-30, 1000, start_offset=0, start_padding=16)
+        self.assertEqual(view.window(1000), original)
+        self.assertEqual(view.right_padding, 46)
+        view.drag_chart(20, 1000, start_offset=0, start_padding=46)
+        self.assertEqual(view.offset, 20)
+        self.assertEqual(view.right_padding, 26)
+        view.drag_chart(50, 1000, start_offset=0, start_padding=26)
+        self.assertEqual(view.right_padding, 0)
+        self.assertEqual(view.offset, 50)
+
+    def test_drag_history_then_future_space_without_synthetic_candles(self):
+        view = ChartView(count=50, offset=25, right_padding=12)
+        view.drag_chart(-40, 1000, start_offset=25, start_padding=12)
+        self.assertEqual(view.offset, 0)
+        self.assertEqual(view.right_padding, 27)
+        self.assertEqual(view.window(1000), (950, 1000))
+        view.drag_chart(-1000, 1000, start_offset=0, start_padding=27)
+        self.assertEqual(view.right_padding, 250)
+
     def test_return_to_latest_preserves_zoom(self):
         view = ChartView(200, 300)
         view.latest()
