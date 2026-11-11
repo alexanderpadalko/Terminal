@@ -910,10 +910,12 @@ class MainWindow(StreamController, QMainWindow):
         self._request_market(refresh=True)
 
     def _schedule_auto_refresh(self, *_):
-        self.auto_timer.stop()
         if (self.auto_checkbox.isChecked() and self.loaded_market and
                 self.source.startswith('MOEX:') and self.worker is None and not self.closing_after_load):
-            self.auto_timer.start()
+            if not self.auto_timer.isActive():
+                self.auto_timer.start()
+        else:
+            self.auto_timer.stop()
 
     def _auto_refresh(self):
         if (not self.auto_checkbox.isChecked() or not self.loaded_market or
@@ -924,12 +926,14 @@ class MainWindow(StreamController, QMainWindow):
         if context != self.loaded_market:
             self._schedule_auto_refresh()
             return
-        if self.stream_ready and not self.stream_needs_repair and self.stream_worker:
+        confirmation = self.data_info.get('next_confirmation_at')
+        boundary_due = bool(confirmation and datetime.now(timezone.utc) >= datetime.fromisoformat(confirmation))
+        if self.stream_ready and not self.stream_needs_repair and self.stream_worker and not boundary_due:
             self._schedule_auto_refresh()
             return
         self.desired_market = self.loaded_market
         self._start_market((*self.loaded_market, True), automatic=True,
-                           repair=bool(self.stream_worker and self.stream_needs_repair))
+                           repair=bool(self.stream_worker and (self.stream_needs_repair or boundary_due)))
 
     def _timeframe_changed(self, tf):
         if self.source.startswith('MOEX:') or self.worker is not None:
@@ -964,7 +968,8 @@ class MainWindow(StreamController, QMainWindow):
         self._start_market(request)
 
     def _start_market(self, request, *, automatic=False, stream_batch=(), repair=False):
-        self.auto_timer.stop()
+        if not stream_batch:
+            self.auto_timer.stop()
         symbol, board, tf, refresh = request
         if self.loaded_market is None or self.loaded_market[:2] != request[:2]:
             self.csv_overrides, self.csv_provenance = {}, {}

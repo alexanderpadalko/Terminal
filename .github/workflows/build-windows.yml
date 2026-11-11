@@ -28,7 +28,9 @@ jobs:
         if: always()
         with:
           name: FlowDesk-0.2.19-ISSPlus-Live-Evidence
-          path: issplus-live-result.json
+          path: |
+            issplus-live-result.json
+            issplus-live-cache.sqlite3
           retention-days: 30
   archive-check:
     # Service availability is recorded independently of tests and packaging.

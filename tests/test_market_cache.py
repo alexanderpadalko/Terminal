@@ -44,6 +44,16 @@ class TestMarketCache(unittest.TestCase):
         self.assertIs(hourly, first)
         self.assertEqual(info['tier'], 'memory')
 
+    def test_pending_hour_requests_fresh_observation_after_close_without_self_confirming(self):
+        first, _, info = self.seed()
+        self.assertEqual(datetime.fromisoformat(info['next_confirmation_at']),
+                         BASE.replace(hour=12, second=30))
+        self.now = BASE.replace(hour=15)
+        same, _, info = self.service.view('AFKS', 'TQBR', 'H1')
+        self.assertIs(same, first)
+        self.assertEqual(same.confirmed_bars, 2)
+        self.assertLess(datetime.fromisoformat(info['next_confirmation_at']), self.now)
+
     def test_saved_forming_hour_does_not_confirm_when_wall_clock_advances(self):
         first, _, _ = self.seed()
         self.now = BASE.replace(hour=12, minute=30)
@@ -149,3 +159,4 @@ class TestMarketCache(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+

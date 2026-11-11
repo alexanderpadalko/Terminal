@@ -276,10 +276,17 @@ class MarketService:
             main = snapshot.analyses[tf]
             parents = {t: a for t, a in snapshot.analyses.items()
                        if TIMEFRAMES.index(t) > TIMEFRAMES.index(tf)}
+        # Native close publications can stop with the session. Arrange one
+        # fresh HTTP observation after an outstanding calendar boundary;
+        # the wall clock alone must never confirm a saved partial candle.
+        awaiting = [candle_close_time(c, t) for t in ('H1', *NATIVE_HIGHER)
+                    for c in series.get(t, [])[-2:] if candle_close_time(c, t) > snapshot.asof]
+        confirmation_at = (min(awaiting) + self.feed_delay + timedelta(seconds=30)).isoformat() if awaiting else None
         return main, parents, {'symbol': symbol, 'board': board, 'tf': tf, 'tier': tier,
                                'asof': main.asof.isoformat(), 'warning': warning,
                                'requested_at': snapshot.metadata.get('request_started_at', snapshot.asof.isoformat()),
                                'stream_received_at': snapshot.metadata.get('stream_received_at'),
                                'stream_repair_required': snapshot.metadata.get('stream_repair_required', False),
+                               'next_confirmation_at': confirmation_at,
                                'feed_delay_seconds': snapshot.metadata.get('feed_delay_seconds', 0)}
 

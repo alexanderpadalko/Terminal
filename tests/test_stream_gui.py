@@ -106,6 +106,27 @@ class TestStreamGui(unittest.TestCase):
         self.assertIsNone(self.window.worker)
         self.assertEqual(len(self.market.calls), count)
 
+    def test_quiet_session_boundary_triggers_one_fresh_http_repair(self):
+        self.ready()
+        count = self.market.repairs
+        self.window.data_info['next_confirmation_at'] = '2020-01-01T00:00:00+03:00'
+        self.window._auto_refresh()
+        self.settle()
+        self.assertEqual(self.market.repairs, count + 1)
+        self.assertFalse(self.window.stream_needs_repair)
+
+    def test_stream_batches_do_not_postpone_boundary_timer(self):
+        stream = self.ready()
+        self.window.auto_timer.setInterval(5000)
+        self.window.auto_timer.start()
+        QTest.qWait(30)
+        remaining = self.window.auto_timer.remainingTime()
+        stream.send(kind='candles', timeframe='M1', candles=(Candle(NOW, 10, 12, 9, 11),))
+        self.window._flush_stream()
+        self.settle()
+        self.assertTrue(self.window.auto_timer.isActive())
+        self.assertLess(self.window.auto_timer.remainingTime(), remaining)
+
     def test_quote_does_not_replace_candle_or_view(self):
         stream = self.ready()
         old = self.window.analysis
