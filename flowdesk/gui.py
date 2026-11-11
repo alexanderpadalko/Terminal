@@ -24,6 +24,8 @@ from PySide6.QtWidgets import (
 from . import __version__
 from .chart_view import ChartView, inside_mother_bars
 from .market_cache import MarketService
+from .stream_worker import StreamWorker
+from .stream_ui import StreamController
 from .engine import Analysis, analyze
 from .pipeline import analyze_timeframes, source_coverage
 from .liquidity import serialize_audit
@@ -188,18 +190,24 @@ class MarketWorker(QThread):
     progress = Signal(str)
 
     def __init__(self, symbol: str, tf: str, board: str, service: MarketService,
-                 *, refresh=False, overrides=None, provenance=None):
+                 *, refresh=False, overrides=None, provenance=None, stream_batch=(), repair=False):
         super().__init__()
         self.symbol, self.tf, self.board = symbol, tf, board
         self.service, self.refresh = service, refresh
         self.overrides, self.provenance = overrides, provenance
+        self.stream_batch, self.repair = stream_batch, repair
 
     def run(self):
         try:
+            if self.stream_batch:
+                self.service.ingest_stream(self.symbol, self.board, self.stream_batch)
+            extra = {'with_minutes': True} if self.repair else {}
             main, higher, info = self.service.view(
                 self.symbol, self.board, self.tf, refresh=self.refresh,
                 overrides=self.overrides, provenance=self.provenance,
-                progress=self.progress.emit)
+                progress=self.progress.emit, **extra)
+            if self.stream_batch:
+                info['tier'] = 'stream'
             self.loaded.emit(main, higher, info)
         except Exception as e:
             self.failed.emit(f"{type(e).__name__}: {e}")
@@ -683,14 +691,15 @@ class CandleChart(QWidget):
                                            Qt.AlignmentFlag.AlignVCenter), label)
 
 
-class MainWindow(QMainWindow):
-    def __init__(self, service=None):
+class MainWindow(StreamController, QMainWindow):
+    def __init__(self, service=None, *, stream_factory=None):
         super().__init__()
         self.setWindowTitle(f"FlowDesk {__version__} — Структура и FVG · Windows")
         self.setMinimumSize(1060, 690)
         self.resize(1420, 830)
         self.worker: MarketWorker | None = None
         self.market_service = service or MarketService()
+        self._init_stream(stream_factory or (StreamWorker if service is None else None))
         self.pending_market = None
         self.desired_market = None
         self.loaded_market = None
@@ -708,7 +717,11 @@ class MainWindow(QMainWindow):
         self.auto_timer.setSingleShot(True)
         self.auto_timer.setInterval(60000)
         self.auto_timer.timeout.connect(self._auto_refresh)
-        self.auto_checkbox.toggled.connect(self._schedule_auto_refresh)
+        self.stream_timer = QTimer(self)
+        self.stream_timer.setSingleShot(True)
+        self.stream_timer.setInterval(1000)
+        self.stream_timer.timeout.connect(self._flush_stream)
+        self.auto_checkbox.toggled.connect(self._auto_toggled)
         self._show_data(analyze(demo_data(), "H1"), {}, self.source)
 
     def _build_ui(self):
@@ -757,9 +770,9 @@ class MainWindow(QMainWindow):
             button = QPushButton(caption)
             button.clicked.connect(callback)
             navigation.addWidget(button)
-        self.auto_checkbox = QCheckBox("Авто · 60 с")
+        self.auto_checkbox = QCheckBox("Авто")
         self.auto_checkbox.setChecked(True)
-        self.auto_checkbox.setToolTip("Обновлять открытый инструмент MOEX через минуту после завершения запроса. Данные ISS поступают с задержкой около 15 минут.")
+        self.auto_checkbox.setToolTip("Поток MOEX ISS+ DEMO. Резерв — HTTP каждые 60 секунд. Внутридневные свечи и котировки задержаны примерно на 15 минут.")
         navigation.addWidget(self.auto_checkbox)
         navigation.addSpacing(10)
         self.panel_checkbox = QCheckBox("Панель")
@@ -772,6 +785,10 @@ class MainWindow(QMainWindow):
         self.banner = QLabel("ПРЕДВАРИТЕЛЬНЫЕ РАСЧЁТЫ • совпадение с TradingView не подтверждено • без выставления заявок")
         self.banner.setObjectName("warning")
         layout.addWidget(self.banner)
+        self.feed_label = QLabel('')
+        self.feed_label.setWordWrap(True)
+        self.feed_label.hide()
+        layout.addWidget(self.feed_label)
         splitter = QSplitter(Qt.Orientation.Horizontal)
         splitter.setChildrenCollapsible(False)
         splitter.addWidget(self.chart)
@@ -889,6 +906,7 @@ class MainWindow(QMainWindow):
         self.chart.update()
 
     def load_moex(self):
+        self.stream_disabled_key = None
         self._request_market(refresh=True)
 
     def _schedule_auto_refresh(self, *_):
@@ -906,8 +924,12 @@ class MainWindow(QMainWindow):
         if context != self.loaded_market:
             self._schedule_auto_refresh()
             return
+        if self.stream_ready and not self.stream_needs_repair and self.stream_worker:
+            self._schedule_auto_refresh()
+            return
         self.desired_market = self.loaded_market
-        self._start_market((*self.loaded_market, True), automatic=True)
+        self._start_market((*self.loaded_market, True), automatic=True,
+                           repair=bool(self.stream_worker and self.stream_needs_repair))
 
     def _timeframe_changed(self, tf):
         if self.source.startswith('MOEX:') or self.worker is not None:
@@ -932,6 +954,8 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Тикер", "Введите тикер, например SBER")
             return
         request = (symbol, self.board.currentText(), self.tf.currentText(), refresh)
+        if self.stream_key and self.stream_key != request[:2]:
+            self._stop_stream()
         self.desired_market = request[:3]
         if self.worker is not None:
             self.pending_market = request
@@ -939,7 +963,7 @@ class MainWindow(QMainWindow):
             return
         self._start_market(request)
 
-    def _start_market(self, request, *, automatic=False):
+    def _start_market(self, request, *, automatic=False, stream_batch=(), repair=False):
         self.auto_timer.stop()
         symbol, board, tf, refresh = request
         if self.loaded_market is None or self.loaded_market[:2] != request[:2]:
@@ -950,8 +974,10 @@ class MainWindow(QMainWindow):
         self.h1_button.setEnabled(False)
         self.status.setText(f'Открытие {symbol} · {tf}…')
         self.worker = MarketWorker(symbol, tf, board, self.market_service, refresh=refresh,
-                                   overrides=dict(self.csv_overrides), provenance=dict(self.csv_provenance))
+                                   overrides=dict(self.csv_overrides), provenance=dict(self.csv_provenance),
+                                   stream_batch=stream_batch, repair=repair)
         self.worker.automatic = automatic
+        self.worker.stream_epoch = self.stream_epoch
         self.worker.loaded.connect(self._loaded)
         self.worker.failed.connect(self._failed)
         self.worker.progress.connect(self.status.setText)
@@ -964,9 +990,22 @@ class MainWindow(QMainWindow):
             return
         self.loaded_market = context
         self.data_info = info
+        if (self.worker.repair and self.worker.stream_epoch == self.stream_epoch and
+                context[:2] == self.stream_key and info.get('tier') == 'network'):
+            self.stream_needs_repair = False
+        if info.get('stream_repair_required'):
+            self.stream_needs_repair = self.stream_repair_pending = True
         self._show_data(analysis, higher, f"MOEX: {info['symbol']} / {info['board']}")
 
     def _failed(self, error: str):
+        if getattr(self.worker, 'stream_batch', ()):
+            self.stream_needs_repair = self.stream_repair_pending = True
+        elif getattr(self.worker, 'repair', False):
+            # If minute priming fails, keep the original HTTP-only path usable.
+            self.stream_disabled_key = self.stream_key
+            self._stop_stream()
+            self.stream_state = 'HTTP · восстановление потока недоступно'
+            self._feed_text()
         self.status.setText(f"Ошибка загрузки: {error}")
         if not self.pending_market and not self.closing_after_load and not getattr(self.worker, 'automatic', False):
             QMessageBox.warning(self, "MOEX ISS", error)
@@ -997,10 +1036,14 @@ class MainWindow(QMainWindow):
                 self.symbol.setText(self.loaded_market[0])
                 self.board.setCurrentText(self.loaded_market[1])
         self._schedule_auto_refresh()
+        self._ensure_stream()
+        if self.stream_buffer or self.stream_repair_pending:
+            self.stream_timer.start()
 
     def closeEvent(self, event):
         self.auto_timer.stop()
-        if self.worker is not None:
+        self._stop_stream()
+        if self.worker is not None or self.retiring_streams:
             self.closing_after_load = True
             self.pending_market = None
             self.hide()
@@ -1024,6 +1067,7 @@ class MainWindow(QMainWindow):
                 raise ValueError("В CSV не осталось свечей после фильтрации аукциона")
             self.data_info, self.csv_overrides, self.csv_provenance = {}, {}, {}
             self.loaded_market = None
+            self._stop_stream()
             self.local_series = {tf: candles}
             self.local_provenance = {tf: {'mode': 'USER_CSV', 'file': Path(path).name}}
             # Never apply a prior H1 CSV from another instrument to a newly
@@ -1077,6 +1121,7 @@ class MainWindow(QMainWindow):
                 imported.add(tf)
             updated, parents = analyze_timeframes(series, main.timeframe, asof=main.asof, provenance=provenance)
             if self.source.startswith('MOEX:'):
+                self._stop_stream()
                 self.csv_overrides.update({tf: series[tf] for tf in imported})
                 self.csv_provenance.update({tf: provenance[tf] for tf in imported})
             else:
@@ -1094,6 +1139,7 @@ class MainWindow(QMainWindow):
         self.auto_checkbox.setEnabled(source.startswith('MOEX:'))
         if not source.startswith('MOEX:'):
             self.auto_timer.stop()
+            self.feed_label.hide()
         self.analysis = analysis
         self.parents = parents
         if source.startswith("MOEX:"):
@@ -1162,11 +1208,13 @@ class MainWindow(QMainWindow):
         if self.data_info:
             observed = datetime.fromisoformat(self.data_info['asof']).astimezone(MOSCOW)
             origin = {'memory': 'Сохранённые данные', 'disk': 'Сохранённые данные',
-                      'offline': 'Офлайн', 'network': 'Обновлено'}[self.data_info['tier']]
+                      'offline': 'Офлайн', 'network': 'Обновлено', 'stream': 'Поток'}[self.data_info['tier']]
             requested = datetime.fromisoformat(self.data_info.get('requested_at', self.data_info['asof'])).astimezone(MOSCOW)
+            if self.data_info.get('stream_received_at') and self.data_info['tier'] == 'stream':
+                requested = datetime.fromisoformat(self.data_info['stream_received_at']).astimezone(MOSCOW)
             delay = self.data_info.get('feed_delay_seconds', 0)
             self.data_age.setText(f'{origin} · {requested:%H:%M:%S} МСК' + (f' · задержка ≈{delay // 60} мин' if delay else ''))
-            self.data_age.setToolTip(f'Начало запроса: {requested:%d.%m.%Y %H:%M:%S} МСК\nРасчёт закрытых свечей до: {observed:%d.%m.%Y %H:%M:%S} МСК')
+            self.data_age.setToolTip(f'Получение / запрос: {requested:%d.%m.%Y %H:%M:%S} МСК\nРасчёт закрытых свечей до: {observed:%d.%m.%Y %H:%M:%S} МСК')
             if self.data_info.get('warning'):
                 self.status.setText(self.status.text() + ' · ' + self.data_info['warning'])
         else:
@@ -1309,3 +1357,4 @@ def run():
     window = MainWindow()
     window.show()
     return app.exec()
+

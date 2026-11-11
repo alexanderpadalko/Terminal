@@ -9,7 +9,8 @@ from .market_data import Candle, TIMEFRAMES, normalize
 
 def analyze_timeframes(series: dict[str, list[Candle]], display_tf: str,
                        *, asof: datetime | None = None,
-                       provenance: dict[str, dict] | None = None
+                       provenance: dict[str, dict] | None = None,
+                       cached: dict[str, Analysis] | None = None
                        ) -> tuple[Analysis, dict[str, Analysis]]:
     """Analyze longest TF first, without shortening the calculation history.
 
@@ -23,6 +24,9 @@ def analyze_timeframes(series: dict[str, list[Candle]], display_tf: str,
     analyses: dict[str, Analysis] = {}
     for tf in reversed(TIMEFRAMES[TIMEFRAMES.index(display_tf):]):
         if not series.get(tf):
+            continue
+        if cached and tf in cached:
+            analyses[tf] = cached[tf]
             continue
         result = analyze(normalize(series[tf]), tf, asof=asof,
                          higher_h1=analyses.get("H1"),
@@ -46,3 +50,4 @@ def source_coverage(analysis: Analysis) -> dict:
         "history_complete": False,
         "note": "Показан доступный диапазон; полнота истории и паритет с Pine не подтверждены",
     }
+

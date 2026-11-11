@@ -1,0 +1,159 @@
+import os
+import time
+import unittest
+from datetime import datetime
+
+os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
+try:
+    from PySide6.QtCore import QObject, Signal
+    from PySide6.QtTest import QTest
+    from PySide6.QtWidgets import QApplication
+    from flowdesk.gui import MainWindow
+    from test_gui_navigation import FakeMarket
+    QT_AVAILABLE = True
+except ImportError:
+    if os.environ.get('CI') == 'true':
+        raise
+    QT_AVAILABLE = False
+
+from flowdesk.iss_plus import FeedEvent
+from flowdesk.market_data import Candle, MOSCOW
+
+NOW = datetime(2026, 11, 11, 13, 30, tzinfo=MOSCOW)
+
+if QT_AVAILABLE:
+    class FakeStream(QObject):
+        event = Signal(object)
+        finished = Signal()
+
+        def __init__(self, symbol, board):
+            super().__init__()
+            self.symbol, self.board, self.stopped = symbol, board, False
+
+        def start(self):
+            pass
+
+        def stop(self):
+            self.stopped = True
+            self.finished.emit()
+
+        def send(self, kind='status', state='', **kwargs):
+            self.event.emit(FeedEvent(kind, self.symbol, self.board, 1, NOW, state=state, **kwargs))
+
+    class StreamMarket(FakeMarket):
+        def __init__(self):
+            super().__init__()
+            self.batches, self.repairs = [], 0
+
+        def view(self, *args, **kwargs):
+            result = super().view(*args, **kwargs)
+            if kwargs.get('with_minutes'):
+                self.repairs += 1
+                result[2]['tier'] = 'network'
+            return result
+
+        def ingest_stream(self, symbol, board, batch):
+            self.batches.append((symbol, board, batch))
+
+
+@unittest.skipUnless(QT_AVAILABLE, 'Qt runs in the pinned Windows runtime')
+class TestStreamGui(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.app = QApplication.instance() or QApplication([])
+        cls.app.setQuitOnLastWindowClosed(False)
+
+    def setUp(self):
+        self.streams = []
+        def factory(*args):
+            stream = FakeStream(*args)
+            self.streams.append(stream)
+            return stream
+        self.market = StreamMarket()
+        self.window = MainWindow(service=self.market, stream_factory=factory)
+        self.window.show()
+        self.window.load_moex()
+        self.settle()
+        self.addCleanup(self.cleanup)
+
+    def cleanup(self):
+        self.settle()
+        self.window.close()
+        self.window.deleteLater()
+        self.app.processEvents()
+
+    def settle(self):
+        limit = time.monotonic() + 5
+        while self.window.worker is not None and time.monotonic() < limit:
+            QTest.qWait(10)
+        self.app.processEvents()
+        self.assertIsNone(self.window.worker)
+
+    def ready(self):
+        stream = self.streams[-1]
+        stream.send(state='resync')
+        stream.send(state='ready')
+        self.window._flush_stream()
+        self.settle()
+        self.assertFalse(self.window.stream_needs_repair)
+        return stream
+
+    def test_stream_requires_repair_then_no_healthy_http_poll(self):
+        self.ready()
+        self.assertEqual(self.market.repairs, 1)
+        count = len(self.market.calls)
+        self.window._auto_refresh()
+        self.assertIsNone(self.window.worker)
+        self.assertEqual(len(self.market.calls), count)
+
+    def test_quote_does_not_replace_candle_or_view(self):
+        stream = self.ready()
+        old = self.window.analysis
+        self.window.chart.price_range = (4, 20)
+        stream.send(kind='quote', quote={'LAST': 1234, 'TIME': '13:15:00', 'TRADINGSTATUS': 'T'})
+        self.assertIs(self.window.analysis, old)
+        self.assertEqual(self.window.chart.price_range, (4, 20))
+        self.assertIn('1234', self.window.feed_label.text())
+
+    def test_tf_switch_keeps_connection_and_stream_batch_uses_worker(self):
+        stream = self.ready()
+        self.window.tf.setCurrentText('M1')
+        self.settle()
+        self.assertEqual(len(self.streams), 1)
+        stream.send(kind='candles', timeframe='M1', candles=(Candle(NOW, 10, 12, 9, 11),))
+        self.window._flush_stream()
+        self.settle()
+        self.assertEqual(len(self.market.batches), 1)
+        self.assertEqual(self.window.data_info['tier'], 'stream')
+
+    def test_instrument_switch_stops_old_and_ignores_old_events(self):
+        old = self.ready()
+        self.window.symbol.setText('AFKS')
+        self.window.load_moex()
+        self.settle()
+        self.assertTrue(old.stopped)
+        # QObject may have been deleted by the event loop; deliver a stale
+        # event using the new sender but old identity to test both guards.
+        new = self.streams[-1]
+        new.event.emit(FeedEvent('quote', 'SBER', 'TQBR', 1, NOW, quote={'LAST': 999}))
+        self.assertNotIn('999', self.window.feed_label.text())
+        self.assertEqual(self.window.stream_key, ('AFKS', 'TQBR'))
+
+    def test_pause_stops_and_resume_requires_new_repair(self):
+        old = self.ready()
+        self.window.auto_checkbox.setChecked(False)
+        self.assertTrue(old.stopped)
+        self.assertFalse(self.window.auto_timer.isActive())
+        self.window.auto_checkbox.setChecked(True)
+        self.assertEqual(len(self.streams), 2)
+        self.assertTrue(self.window.stream_needs_repair)
+
+    def test_permission_failure_uses_http_fallback(self):
+        stream = self.ready()
+        stream.send(state='unavailable', detail='not authorized')
+        stream.finished.emit()
+        self.window._auto_refresh()
+        self.settle()
+        self.assertEqual(len(self.streams), 1)
+        self.assertIsNone(self.window.stream_worker)
+        self.assertTrue(self.window.auto_timer.isActive())

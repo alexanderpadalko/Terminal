@@ -28,7 +28,7 @@ python -m pip install -r requirements-build.txt
 if errorlevel 1 goto fail
 python -m unittest discover -s tests -v
 if errorlevel 1 goto fail
-python -m PyInstaller --clean --noconfirm --windowed --onedir --name FlowDesk --collect-all tzdata main.py
+python -m PyInstaller --clean --noconfirm --windowed --onedir --name FlowDesk --collect-all tzdata --collect-all websockets main.py
 if errorlevel 1 goto fail
  echo.
  echo SUCCESS: dist\FlowDesk\FlowDesk.exe
@@ -39,3 +39,4 @@ if errorlevel 1 goto fail
  echo BUILD FAILED - review errors above.
  pause
  exit /b 1
+

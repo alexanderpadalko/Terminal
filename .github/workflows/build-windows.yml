@@ -5,6 +5,25 @@ on:
     branches: [main]
 
 jobs:
+  issplus-live:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.15.2'
+      - run: python -m pip install websockets==15.0.1 tzdata==2026.4
+      - name: Exercise SBER stream and forced reconnect
+        run: python -u tools/check_issplus_live.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: FlowDesk-0.2.19-ISSPlus-Live-Evidence
+          path: issplus-live-result.json
+          retention-days: 30
   archive-check:
     # Service availability is recorded independently of tests and packaging.
     continue-on-error: true
@@ -53,11 +72,18 @@ jobs:
           python -c "from PySide6.QtWidgets import QApplication; from flowdesk.gui import MainWindow; app = QApplication([]); w=MainWindow(); print('GUI constructed:', w.windowTitle()); w.close()"
           python tools/preview_ui.py
       - name: Build portable Windows executable
-        run: python -m PyInstaller --clean --noconfirm --windowed --onedir --name FlowDesk --collect-all tzdata main.py
+        run: python -m PyInstaller --clean --noconfirm --windowed --onedir --name FlowDesk --collect-all tzdata --collect-all websockets main.py
       - name: Publish entire standalone directory
         uses: actions/upload-artifact@v4
         with:
-          name: FlowDesk-Windows-x64-Python-3.15.2
+          name: FlowDesk-0.2.19-Windows-x64
           path: dist/FlowDesk/
           if-no-files-found: error
           retention-days: 30
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: FlowDesk-0.2.19-Preview
+          path: ui-preview.png
+          retention-days: 30
+

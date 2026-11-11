@@ -100,6 +100,17 @@ class SnapshotStore:
                                              *snapshot.native_higher.items()]
                             for c in bars))
 
+    def write_delta(self, key, snapshot, changes):
+        # One SQLite transaction publishes metadata and keyed candle upserts.
+        # The untouched archive isn't rewritten on each live day/week update.
+        with closing(self._connect()) as db, db:
+            db.execute('INSERT OR REPLACE INTO snapshots VALUES (?, ?, ?, ?, ?)',
+                       (key, snapshot.symbol, snapshot.board, snapshot.asof.isoformat(),
+                        json.dumps(snapshot.metadata, ensure_ascii=False)))
+            db.executemany('INSERT OR REPLACE INTO candles VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+                           ((key, tf, c.time.isoformat(), c.open, c.high, c.low, c.close, c.volume)
+                            for tf, bars in changes.items() for c in bars))
+
 
 class MarketService:
     def __init__(self, path: str | Path | None = None, *, clock=None, feed_delay=PUBLIC_FEED_DELAY):
@@ -159,6 +170,7 @@ class MarketService:
                         base_h1_bars=len(hours), snapshot_asof=asof.isoformat(), cache_policy=CACHE_POLICY,
                         request_started_at=requested_at.isoformat(),
                         feed_delay_seconds=int(self.feed_delay.total_seconds()))
+        metadata['http_completed_at'] = self.clock().isoformat()
         metadata['sources'] = {tf: {**bundle_source_info(fetched_meta, tf),
                                     'native_higher': True, 'mode': 'MOEX_NATIVE_CANDLES',
                                     'symbol': symbol, 'board': board, 'iss_interval': MOEX_INTERVALS[tf],
@@ -175,7 +187,23 @@ class MarketService:
                                         'snapshot_asof': asof.isoformat()}
         return MarketSnapshot(symbol, board, asof, hours, minutes, metadata, native_higher)
 
-    def view(self, symbol, board, tf, *, refresh=False, overrides=None, provenance=None, progress=None):
+    def ingest_stream(self, symbol, board, events):
+        # The GUI serializes this with HTTP and calculation in MarketWorker.
+        # Transport callbacks never mutate shared history or engine objects.
+        from .stream_cache import merge_stream
+        sessions = load_session_overrides()
+        key = self.key(symbol, board, sessions)
+        saved = self.memory.get(key)
+        if saved is None:
+            raise ValueError('Потоку требуется исходный снимок HTTP')
+        snapshot, changes = merge_stream(saved, events, sessions)
+        if snapshot is saved:
+            return
+        self.store.write_delta(key, snapshot, changes)
+        self.memory[key] = snapshot
+
+    def view(self, symbol, board, tf, *, refresh=False, overrides=None, provenance=None, progress=None,
+             with_minutes=False):
         symbol, board = symbol.strip().upper(), board.strip().upper()
         if tf not in TIMEFRAMES:
             raise ValueError('Неизвестный таймфрейм')
@@ -201,7 +229,7 @@ class MarketService:
                                         {**saved.metadata, 'request_started_at': requested,
                                          'feed_delay_seconds': int(self.feed_delay.total_seconds()),
                                          'snapshot_asof': cutoff.isoformat()}, saved.native_higher)
-        needs_minutes = tf in ('M1', 'M5') and not (overrides or {}).get(tf)
+        needs_minutes = with_minutes or tf in ('M1', 'M5') and not (overrides or {}).get(tf)
         has_native = saved is not None and all(saved.native_higher.get(t) for t in NATIVE_HIGHER)
         must_fetch = saved is None or refresh or not has_native or needs_minutes and not saved.minutes
         snapshot = saved
@@ -239,11 +267,11 @@ class MarketService:
             main, parents = analyze_timeframes({**series, **overrides}, tf, asof=cutoff,
                                                provenance={**source_provenance, **(provenance or {})})
         else:
-            if not snapshot.analyses:
+            first_tf = 'M1' if snapshot.minutes else 'H1'
+            if any(t not in snapshot.analyses for t in series if TIMEFRAMES.index(t) >= TIMEFRAMES.index(first_tf)):
                 progress('Расчёт потоков по загруженной истории')
-                first_tf = 'M1' if snapshot.minutes else 'H1'
                 main, parents = analyze_timeframes(series, first_tf, asof=snapshot.asof,
-                                                   provenance=source_provenance)
+                                                   provenance=source_provenance, cached=snapshot.analyses)
                 snapshot.analyses = {main.timeframe: main, **parents}
             main = snapshot.analyses[tf]
             parents = {t: a for t, a in snapshot.analyses.items()
@@ -251,4 +279,7 @@ class MarketService:
         return main, parents, {'symbol': symbol, 'board': board, 'tf': tf, 'tier': tier,
                                'asof': main.asof.isoformat(), 'warning': warning,
                                'requested_at': snapshot.metadata.get('request_started_at', snapshot.asof.isoformat()),
+                               'stream_received_at': snapshot.metadata.get('stream_received_at'),
+                               'stream_repair_required': snapshot.metadata.get('stream_repair_required', False),
                                'feed_delay_seconds': snapshot.metadata.get('feed_delay_seconds', 0)}
+
