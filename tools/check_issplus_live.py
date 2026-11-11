@@ -11,6 +11,7 @@ import time
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from flowdesk.iss_plus import IssPlusClient
 from flowdesk.market_cache import MarketService
+from flowdesk.pipeline import analyze_timeframes
 from flowdesk.stream_cache import StreamGap
 
 
@@ -91,6 +92,14 @@ async def main():
             assert result['stream_batches'] > 5, result
             assert result['accepted_batches'] > 3, result
             assert result['minute_updates'] > 0, result
+            cached, parents, _ = await asyncio.to_thread(service.view, 'SBER', 'TQBR', 'M1')
+            saved = service.memory[next(iter(service.memory))]
+            fresh, fresh_parents = await asyncio.to_thread(analyze_timeframes, saved.sources(), 'M1', asof=saved.asof)
+            result['replay_timeframes'] = []
+            for tf, a in {'M1': cached, **parents}.items():
+                b = {'M1': fresh, **fresh_parents}[tf]
+                assert (a.flows, a.fvg, a.pairs, a.confirmed_bars) == (b.flows, b.fvg, b.pairs, b.confirmed_bars), tf
+                result['replay_timeframes'].append(tf)
             result['success'] = True
     except Exception as exc:
         result['errors'].append(f'{type(exc).__name__}: {exc}')

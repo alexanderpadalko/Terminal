@@ -195,6 +195,8 @@ class IssPlusClient:
                 received = set()
                 ready = False
                 heartbeat = last_minute = time.monotonic()
+                minute_trade_count = None
+                pending_trade_since = None
                 connected_at = heartbeat
                 while True:
                     try:
@@ -210,6 +212,14 @@ class IssPlusClient:
                             received.add(headers.get('subscription'))
                             if event.timeframe == 'M1':
                                 last_minute = time.monotonic()
+                                minute_trade_count = decoder.quote.get('NUMTRADES')
+                                pending_trade_since = None
+                            elif event.kind == 'quote':
+                                trades = event.quote.get('NUMTRADES')
+                                if minute_trade_count is None:
+                                    minute_trade_count = trades
+                                elif trades is not None and trades != minute_trade_count and pending_trade_since is None:
+                                    pending_trade_since = time.monotonic()
                             emit(event)
                             if not ready and {'quotes', *INTERVALS}.issubset(received):
                                 ready = True
@@ -220,7 +230,8 @@ class IssPlusClient:
                     now = time.monotonic()
                     if not ready and now - connected_at > 45:
                         raise TimeoutError('Не получены обязательные снимки потока')
-                    if decoder.quote.get('TRADINGSTATUS') == 'T' and now - last_minute > self.stale_seconds:
+                    if (decoder.quote.get('TRADINGSTATUS') == 'T' and pending_trade_since is not None and
+                            now - pending_trade_since > self.stale_seconds and now - last_minute > self.stale_seconds):
                         raise TimeoutError('Приостановились обновления M1')
                     if now - heartbeat >= 5:
                         await ws.send('\n')
