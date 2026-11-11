@@ -677,7 +677,8 @@ def _project_h1_flows(
             range_high_at=h.range_high_at, last_change_at=h.last_change_at,
             last_change_rule=h.last_change_rule, range_origin=h.range_origin,
             guard_balanced=h.guard_balanced,
-            rule1_check=h.rule1_check, change_evidence=h.change_evidence,
+            rule1_check={**h.rule1_check, "applied": event_now and h.rule == 1},
+            change_evidence=h.change_evidence,
         ))
         prior_close = chart_close
     return flows

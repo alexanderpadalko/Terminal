@@ -6,6 +6,8 @@ on:
 
 jobs:
   archive-check:
+    # Service availability is recorded independently of tests and packaging.
+    continue-on-error: true
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:

@@ -7,7 +7,8 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from flowdesk.engine import Analysis, Candidate, FVG, FlowEngine, FlowState, PairSnapshot, StructurePoint, analyze
-from flowdesk.liquidity import Capture, audit_higher_captures
+from flowdesk.liquidity import Capture, audit_higher_captures, serialize_audit
+from flowdesk.rule1 import RuleOneTracker
 from flowdesk.market_data import Candle, MOSCOW
 from flowdesk.pipeline import analyze_timeframes
 
@@ -132,7 +133,7 @@ class TestRulePriorityAndCandidates(unittest.TestCase):
         self.assertEqual(f.rule, 1)
         self.assertEqual(f.rule1_check['opposite_fvg']['formed_at'], bars[3].time.isoformat())
 
-    def test_eligible_zone_wins_over_newer_zone_before_capture(self):
+    def test_later_formed_zone_follows_capture(self):
         # Equal-time FVG is ineligible; a later formed candidate is selected.
         e, bars, raw, capture = self.setup_flow()
         old = deepcopy(e.rule_one.candidates[0])
@@ -142,8 +143,44 @@ class TestRulePriorityAndCandidates(unittest.TestCase):
         self.assertEqual(f.rule, 1)
         self.assertEqual(f.rule1_check['opposite_fvg']['formed_at'], bars[3].time.isoformat())
 
+    def test_late_attachment_does_not_change_formation_time(self):
+        from flowdesk.engine import Movement
+        tracker = RuleOneTracker()
+        tracker.previous_raw = StructurePoint(1, -1, 1, 11, 1, 9, 1, 0, 8)
+        tracker.previous_leg = Movement(1, 0, 8, 11, 1)
+        bars = [Candle(BASE + timedelta(hours=i), 9.5, 10, 9, 9.5) for i in range(5)]
+        guard = FVG(0, 0, 0, 11, 10.5, 1, broken=4)
+        zone = FVG(0, 1, 2, 10.5, 10, -1)
+        capture = Capture('D1', -1, bars[3].time, 'MAX/IDM', 12, False)
+        for i in range(2, 5):
+            raw = StructurePoint(i, -1, 1, 11, 4 if i == 4 else 1, 9,
+                                 1, 0, 8)
+            chosen, _, report = tracker.step(
+                bars=bars, i=i, raw=raw, leg=Movement(1, 0, 8, 11, 1),
+                zone=zone if i == 2 else None, side=1, start=0,
+                guard=guard, broken_at=4 if i == 4 else None,
+                capture=capture if i >= 3 else None, require_higher=True)
+        self.assertIsNotNone(chosen)
+        self.assertEqual(chosen.created, 2)
+        self.assertFalse(report['eligible'])
+        self.assertIn('opposite_fvg_strictly_after_capture', report['blockers'])
+
+    def test_projected_rule1_is_emitted_once_on_m5(self):
+        e, bars, raw, capture = self.setup_flow()
+        f = e.step(bars[4], 4, raw, None, bars, PairSnapshot(), capture=capture)
+        f.source_confirmed_at = bars[4].time + timedelta(hours=1)
+        parent = Analysis(bars, [], [], [FlowState(i) for i in range(4)] + [f], [], 'H1')
+        lower = [Candle(bars[4].time + timedelta(minutes=m), 9, 10, 8, 9) for m in (50, 55, 60, 65)]
+        result = analyze(lower, 'M5', higher_h1=parent)
+        self.assertEqual([x.rule for x in result.flows], [0, 1, 0, 0])
+        self.assertEqual([x.rule1_check.get('applied', False) for x in result.flows], [False, True, False, False])
+
 
 class TestHigherHierarchy(unittest.TestCase):
+    def test_unfinished_month_has_no_latest_confirmed_audit(self):
+        bars = [Candle(BASE, 10, 11, 9, 10)]
+        result = audit_higher_captures(Analysis(bars, [], [], [], [], 'MN1'), {}, asof=BASE)
+        self.assertIsNone(serialize_audit(result)['latest'])
     def test_only_strictly_higher_sources_are_considered(self):
         for tf, wanted in [('W1', {'MN1'}), ('D1', {'MN1', 'W1'}), ('MN1', set())]:
             bars = [Candle(BASE, 10, 11, 9, 10)]

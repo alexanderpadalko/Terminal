@@ -9,6 +9,8 @@ import math
 import re
 import urllib.parse
 import urllib.request
+import urllib.error
+import time as time_module
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
@@ -314,8 +316,17 @@ def _iss_download(symbol: str, interval: int, *, days: int, limit: int,
         req = urllib.request.Request(urlbase + "?" + params,
                                      headers={"User-Agent": "FlowDesk/0.2.10 (confirmed source candles)",
                                               "Accept": "application/json"})
-        with urllib.request.urlopen(req, timeout=timeout) as response:
-            payload = json.load(response)
+        for attempt in range(3):
+            try:
+                with urllib.request.urlopen(req, timeout=timeout) as response:
+                    payload = json.load(response)
+                break
+            except (urllib.error.URLError, ConnectionError, TimeoutError) as exc:
+                if isinstance(exc, urllib.error.HTTPError) and exc.code not in (429, 500, 502, 503, 504):
+                    raise
+                if attempt == 2:
+                    raise
+                time_module.sleep(attempt + 1)
         table = payload.get("candles", {})
         fields, chunk = table.get("columns", []), table.get("data", [])
         if not chunk:

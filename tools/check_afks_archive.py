@@ -27,8 +27,6 @@ def main():
         report['sources'] = {}
         for tf, result in {'H1': main_analysis, **parents}.items():
             latest = result.flows[-1]
-            last_capture = next((s for s in reversed(result.liquidity_audit)
-                                 if not any(v.endswith('_NOT_CLOSED') for v in s.source_status.values())), None)
             report['sources'][tf] = {
                 'coverage': source_coverage(result), 'side': latest.side,
                 'lo': latest.lo, 'hi': latest.hi,

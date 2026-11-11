@@ -57,6 +57,7 @@ class CaptureState:
     restored: tuple[Capture, ...] = ()
     selection_reason: str = ""
     consumer_tf: str = "H1"
+    confirmed: bool = True
 
 
 @dataclass(slots=True)
@@ -118,7 +119,7 @@ def audit_higher_captures(h1: "Analysis", sources: dict[str, "Analysis"],
         if asof is not None and closed_at > asof:
             result.append(CaptureState(bar.time, closed_at,
                                        {tf: f"{h1.timeframe}_NOT_CLOSED" for tf in source_tfs},
-                                       None, 0, consumer_tf=h1.timeframe))
+                                       None, 0, consumer_tf=h1.timeframe, confirmed=False))
             continue
         statuses: dict[str, str] = {}
         current_new: list[Capture] = []
@@ -255,13 +256,14 @@ def serialize_audit(audit: list[CaptureState]) -> dict:
     # An unfinished H1 may be present in ISS. Never display it as the latest
     # *confirmed* higher-liquidity state; use the last closed H1 instead.
     last_closed = next((s for s in reversed(audit)
-                        if not any(v.endswith("_NOT_CLOSED") for v in s.source_status.values())), None)
+                        if s.confirmed), None)
     return {
         "status": "RULE_1_CAPTURE_INPUT_PARITY_UNVERIFIED",
         "consumer_tf": audit[0].consumer_tf if audit else None,
         "note": "Подтверждения используются правилом №1. Сессии, история и баровые границы ещё требуют сверки с Pine.",
         "bars": len(audit),
-        "events": [{"h1_open": s.h1_open.isoformat(), "h1_closed_at": s.h1_closed_at.isoformat(),
+        "events": [{"bar_open": s.h1_open.isoformat(), "bar_closed_at": s.h1_closed_at.isoformat(),
+                    "h1_open": s.h1_open.isoformat(), "h1_closed_at": s.h1_closed_at.isoformat(),
                     "capture": serialize_capture(c)}
                    for s in audit for c in s.new_events],
         "conflicts": [{"h1_open": s.h1_open.isoformat(), "source_tf": tf}
@@ -280,8 +282,10 @@ def serialize_audit(audit: list[CaptureState]) -> dict:
             "restored": [serialize_capture(c) for c in s.restored],
             "reason": s.selection_reason,
         } for s in audit if s.selection_reason != "UNCHANGED" and
-            not any(v.endswith("_NOT_CLOSED") for v in s.source_status.values())],
+            s.confirmed],
         "latest": (None if last_closed is None else {
+            "bar_open": last_closed.h1_open.isoformat(),
+            "bar_closed_at": last_closed.h1_closed_at.isoformat(),
             "h1_open": last_closed.h1_open.isoformat(),
             "h1_closed_at": last_closed.h1_closed_at.isoformat(),
             "source_status": last_closed.source_status,
