@@ -9,6 +9,8 @@ from datetime import datetime, timezone
 import json
 from pathlib import Path
 import time
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from diagnostics.iss_plus_demo.probe import Evidence, Parser, Session, rows_from, stamp
 
