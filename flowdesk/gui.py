@@ -221,6 +221,7 @@ class CandleChart(QWidget):
         self.show_flow = True
         self.show_previous = True
         self.visual_theme = "tv"
+        self.instrument_header = "DEMO · SYNTHETIC"
         self._zone_labels = []
         self.viewport = ChartView()
         self.price_range = None
@@ -230,6 +231,9 @@ class CandleChart(QWidget):
         self.cursor_y: float | None = None
         self.drag_origin = None
         self.drag_offset = 0
+        self.drag_padding = 0
+        self.drag_count = 0
+        self.drag_mode = None
         self.drag_price = None
         self.x0 = 65
         self.x1 = 100
@@ -265,7 +269,8 @@ class CandleChart(QWidget):
         _, end = self.window()
         return {'count': self.viewport.count, 'offset': self.offset,
                 'end': self.analysis.candles[end - 1].time.timestamp() if self.analysis and end and self.offset else None,
-                'price_range': self.price_range, 'flow_scale': self.include_flow_in_scale}
+                'price_range': self.price_range, 'flow_scale': self.include_flow_in_scale,
+                'right_padding': self.viewport.right_padding}
 
     def restore_view(self, state):
         self.viewport.count = state['count']
@@ -276,6 +281,7 @@ class CandleChart(QWidget):
             self.offset = max(0, len(ends) - end) if end else 0
         self.price_range = state['price_range']
         self.include_flow_in_scale = state['flow_scale']
+        self.viewport.right_padding = max(0, min(250, state.get('right_padding', 16)))
         self.update()
 
     def latest(self):
@@ -316,41 +322,81 @@ class CandleChart(QWidget):
         elif event.modifiers() & Qt.KeyboardModifier.ShiftModifier or event.angleDelta().x():
             self.viewport.pan(round(self.viewport.count * (0.12 if delta > 0 else -0.12)), len(self.analysis.candles))
         else:
+            first, last = self.window()
+            visible_count = max(1, last - first)
+            chart_width = ((self.x1 - self.x0) * visible_count /
+                           max(1, visible_count + self.viewport.right_padding))
             self.viewport.zoom(0.82 if delta > 0 else 1.22,
-                               (event.position().x() - self.x0) / max(1, self.x1 - self.x0),
+                               (event.position().x() - self.x0) / max(1, chart_width),
                                len(self.analysis.candles))
         event.accept()
         self.update()
 
     def mousePressEvent(self, event):
-        if event.button() == Qt.MouseButton.LeftButton:
-            self.setFocus()
-            self.drag_origin = event.position()
-            self.drag_offset = self.offset
-            self.drag_price = (self.price_range or self.last_price_range) if event.position().x() > self.x1 else None
+        if event.button() != Qt.MouseButton.LeftButton:
+            return super().mousePressEvent(event)
+        self.setFocus()
+        self.drag_origin = event.position()
+        self.drag_offset = self.offset
+        self.drag_padding = self.viewport.right_padding
+        self.drag_count = self.viewport.count
+        mx, my = event.position().x(), event.position().y()
+        if mx > self.x1:
+            self.drag_mode = "price_scale"
+            self.drag_price = self.price_range or self.last_price_range
+            self.setCursor(Qt.CursorShape.SizeVerCursor)
+        elif my > self.bottom and self.x0 <= mx <= self.x1:
+            self.drag_mode = "time_scale"
+            self.drag_price = None
+            self.setCursor(Qt.CursorShape.SizeHorCursor)
+        else:
+            self.drag_mode = "pan"
+            self.drag_price = None
             self.setCursor(Qt.CursorShape.ClosedHandCursor)
+        event.accept()
 
     def mouseReleaseEvent(self, event):
         self.drag_origin = None
         self.drag_price = None
+        self.drag_mode = None
         self.unsetCursor()
 
     def mouseMoveEvent(self, event):
         self.cursor_x, self.cursor_y = event.position().x(), event.position().y()
         if self.drag_origin is not None and self.analysis:
-            if self.drag_price:
+            dx = self.cursor_x - self.drag_origin.x()
+            dy = self.cursor_y - self.drag_origin.y()
+            if self.drag_mode == "price_scale" and self.drag_price is not None:
                 lo, hi = self.drag_price
-                shift = (self.cursor_y - self.drag_origin.y()) * (hi - lo) / max(1, self.bottom - self.top)
-                self.price_range = (lo + shift, hi + shift)
-            else:
-                dx = self.cursor_x - self.drag_origin.x()
+                factor = math.exp(max(-5.0, min(5.0, dy * 0.009)))
+                fraction = min(1.0, max(0.0, (self.bottom - self.drag_origin.y()) /
+                                             max(1, self.bottom - self.top)))
+                anchor = lo + fraction * (hi - lo)
+                new_span = max(1e-8, (hi - lo) * factor)
+                self.price_range = (anchor - fraction * new_span,
+                                    anchor + (1.0 - fraction) * new_span)
+            elif self.drag_mode == "time_scale":
+                self.viewport.count = self.drag_count
+                self.viewport.offset = self.drag_offset
+                self.viewport.right_padding = self.drag_padding
                 first, last = self.window()
-                bars_drag = round(dx * (last - first) / max(1, self.x1 - self.x0))
-                self.offset = self.drag_offset
-                self.viewport.pan(bars_drag, len(self.analysis.candles))
+                usable_width = ((self.x1 - self.x0) * max(1, last - first) /
+                                max(1, last - first + self.drag_padding))
+                fraction = (self.drag_origin.x() - self.x0) / max(1, usable_width)
+                factor = math.exp(max(-5.0, min(5.0, -dx * 0.009)))
+                self.viewport.zoom(factor, fraction, len(self.analysis.candles))
+            elif self.drag_mode == "pan":
+                first, last = self.window()
+                stride = (self.x1 - self.x0) / max(1, last - first + self.drag_padding)
+                drag_bars = round(dx / max(0.01, stride))
+                self.viewport.drag_chart(drag_bars, len(self.analysis.candles),
+                                         start_offset=self.drag_offset,
+                                         start_padding=self.drag_padding)
         if self.analysis:
             first, last = self.window()
-            index = first + math.floor((self.cursor_x - self.x0) / max(1, self.x1 - self.x0) * max(1, last - first))
+            count = max(1, last - first)
+            stride = (self.x1 - self.x0) / max(1, count + self.viewport.right_padding)
+            index = first + math.floor((self.cursor_x - self.x0) / max(.01, stride))
             if first <= index < last:
                 self.crosshair.emit(index)
         self.update()
@@ -400,7 +446,7 @@ class CandleChart(QWidget):
         self.top, self.bottom = 30, max(130, self.height() - 72)
         count = last - first
         span = max(1, self.x1 - self.x0)
-        stride = span / max(1, count)
+        stride = span / max(1, count + self.viewport.right_padding)
         def x(index: int):
             return self.x0 + (index - first + 0.5) * stride
         visible = candles[first:last]
@@ -542,10 +588,10 @@ class CandleChart(QWidget):
                        int(Qt.AlignmentFlag.AlignCenter), short_number(latest.close))
         p.setPen(colors["text"])
         p.setFont(QFont("Segoe UI", 10, QFont.Weight.Bold))
-        hover_i = first + math.floor((self.cursor_x - self.x0) / span * count) if self.cursor_x is not None else -1
+        hover_i = first + math.floor((self.cursor_x - self.x0) / max(.01, stride)) if self.cursor_x is not None else -1
         header_bar = candles[hover_i] if first <= hover_i < last and self.cursor_y is not None and self.top <= self.cursor_y <= self.bottom else latest
         p.drawText(QRectF(self.x0, 0, max(150, self.width() - 120), 23), 0,
-                   f"{self.analysis.timeframe}   {header_bar.time:%d.%m %H:%M}   O {short_number(header_bar.open)}   H {short_number(header_bar.high)}   L {short_number(header_bar.low)}   C {short_number(header_bar.close)}")
+                   f"{self.instrument_header}   ·   {self.analysis.timeframe}   {header_bar.time:%d.%m %H:%M}   O {short_number(header_bar.open)}   H {short_number(header_bar.high)}   L {short_number(header_bar.low)}   C {short_number(header_bar.close)}")
         if self.cursor_x is not None and self.x0 <= self.cursor_x <= self.x1 and self.top <= self.cursor_y <= self.bottom:
             pen = QPen(colors["crosshair"], 0.85, Qt.PenStyle.DashLine)
             p.setPen(pen)
@@ -566,7 +612,7 @@ class CandleChart(QWidget):
         p.setPen(colors["text"])
         p.setFont(QFont("Segoe UI", 8))
         p.drawText(QRectF(self.x0, self.height() - 32, self.width() - 170, 20), 0,
-                   "Колесо: масштаб под курсором · Shift+колесо: история · Шкала цены: масштаб/сдвиг · End: последние · F: автоцена")
+                   "Перетащи: график / время / цену · Влево за последней свечой: пустое пространство · End: последние")
         p.end()
 
     def _draw_zone(self, p, x0, x1, y0, y1, side, broken, tf, stride, parent=False):
