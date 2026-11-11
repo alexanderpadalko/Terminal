@@ -32,6 +32,18 @@ jobs:
           if (-not (Test-Path ui-preview.png)) { throw 'No UI preview rendered' }
           # Emit the preview to runner logs for independent visual QA; data is synthetic.
           Get-Content ui-preview-base64.txt | ForEach-Object { Write-Output $_ }
+      - name: Install pinned Windows packager
+        run: python -m pip install PyInstaller==6.22.3
+      - name: Build portable FlowDesk Windows application
+        run: python -m PyInstaller --clean --noconfirm --windowed --onedir --name FlowDesk --collect-all tzdata main.py
+      - name: Upload portable Windows application
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: FlowDesk-0.2.15-TV-Style-Windows-x64
+          path: dist/FlowDesk/
+          if-no-files-found: warn
+          retention-days: 30
       - name: Upload visual preview and diagnostics
         uses: actions/upload-artifact@v4
         if: always()
