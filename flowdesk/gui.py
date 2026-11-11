@@ -771,21 +771,58 @@ class MainWindow(QMainWindow):
         self._style()
 
     def _style(self):
-        self.setStyleSheet("""
-        QMainWindow, QWidget { background: #101925; color: #d5e1ef; font-family: 'Segoe UI'; font-size: 12px; }
-        #brand { font-size: 18px; font-weight: 800; color: #86b8ff; letter-spacing: 1px; }
-        #section { font-weight: 700; font-size: 13px; color: #9bb2c9; margin-top: 6px; }
-        #warning { background: #302822; color: #eeb985; border: 1px solid #71533c; padding: 8px; border-radius: 5px; }
-        #bigPrice { font-size: 24px; font-weight: 700; color: #f1f6ff; }
-        #status { color: #9aaec1; font-size: 11px; }
-        QLineEdit, QComboBox, QPushButton { background: #1d2b3d; color: #e5edf7; border: 1px solid #34465c; padding: 7px; border-radius: 4px; }
-        QPushButton:hover { background: #294565; border: 1px solid #4f81b6; }
-        QPushButton:disabled { color: #798ba1; background: #1b2431; }
-        QPlainTextEdit, QTableWidget { background: #172231; color: #d6dfec; border: 1px solid #2a3a50; gridline-color: #2a3a50; }
-        QHeaderView::section { background: #1b2b3d; color: #c6d6e8; padding: 5px; border: 0px; }
-        QCheckBox { spacing: 9px; padding: 3px; }
-        QSplitter::handle { background: #25384d; width: 3px; }
-        """)
+        """Main chrome follows the chart preset without changing calculations."""
+        if self.chart.visual_theme == "tv":
+            self.setStyleSheet("""
+                QMainWindow, QWidget {
+                    background: #e6e6e6; color: #252525;
+                    font-family: 'Segoe UI'; font-size: 12px;
+                }
+                #brand { font-size: 18px; font-weight: 800; color: #262626; letter-spacing: 1px; }
+                #section { font-weight: 700; font-size: 13px; color: #525252; margin-top: 6px; }
+                #warning {
+                    background: #e5dfd7; color: #67513c;
+                    border: 1px solid #c9bba8; padding: 7px; border-radius: 4px;
+                }
+                #bigPrice { font-size: 24px; font-weight: 700; color: #161616; }
+                #status { color: #5e5e5e; font-size: 11px; }
+                QLineEdit, QComboBox, QPushButton {
+                    background: #f8f8f8; color: #272727;
+                    border: 1px solid #bcbcbc; padding: 7px; border-radius: 4px;
+                }
+                QPushButton:hover { background: #d5d5d5; border: 1px solid #969696; }
+                QPushButton:disabled { color: #888888; background: #eeeeee; }
+                QPlainTextEdit, QTableWidget {
+                    background: #f3f3f3; color: #2a2a2a;
+                    border: 1px solid #c6c6c6; gridline-color: #d9d9d9;
+                }
+                QHeaderView::section {
+                    background: #d9d9d9; color: #343434; padding: 5px; border: 0px;
+                }
+                QCheckBox { spacing: 9px; padding: 3px; }
+                QSplitter::handle { background: #c5c5c5; width: 3px; }
+            """)
+        else:
+            self.setStyleSheet("""
+                QMainWindow, QWidget { background: #101925; color: #d5e1ef; font-family: 'Segoe UI'; font-size: 12px; }
+                #brand { font-size: 18px; font-weight: 800; color: #86b8ff; letter-spacing: 1px; }
+                #section { font-weight: 700; font-size: 13px; color: #9bb2c9; margin-top: 6px; }
+                #warning { background: #302822; color: #eeb985; border: 1px solid #71533c; padding: 8px; border-radius: 5px; }
+                #bigPrice { font-size: 24px; font-weight: 700; color: #f1f6ff; }
+                #status { color: #9aaec1; font-size: 11px; }
+                QLineEdit, QComboBox, QPushButton { background: #1d2b3d; color: #e5edf7; border: 1px solid #34465c; padding: 7px; border-radius: 4px; }
+                QPushButton:hover { background: #294565; border: 1px solid #4f81b6; }
+                QPushButton:disabled { color: #798ba1; background: #1b2431; }
+                QPlainTextEdit, QTableWidget { background: #172231; color: #d6dfec; border: 1px solid #2a3a50; gridline-color: #2a3a50; }
+                QHeaderView::section { background: #1b2b3d; color: #c6d6e8; padding: 5px; border: 0px; }
+                QCheckBox { spacing: 9px; padding: 3px; }
+                QSplitter::handle { background: #25384d; width: 3px; }
+            """)
+        self.tf.set_theme(self.chart.visual_theme)
+
+    def _change_theme(self, *_):
+        self.chart.set_theme(self.visual_style.currentData())
+        self._style()
 
     def _toggle(self, key: str, value: bool):
         setattr(self.chart, key, value)
