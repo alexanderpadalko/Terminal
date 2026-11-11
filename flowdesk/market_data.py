@@ -416,6 +416,18 @@ def load_moex_session_bundle(symbol: str, display_tf: str, *, board: str = "TQBR
     raw_hours = _iss_download(symbol.strip().upper(), 60, board=board.strip().upper(),
                               days=history_days, limit=CANONICAL_H1_LIMIT + history_days,
                               timeout=15, require_full=True)
+    # Before the bundled calendar, an actual ISS print proves that a session
+    # existed. Do not reject an observed historical working Saturday merely
+    # because the fallback weekday calendar calls it closed. Retain the
+    # existing pre-2025 auction window and identify this inference explicitly.
+    observed_legacy_days = sorted({c.time.astimezone(MOSCOW).date() for c in raw_hours
+                                  if c.time.astimezone(MOSCOW).year < 2024
+                                  and c.time.astimezone(MOSCOW).date() not in auction_overrides
+                                  and stock_session_kind(c.time.astimezone(MOSCOW).date()) == CLOSED})
+    if observed_legacy_days:
+        auction_overrides = dict(auction_overrides)
+        for day in observed_legacy_days:
+            auction_overrides[day] = SessionOverride(EXTRA_AUCTION, REGULAR, day)
     hours = exclude_opening_auction(raw_hours, "H1", board=board.strip().upper(),
                                      overrides=auction_overrides)
     if not hours:
@@ -440,6 +452,8 @@ def load_moex_session_bundle(symbol: str, display_tf: str, *, board: str = "TQBR
         "raw_h1_bars": len(raw_hours),
         "requested_history_days": history_days,
         "history_request": "AVAILABLE_EXCHANGE_ARCHIVE",
+        "observed_legacy_trading_days": [d.isoformat() for d in observed_legacy_days],
+        "legacy_session_schedule_verified": False,
         "auction_h1_removed": dropped_hours,
         "schedule_overrides": [d.isoformat() for d in sorted(auction_overrides)],
         "schedule_source": "Official MOEX 2024/2025/2026 stock-session notices; "
@@ -460,7 +474,9 @@ def load_moex_session_bundle(symbol: str, display_tf: str, *, board: str = "TQBR
         "weekend_session": "EXTRA sessions stay on PHYSICAL date for D/W/M chart bars; "
                            "the next regular settlement trading day is diagnostic metadata",
         "warning": "2024-2026 MOEX official calendars bundled; earlier/later dates need "
-                    "calendar overrides; D/W/M limited by cleaned H1 history; "
+                    "calendar overrides; pre-2024 trading days observed in ISS are retained "
+                    "with the existing assumed auction window, not a verified historical schedule; "
+                    "D/W/M limited by cleaned H1 history; "
                     "HTF source candle closing times remain approximated at calendar midnight",
     }
     return visible, families, overview
