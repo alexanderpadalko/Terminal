@@ -129,9 +129,11 @@ def aggregate(candles: list[Candle], tf: str, tz: ZoneInfo = MOSCOW,
               auction_overrides: dict | None = None) -> list[Candle]:
     """Resample cleaned bars; EXTRA days belong to next REGULAR trade date.
 
-    Day/week/month are grouped by *exchange trading date*, not by physical
-    date of Saturday/Sunday/holiday. Intraday timestamps are never shifted.
-    CSV inputs keep their own physical dates unless moex_trading_day is True.
+    By default candle bars use calendar dates in Moscow, exactly as chart
+    interval boundaries do. The settlement trading date is distinct: the
+    optional moex_trading_day=True remains for settlement-accounting tasks
+    and must NOT be used for chart D/W/M or Pine parity. Intraday source
+    timestamps are never shifted.
     """
     grouped: dict[datetime, list[Candle]] = {}
     for c in normalize(candles):
@@ -290,7 +292,7 @@ def _iss_download(symbol: str, interval: int, *, days: int, limit: int,
         params = urllib.parse.urlencode({"interval": interval, "from": frm, "till": to,
                                          "start": start, "iss.meta": "off", "iss.only": "candles"})
         req = urllib.request.Request(urlbase + "?" + params,
-                                     headers={"User-Agent": "FlowDesk/0.2.7 (MOEX-calendar viewer)",
+                                     headers={"User-Agent": "FlowDesk/0.2.8 (MOEX-calendar chart parity audit)",
                                               "Accept": "application/json"})
         with urllib.request.urlopen(req, timeout=timeout) as response:
             payload = json.load(response)
@@ -356,8 +358,11 @@ def download_moex(symbol: str, tf: str, days: int | None = None,
                                    timeout=timeout, board=board)
             hourly = exclude_opening_auction(native, "H1", board=board,
                                              overrides=auction_overrides)
-        result = hourly if tf == "H1" else aggregate(hourly, tf, moex_trading_day=True,
-                                                        auction_overrides=auction_overrides)
+        # Pine request.security("D"/"W"/"M") and TradingView regular-session
+        # charts keep OHLC grouped by the PHYSICAL calendar interval. A MOEX
+        # extra session can be assigned to another date for settlement, but
+        # moving its prices into that date distorts D1 FVG boundaries.
+        result = hourly if tf == "H1" else aggregate(hourly, tf)
     if not result:
         raise ValueError("После исключения аукционов не осталось торговых свечей")
     return result[-limit:]
@@ -368,9 +373,10 @@ def load_moex_session_bundle(symbol: str, display_tf: str, *, board: str = "TQBR
                              history_days: int = CANONICAL_H1_DAYS,
                              auction_overrides: dict[date, tuple[time, time] | None] | None = None
                              ) -> tuple[list[Candle], dict[str, list[Candle]], dict]:
-    """Download H1 ONCE and build all D/W/M parents from that cleaned source."""
+    """Download H1 ONCE; build calendar-aligned D/W/M from the cleaned source."""
     if display_tf not in TIMEFRAMES:
         raise ValueError(f"Неподдерживаемый ТФ: {display_tf}")
+    # Important: settlement dates must not shift chart D1/W1/MN1 bars.
     # Source window intentionally longer than the 3,000 bars displayed. MTF
     # signals near the left edge remain experimental until more history exists.
     if auction_overrides is None:
@@ -383,8 +389,7 @@ def load_moex_session_bundle(symbol: str, display_tf: str, *, board: str = "TQBR
     if not hours:
         raise ValueError("После исключения аукционов не осталось истории H1")
     dropped_hours = len(raw_hours) - len(hours)
-    families = {tf: aggregate(hours, tf, moex_trading_day=True,
-                              auction_overrides=auction_overrides) for tf in ("D1", "W1", "MN1")}
+    families = {tf: aggregate(hours, tf) for tf in ("D1", "W1", "MN1")}
     families["H1"] = hours
     if display_tf in ("M1", "M5"):
         visible = download_moex(symbol, display_tf, board=board,
@@ -395,6 +400,8 @@ def load_moex_session_bundle(symbol: str, display_tf: str, *, board: str = "TQBR
         raise ValueError("Нет очищенной истории для выбранного ТФ")
     overview = {
         "mode": "MOEX_TQBR_OPENING_AUCTION_EXCLUDED_ALL_TFS",
+        "higher_bar_grouping": "PHYSICAL_MOSCOW_CALENDAR_DATE_FROM_CLEAN_H1",
+        "exchange_trading_date_usage": "SETTLEMENT_METADATA_ONLY_NOT_BAR_GROUPING",
         "base_h1_first": hours[0].time.isoformat(),
         "base_h1_last": hours[-1].time.isoformat(),
         "base_h1_bars": len(hours),
@@ -416,9 +423,11 @@ def load_moex_session_bundle(symbol: str, display_tf: str, *, board: str = "TQBR
             if stock_session_kind(d, auction_overrides) == EXTRA and d.weekday() < 5
         ],
         "higher_from_clean_h1": True,
-        "weekend_session": "EXTRA days and holiday sessions assigned to NEXT REGULAR trading day",
+        "weekend_session": "EXTRA sessions stay on PHYSICAL date for D/W/M chart bars; "
+                           "the next regular settlement trading day is diagnostic metadata",
         "warning": "2024-2026 MOEX official calendars bundled; earlier/later dates need "
-                   "calendar overrides; D/W/M limited by cleaned H1 history",
+                    "calendar overrides; D/W/M limited by cleaned H1 history; "
+                    "HTF source candle closing times remain approximated at calendar midnight",
     }
     return visible, families, overview
 
