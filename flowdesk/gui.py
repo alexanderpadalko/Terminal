@@ -544,27 +544,40 @@ class CandleChart(QWidget):
         p.end()
 
     def _draw_zone(self, p, x0, x1, y0, y1, side, broken, tf, stride, parent=False):
-        if x1 < x0:
+        """Draw transparent FVG with a right-aligned, collision-aware caption."""
+        if x1 <= x0:
             return
         low_y, high_y = min(y0, y1), max(y0, y1)
         height = max(1.5, high_y - low_y)
-        if height < 1.5:
-            return
-        if broken:
-            bg, edge = QColor(243, 169, 45, 40), QColor(241, 173, 70, 130)
-        elif side == 1:
-            bg, edge = QColor(24, 196, 145, 38 if not parent else 28), QColor(19, 148, 123, 135)
+        if self.visual_theme == "tv":
+            if broken:
+                bg, edge = QColor(176, 135, 68, 16), QColor(117, 94, 58, 75)
+            elif side == 1:
+                bg, edge = QColor(26, 111, 89, 34 if parent else 26), QColor(16, 89, 72, 115)
+            else:
+                bg, edge = QColor(151, 42, 57, 45 if parent else 35), QColor(131, 38, 50, 115)
         else:
-            bg, edge = QColor(221, 70, 100, 38 if not parent else 28), QColor(204, 74, 95, 135)
+            if broken:
+                bg, edge = QColor(243, 169, 45, 40), QColor(241, 173, 70, 130)
+            elif side == 1:
+                bg, edge = QColor(24, 196, 145, 38 if not parent else 28), QColor(19, 148, 123, 135)
+            else:
+                bg, edge = QColor(221, 70, 100, 38 if not parent else 28), QColor(204, 74, 95, 135)
         p.fillRect(QRectF(x0, low_y, x1 - x0, height), bg)
-        p.setPen(QPen(edge, 1))
+        p.setPen(QPen(edge, 0.85))
         p.drawRect(QRectF(x0, low_y, x1 - x0, height))
-        p.setPen(QPen(edge, 0.8, Qt.PenStyle.DotLine))
+        p.setPen(QPen(edge, 0.75, Qt.PenStyle.DotLine))
         p.drawLine(QPointF(x0, (y0 + y1) / 2), QPointF(x1, (y0 + y1) / 2))
-        if x1 - x0 > 65 and height >= 20:
-            p.setPen(TEXT)
-            p.setFont(QFont("Segoe UI", 8))
-            p.drawText(QRectF(x0 + 3, low_y + 2, min(98, x1 - x0 - 4), 14), 0, f"{tf} {'↑' if side == 1 else '↓'} FVG")
+        if x1 - x0 >= 68 and height >= 18:
+            label = f"FVG { {'D1': 'D', 'W1': 'W', 'MN1': 'M'}.get(tf, tf) }"
+            width = min(98.0, x1 - x0 - 9.0)
+            label_rect = QRectF(x1 - width - 4, low_y + (height - 16) / 2, width, 16)
+            if not any(label_rect.intersects(existing) for existing in self._zone_labels):
+                self._zone_labels.append(label_rect)
+                p.setPen(edge if self.visual_theme == "tv" else CHART_PALETTES["dark"]["text"])
+                p.setFont(QFont("Segoe UI", 8))
+                p.drawText(label_rect, int(Qt.AlignmentFlag.AlignRight |
+                                           Qt.AlignmentFlag.AlignVCenter), label)
 
 
 class MainWindow(QMainWindow):
