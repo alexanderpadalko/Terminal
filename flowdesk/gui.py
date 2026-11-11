@@ -657,6 +657,40 @@ class MainWindow(QMainWindow):
                                                          self.parents["H1"].liquidity_audit if "H1" in self.parents else []),
                 "rule1_shadow": serialize_shadow_rule_one(a.rule1_shadow if a.timeframe == "H1" else
                                                            self.parents["H1"].rule1_shadow if "H1" in self.parents else []),
+                "higher_timeframes": {
+                    tf: {
+                        "source": "MOEX_CLEAN_H1_PHYSICAL_CALENDAR" if a.session_info
+                                  else "CSV_OR_SUPPLIED_HIGHER_TF",
+                        "bars": len(p.candles),
+                        "candles": [{"time": c.time.isoformat(), "open": c.open,
+                                     "high": c.high, "low": c.low, "close": c.close,
+                                     "volume": c.volume}
+                                    for c in p.candles],
+                        "pairs": [{"time": c.time.isoformat(),
+                                   "high": pair.high, "low": pair.low,
+                                   "high_key": pair.high_key, "low_key": pair.low_key,
+                                   "direction": pair.direction}
+                                  for c, pair in zip(p.candles, p.pairs)],
+                        "fvg": [{"formed_at": p.candles[z.created].time.isoformat(),
+                                 "side": z.side, "bottom": z.bottom,
+                                 "top": z.top, "balanced": z.balanced,
+                                 "broken_at": (p.candles[z.broken].time.isoformat()
+                                               if z.broken is not None and
+                                               0 <= z.broken < len(p.candles) else None)}
+                                for z in p.fvg if 0 <= z.created < len(p.candles)],
+                        "flows": [{"time": c.time.isoformat(),
+                                   "side": f.side, "lo": f.lo, "hi": f.hi,
+                                   "rule": f.rule,
+                                   "range_start_at": (f.range_start_at.isoformat()
+                                                      if f.range_start_at else None),
+                                   "last_change_at": (f.last_change_at.isoformat()
+                                                      if f.last_change_at else None)}
+                                  for c, f in zip(p.candles, p.flows)]
+                    }
+                    for tf in ("D1", "W1", "MN1")
+                    for p in [a if a.timeframe == tf else self.parents.get(tf)]
+                    if p is not None
+                },
                 "h1_reference": (None if "H1" not in self.parents else {
                     "source": "MOEX separate H1" if self.source.startswith("MOEX:") else "User CSV H1",
                     "bars": len(self.parents["H1"].candles),
