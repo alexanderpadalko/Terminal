@@ -44,17 +44,17 @@ ACCENT = QColor("#66a8ff")
 CHART_PALETTES = {
     "tv": {
         "background": QColor("#898989"),
-        "grid": QColor(119, 119, 119, 95),
+        "grid": QColor(160, 160, 160, 45),
         "text": QColor("#292b2f"),
-        "structure_up": QColor("#007f70"),
-        "structure_down": QColor("#a31831"),
+        "structure_up": QColor("#008476"),
+        "structure_down": QColor("#b21f34"),
         "candle_up": QColor("#ffffff"),
         "candle_down": QColor("#111111"),
-        "candle_up_outline": QColor("#444444"),
-        "candle_down_outline": QColor("#171717"),
+        "candle_up_outline": QColor("#f8f8f8"),
+        "candle_down_outline": QColor("#141414"),
         "wick": QColor("#353535"),
-        "flow_lines": (QColor("#21652c"), QColor("#21652c"),
-                       QColor("#65666a"), QColor("#9d2638"), QColor("#9d2638")),
+        "flow_lines": (QColor("#205b28"), QColor("#205b28"),
+                       QColor("#666666"), QColor("#c32238"), QColor("#c32238")),
         "previous": QColor(62, 62, 62, 105),
         "crosshair": QColor("#434343"),
         "tooltip_bg": QColor("#343434"),
@@ -533,17 +533,22 @@ class CandleChart(QWidget):
             rising = bar.close >= bar.open
             color = colors["candle_up"] if rising else colors["candle_down"]
             center = x(i)
-            p.setPen(QPen(colors["wick"] or color,
-                          0.85 if self.visual_theme == "tv" else 1.2))
+            # Hollow rising candles have no fill: chart/FVG background shows
+            # through. Falling candles keep the solid black body.
+            wick_color = (QColor("#ededed") if rising else QColor("#242424"))
+            p.setPen(QPen(wick_color if self.visual_theme == "tv"
+                          else (colors["wick"] or color),
+                          0.9 if self.visual_theme == "tv" else 1.2))
             p.drawLine(QPointF(center, y(bar.high)), QPointF(center, y(bar.low)))
             body_w = max(2.0, min(18.0, stride * 0.62))
             a, b = y(bar.open), y(bar.close)
             body = QRectF(center - body_w / 2, min(a, b),
                           body_w, max(1.3, abs(b - a)))
-            p.fillRect(body, color)
+            if self.visual_theme != "tv" or not rising:
+                p.fillRect(body, color)
             if self.visual_theme == "tv":
                 p.setPen(QPen(colors["candle_up_outline"] if rising else
-                              colors["candle_down_outline"], 0.7))
+                              colors["candle_down_outline"], 1.0))
                 p.drawRect(body)
         # Current and previous flow 0, 0.4, 0.5, 0.6, 1.0.
         if self.show_flow and self.analysis.flows:
@@ -732,13 +737,6 @@ class MainWindow(QMainWindow):
         self.auto_checkbox.setToolTip("Обновлять открытый инструмент MOEX через минуту после завершения запроса. Данные ISS поступают с задержкой около 15 минут.")
         navigation.addWidget(self.auto_checkbox)
         navigation.addSpacing(10)
-        navigation.addWidget(QLabel("Тема:"))
-        self.visual_style = QComboBox()
-        self.visual_style.addItem("TradingView", "tv")
-        self.visual_style.addItem("Тёмная", "dark")
-        self.visual_style.setToolTip("Оформление графика. Не влияет на свечи и алгоритмы.")
-        self.visual_style.currentIndexChanged.connect(self._change_theme)
-        navigation.addWidget(self.visual_style)
         self.panel_checkbox = QCheckBox("Панель")
         self.panel_checkbox.setToolTip("Показать диагностику, последние FVG и события")
         navigation.addWidget(self.panel_checkbox)
@@ -825,58 +823,41 @@ class MainWindow(QMainWindow):
         self._style()
 
     def _style(self):
-        """Main chrome follows the chart preset without changing calculations."""
-        if self.chart.visual_theme == "tv":
-            self.setStyleSheet("""
-                QMainWindow, QWidget {
-                    background: #e6e6e6; color: #252525;
-                    font-family: 'Segoe UI'; font-size: 12px;
-                }
-                #brand { font-size: 18px; font-weight: 800; color: #262626; letter-spacing: 1px; }
-                #section { font-weight: 700; font-size: 13px; color: #525252; margin-top: 6px; }
-                #warning {
-                    background: #e5dfd7; color: #67513c;
-                    border: 1px solid #c9bba8; padding: 7px; border-radius: 4px;
-                }
-                #bigPrice { font-size: 24px; font-weight: 700; color: #161616; }
-                #status { color: #5e5e5e; font-size: 11px; }
-                QLineEdit, QComboBox, QPushButton {
-                    background: #f8f8f8; color: #272727;
-                    border: 1px solid #bcbcbc; padding: 7px; border-radius: 4px;
-                }
-                QPushButton:hover { background: #d5d5d5; border: 1px solid #969696; }
-                QPushButton:disabled { color: #888888; background: #eeeeee; }
-                QPlainTextEdit, QTableWidget {
-                    background: #f3f3f3; color: #2a2a2a;
-                    border: 1px solid #c6c6c6; gridline-color: #d9d9d9;
-                }
-                QHeaderView::section {
-                    background: #d9d9d9; color: #343434; padding: 5px; border: 0px;
-                }
-                QCheckBox { spacing: 9px; padding: 3px; }
-                QSplitter::handle { background: #c5c5c5; width: 3px; }
-            """)
-        else:
-            self.setStyleSheet("""
-                QMainWindow, QWidget { background: #101925; color: #d5e1ef; font-family: 'Segoe UI'; font-size: 12px; }
-                #brand { font-size: 18px; font-weight: 800; color: #86b8ff; letter-spacing: 1px; }
-                #section { font-weight: 700; font-size: 13px; color: #9bb2c9; margin-top: 6px; }
-                #warning { background: #302822; color: #eeb985; border: 1px solid #71533c; padding: 8px; border-radius: 5px; }
-                #bigPrice { font-size: 24px; font-weight: 700; color: #f1f6ff; }
-                #status { color: #9aaec1; font-size: 11px; }
-                QLineEdit, QComboBox, QPushButton { background: #1d2b3d; color: #e5edf7; border: 1px solid #34465c; padding: 7px; border-radius: 4px; }
-                QPushButton:hover { background: #294565; border: 1px solid #4f81b6; }
-                QPushButton:disabled { color: #798ba1; background: #1b2431; }
-                QPlainTextEdit, QTableWidget { background: #172231; color: #d6dfec; border: 1px solid #2a3a50; gridline-color: #2a3a50; }
-                QHeaderView::section { background: #1b2b3d; color: #c6d6e8; padding: 5px; border: 0px; }
-                QCheckBox { spacing: 9px; padding: 3px; }
-                QSplitter::handle { background: #25384d; width: 3px; }
-            """)
-        self.tf.set_theme(self.chart.visual_theme)
-
-    def _change_theme(self, *_):
-        self.chart.set_theme(self.visual_style.currentData())
-        self._style()
+        """Permanent dark TradingView-like chrome around a neutral-grey chart."""
+        self.setStyleSheet("""
+            QMainWindow, QWidget {
+                background: #1c1c1c; color: #d1d1d1;
+                font-family: 'Segoe UI'; font-size: 12px;
+            }
+            #brand {
+                font-size: 18px; font-weight: 800; color: #f2f2f2;
+                letter-spacing: 1px;
+            }
+            #section { font-weight: 700; font-size: 13px; color: #b5b5b5; margin-top: 6px; }
+            #warning {
+                background: #2b2623; color: #d6b89c;
+                border: 1px solid #474038; padding: 6px; border-radius: 3px;
+            }
+            #bigPrice { font-size: 24px; font-weight: 700; color: #f2f2f2; }
+            #status { color: #979797; font-size: 11px; }
+            QLineEdit, QComboBox, QPushButton {
+                background: #292929; color: #e5e5e5;
+                border: 1px solid #424242; padding: 7px; border-radius: 4px;
+            }
+            QPushButton:hover { background: #3a3a3a; border: 1px solid #656565; }
+            QPushButton:pressed { background: #505050; }
+            QPushButton:disabled { color: #777777; background: #242424; }
+            QPlainTextEdit, QTableWidget {
+                background: #202020; color: #dddddd;
+                border: 1px solid #373737; gridline-color: #393939;
+            }
+            QHeaderView::section {
+                background: #303030; color: #c9c9c9; padding: 5px; border: 0px;
+            }
+            QCheckBox { spacing: 9px; padding: 3px; }
+            QSplitter::handle { background: #313131; width: 3px; }
+        """)
+        self.tf.set_theme("dark")
 
     def _toggle(self, key: str, value: bool):
         setattr(self.chart, key, value)
@@ -1090,6 +1071,13 @@ class MainWindow(QMainWindow):
             self.auto_timer.stop()
         self.analysis = analysis
         self.parents = parents
+        if source.startswith("MOEX:"):
+            ticker = source.split(":", 1)[1].split("/", 1)[0].strip()
+            self.chart.instrument_header = f"{ticker} · MOEX"
+        elif source.startswith("CSV:"):
+            self.chart.instrument_header = "CSV · ИМПОРТ"
+        else:
+            self.chart.instrument_header = "DEMO · СИНТЕТИКА"
         self.chart.set_analysis(analysis, parents)
         saved_view = self.chart_views.get((source, analysis.timeframe))
         if saved_view:
