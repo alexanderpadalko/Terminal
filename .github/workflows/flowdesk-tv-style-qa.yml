@@ -40,7 +40,7 @@ jobs:
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: FlowDesk-0.2.15-TV-Style-Windows-x64
+          name: FlowDesk-0.2.16-TV-DarkUI-Windows-x64
           path: dist/FlowDesk/
           if-no-files-found: warn
           retention-days: 30
