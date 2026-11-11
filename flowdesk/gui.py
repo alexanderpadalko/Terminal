@@ -351,7 +351,10 @@ class CandleChart(QWidget):
             self.setCursor(Qt.CursorShape.SizeHorCursor)
         else:
             self.drag_mode = "pan"
-            self.drag_price = None
+            # Freeze the current Y scale when dragging the chart, matching
+            # TradingView. Dragging the plot moves candles and ALL indicator
+            # levels together rather than auto-rescaling on history changes.
+            self.drag_price = self.price_range or self.last_price_range
             self.setCursor(Qt.CursorShape.ClosedHandCursor)
         event.accept()
 
@@ -385,12 +388,20 @@ class CandleChart(QWidget):
                 factor = math.exp(max(-5.0, min(5.0, -dx * 0.009)))
                 self.viewport.zoom(factor, fraction, len(self.analysis.candles))
             elif self.drag_mode == "pan":
+                # Two-dimensional pan: horizontal translation navigates
+                # candles; vertical translation moves the entire price axis
+                # while preserving its scale. Both are relative to mouse
+                # PRESS, so no drift accumulates while dragging.
                 first, last = self.window()
                 stride = (self.x1 - self.x0) / max(1, last - first + self.drag_padding)
                 drag_bars = round(dx / max(0.01, stride))
                 self.viewport.drag_chart(drag_bars, len(self.analysis.candles),
                                          start_offset=self.drag_offset,
                                          start_padding=self.drag_padding)
+                if self.drag_price is not None:
+                    lo, hi = self.drag_price
+                    shift = dy * (hi - lo) / max(1, self.bottom - self.top)
+                    self.price_range = (lo + shift, hi + shift)
         if self.analysis:
             first, last = self.window()
             count = max(1, last - first)
@@ -542,11 +553,20 @@ class CandleChart(QWidget):
             p.setPen(QPen(wick_color if self.visual_theme == "tv"
                           else (colors["wick"] or color),
                           0.9 if self.visual_theme == "tv" else 1.2))
-            p.drawLine(QPointF(center, y(bar.high)), QPointF(center, y(bar.low)))
             body_w = max(2.0, min(18.0, stride * 0.62))
             a, b = y(bar.open), y(bar.close)
-            body = QRectF(center - body_w / 2, min(a, b),
-                          body_w, max(1.3, abs(b - a)))
+            body_top, body_bottom = min(a, b), max(a, b)
+            body = QRectF(center - body_w / 2, body_top,
+                          body_w, max(1.3, body_bottom - body_top))
+            # Standard candles draw ONLY external upper/lower wick segments.
+            # A full high-to-low line would remain visible inside the
+            # transparent body of an inside (hollow) candle.
+            if y(bar.high) < body_top:
+                p.drawLine(QPointF(center, y(bar.high)),
+                           QPointF(center, body_top))
+            if y(bar.low) > body_bottom:
+                p.drawLine(QPointF(center, body_bottom),
+                           QPointF(center, y(bar.low)))
             if not hollow:
                 p.fillRect(body, color)
             if self.visual_theme == "tv":
