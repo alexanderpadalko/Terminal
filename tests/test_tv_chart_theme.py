@@ -100,7 +100,14 @@ class TestTradingViewAppearance(unittest.TestCase):
         # transparent hollow body. It must now be pure chart background.
         for index in (1, 2, 4, 5):
             with self.subTest(inside_index=index):
-                self.assertEqual(body_color(index, x_offset=0), "#898989")
+                pixel = body_color(index, x_offset=0)
+                # The antialiased pale grid can tint the chart background by
+                # 2-3 RGB units at this pixel. A wick passing through the body
+                # would instead produce a near-white/black stroke (>80 away).
+                channel = int(pixel[1:3], 16)
+                self.assertLessEqual(abs(channel - 0x89), 8, pixel)
+                self.assertEqual(pixel[1:3], pixel[3:5])
+                self.assertEqual(pixel[3:5], pixel[5:7])
         chart.close()
 
     def test_dragging_plot_translates_x_and_y_without_rescaling_price(self):
