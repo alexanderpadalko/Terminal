@@ -82,11 +82,11 @@ class TestTradingViewAppearance(unittest.TestCase):
         count = len(bars)
         stride = (chart.x1 - chart.x0) / count
 
-        def body_color(i):
+        def body_color(i, x_offset=5):
             candle = bars[i]
             mid = (candle.open + candle.close) / 2
             y = round(chart.bottom - (mid - 7.0) / 5.0 * (chart.bottom - chart.top))
-            x = round(chart.x0 + (i + 0.5) * stride + 5)
+            x = round(chart.x0 + (i + 0.5) * stride + x_offset)
             return image.pixelColor(x, y).name()
 
         self.assertEqual(body_color(0), "#ffffff")
@@ -96,7 +96,47 @@ class TestTradingViewAppearance(unittest.TestCase):
         self.assertEqual(body_color(4), "#898989")
         self.assertEqual(body_color(5), "#898989")
         self.assertEqual(body_color(6), "#111111")
+        # At the candle CENTER the wick used to remain visible through the
+        # transparent hollow body. It must now be pure chart background.
+        for index in (1, 2, 4, 5):
+            with self.subTest(inside_index=index):
+                self.assertEqual(body_color(index, x_offset=0), "#898989")
         chart.close()
+
+    def test_dragging_plot_translates_x_and_y_without_rescaling_price(self):
+        w = MainWindow()
+        w.resize(1300, 850)
+        w.show()
+        self.app.processEvents()
+        chart = w.chart
+        chart.viewport.count = 125
+        chart.viewport.offset = 90
+        chart.update()
+        self.app.processEvents()
+        start_offset = chart.offset
+        start_padding = chart.viewport.right_padding
+        start_range = chart.last_price_range
+        self.assertIsNotNone(start_range)
+        start_span = start_range[1] - start_range[0]
+        start = QPoint(round((chart.x0 + chart.x1) / 2),
+                       round((chart.top + chart.bottom) / 2))
+        dx, dy = 112, 64
+        QTest.mousePress(chart, Qt.MouseButton.LeftButton, pos=start)
+        QTest.mouseMove(chart, start + QPoint(dx, dy))
+        self.app.processEvents()
+        QTest.mouseRelease(chart, Qt.MouseButton.LeftButton,
+                           pos=start + QPoint(dx, dy))
+        self.assertGreater(chart.offset, start_offset)
+        self.assertLess(chart.viewport.right_padding, start_padding)
+        self.assertIsNotNone(chart.price_range)
+        lo, hi = chart.price_range
+        self.assertAlmostEqual(hi - lo, start_span, delta=1e-8)
+        self.assertAlmostEqual(
+            lo - start_range[0],
+            dy * start_span / (chart.bottom - chart.top), delta=1e-7)
+        # A further horizontal-only pan must preserve the Y range even
+        # after the visible candle window changes.
+        w.close()
 
     def test_permanent_dark_chrome_and_instrument_header(self):
         w = MainWindow()
