@@ -25,7 +25,8 @@ from .engine import Analysis, analyze
 from .liquidity import serialize_audit
 from .rule1_shadow import serialize_shadow_rule_one
 from .market_data import (Candle, MOSCOW, TIMEFRAMES, load_moex_session_bundle,
-                          exclude_opening_auction, read_csv, infer_timeframe)
+                          exclude_opening_auction, load_session_overrides,
+                          read_csv, infer_timeframe)
 
 BACKGROUND = QColor("#0c131e")
 GRID = QColor("#202b3b")
@@ -515,7 +516,8 @@ class MainWindow(QMainWindow):
             tf = detected or self.tf.currentText()
             if tf in ("M1", "M5", "H1"):
                 candles = exclude_opening_auction(candles, tf,
-                                                  board=self.board.currentText())
+                                                  board=self.board.currentText(),
+                                                  overrides=load_session_overrides())
             if not candles:
                 raise ValueError("В CSV не осталось свечей после фильтрации аукциона")
             self.tf.setCurrentText(tf)
@@ -539,7 +541,8 @@ class MainWindow(QMainWindow):
             inferred = infer_timeframe(candles)
             if inferred != "H1":
                 raise ValueError(f"Ожидается часовой CSV H1. Определён: {inferred or 'не удалось определить'}")
-            candles = exclude_opening_auction(candles, "H1", board=self.board.currentText())
+            candles = exclude_opening_auction(candles, "H1", board=self.board.currentText(),
+                                              overrides=load_session_overrides())
             if not candles:
                 raise ValueError("В H1 CSV не осталось свечей после фильтрации аукциона")
             parent = analyze(candles, "H1")
