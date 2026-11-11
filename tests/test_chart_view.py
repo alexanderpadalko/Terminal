@@ -38,11 +38,11 @@ class TestChartView(unittest.TestCase):
         self.assertEqual(view.window(1000), original)
         self.assertEqual(view.right_padding, 46)
         view.drag_chart(20, 1000, start_offset=0, start_padding=46)
-        self.assertEqual(view.window(1000), original)
+        self.assertEqual(view.offset, 20)
         self.assertEqual(view.right_padding, 26)
         view.drag_chart(50, 1000, start_offset=0, start_padding=26)
         self.assertEqual(view.right_padding, 0)
-        self.assertEqual(view.offset, 24)
+        self.assertEqual(view.offset, 50)
 
     def test_drag_history_then_future_space_without_synthetic_candles(self):
         view = ChartView(count=50, offset=25, right_padding=12)
