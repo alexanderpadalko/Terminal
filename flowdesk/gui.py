@@ -22,7 +22,7 @@ from PySide6.QtWidgets import (
 )
 
 from . import __version__
-from .chart_view import ChartView
+from .chart_view import ChartView, inside_mother_bars
 from .market_cache import MarketService
 from .engine import Analysis, analyze
 from .pipeline import analyze_timeframes, source_coverage
@@ -216,6 +216,7 @@ class CandleChart(QWidget):
         self.analysis: Analysis | None = None
         self.parents: dict[str, Analysis] = {}
         self.times = []
+        self.inside_bars: list[bool] = []
         self.show_structure = True
         self.show_fvg = True
         self.show_flow = True
@@ -250,6 +251,7 @@ class CandleChart(QWidget):
         self.analysis = analysis
         self.parents = parents or {}
         self.times = [c.time.timestamp() for c in analysis.candles]
+        self.inside_bars = inside_mother_bars(analysis.candles)
         self.offset = 0
         self.update()
 
@@ -530,8 +532,12 @@ class CandleChart(QWidget):
             rising = bar.close >= bar.open
             color = colors["candle_up"] if rising else colors["candle_down"]
             center = x(i)
-            # Hollow rising candles have no fill: chart/FVG background shows
-            # through. Falling candles keep the solid black body.
+            # ONLY inside candles are hollow, regardless of O/C direction.
+            # A non-inside mother candle stays solid: white if rising, black
+            # if falling. Internal status uses the last non-inside mother,
+            # not just the immediately preceding candle.
+            hollow = (self.visual_theme == "tv" and
+                      i < len(self.inside_bars) and self.inside_bars[i])
             wick_color = (QColor("#ededed") if rising else QColor("#242424"))
             p.setPen(QPen(wick_color if self.visual_theme == "tv"
                           else (colors["wick"] or color),
@@ -541,11 +547,13 @@ class CandleChart(QWidget):
             a, b = y(bar.open), y(bar.close)
             body = QRectF(center - body_w / 2, min(a, b),
                           body_w, max(1.3, abs(b - a)))
-            if self.visual_theme != "tv" or not rising:
+            if not hollow:
                 p.fillRect(body, color)
             if self.visual_theme == "tv":
-                p.setPen(QPen(colors["candle_up_outline"] if rising else
-                              colors["candle_down_outline"], 1.0))
+                outline = (QColor("#e4e4e4") if rising else QColor("#474747")) if hollow else (
+                    colors["candle_up_outline"] if rising else
+                    colors["candle_down_outline"])
+                p.setPen(QPen(outline, 1.0))
                 p.drawRect(body)
         # Current and previous flow 0, 0.4, 0.5, 0.6, 1.0.
         if self.show_flow and self.analysis.flows:

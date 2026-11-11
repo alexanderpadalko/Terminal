@@ -1,6 +1,7 @@
 """Windows Qt smoke tests for the fixed TradingView grey-chart/dark-shell UI."""
 import os
 import unittest
+from datetime import datetime, timedelta
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -10,6 +11,7 @@ from PySide6.QtWidgets import QApplication
 
 from flowdesk.gui import CHART_PALETTES, CandleChart, MainWindow, demo_data
 from flowdesk.engine import analyze
+from flowdesk.market_data import Candle, MOSCOW
 
 
 class TestTradingViewAppearance(unittest.TestCase):
@@ -47,6 +49,53 @@ class TestTradingViewAppearance(unittest.TestCase):
         self.assertEqual(candles_before, tuple((c.time, c.open, c.high, c.low, c.close, c.volume)
                                                 for c in analysis.candles))
         self.assertEqual(flows_before, tuple((f.side, f.lo, f.hi, f.rule) for f in analysis.flows))
+        chart.close()
+
+    def test_only_inside_candles_are_hollow_in_rendered_pixels(self):
+        # Positive AND negative inside candles must stay transparent.
+        # Non-inside bullish candles must be solid white; bearish solid black.
+        start = datetime(2026, 11, 11, 7, tzinfo=MOSCOW)
+        ohlc = [
+            (9.0, 10.5, 8.5, 10.0),  # bullish mother, solid white
+            (9.5, 10.1, 8.8, 9.3),  # bearish inside, transparent
+            (9.1, 9.9, 9.0, 9.8),   # bullish inside, transparent
+            (9.2, 11.0, 9.0, 10.8), # new bullish mother, solid white
+            (10.6, 10.7, 9.6, 10.2),# bearish inside, transparent
+            (10.3, 10.8, 9.2, 9.5), # still inside mother, transparent
+            (10.0, 10.9, 7.9, 8.4), # bearish breakout, solid black
+        ]
+        bars = [Candle(start + timedelta(hours=i), op, hi, lo, cl, 1000)
+                for i, (op, hi, lo, cl) in enumerate(ohlc)]
+        chart = CandleChart()
+        chart.resize(1100, 720)
+        chart.set_analysis(analyze(bars, "H1"))
+        chart.viewport.count = 7
+        chart.viewport.right_padding = 0
+        chart.price_range = (7.0, 12.0)
+        chart.show_structure = chart.show_fvg = chart.show_flow = False
+        chart.show_previous = False
+        chart.show()
+        self.app.processEvents()
+        image = chart.grab().toImage()
+        self.assertFalse(image.isNull())
+        self.assertEqual(chart.inside_bars, [False, True, True, False, True, True, False])
+        count = len(bars)
+        stride = (chart.x1 - chart.x0) / count
+
+        def body_color(i):
+            candle = bars[i]
+            mid = (candle.open + candle.close) / 2
+            y = round(chart.bottom - (mid - 7.0) / 5.0 * (chart.bottom - chart.top))
+            x = round(chart.x0 + (i + 0.5) * stride + 5)
+            return image.pixelColor(x, y).name()
+
+        self.assertEqual(body_color(0), "#ffffff")
+        self.assertEqual(body_color(1), "#898989")
+        self.assertEqual(body_color(2), "#898989")
+        self.assertEqual(body_color(3), "#ffffff")
+        self.assertEqual(body_color(4), "#898989")
+        self.assertEqual(body_color(5), "#898989")
+        self.assertEqual(body_color(6), "#111111")
         chart.close()
 
     def test_permanent_dark_chrome_and_instrument_header(self):
