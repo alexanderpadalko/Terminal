@@ -1,8 +1,35 @@
 import unittest
-from flowdesk.chart_view import ChartView
+from flowdesk.chart_view import ChartView, inside_mother_bars
+from types import SimpleNamespace
 
 
 class TestChartView(unittest.TestCase):
+    def test_inside_candles_follow_last_noninside_mother(self):
+        def bar(hi, lo):
+            return SimpleNamespace(high=hi, low=lo)
+
+        candles = [
+            bar(10.5, 8.5),   # first mother
+            bar(10.1, 8.8),   # inside mother
+            bar(9.9, 9.0),    # nested inside: do not update mother!
+            bar(11.0, 9.0),   # breaks old mother, becomes next mother
+            bar(10.7, 9.6),   # inside new mother
+            bar(10.8, 9.2),   # outside previous inside, but still inside mother
+            bar(10.9, 7.9),   # breaks new mother
+        ]
+        self.assertEqual(inside_mother_bars(candles),
+                         [False, True, True, False, True, True, False])
+
+    def test_equal_mother_high_low_counts_as_inside(self):
+        def bar(hi, lo):
+            return SimpleNamespace(high=hi, low=lo)
+
+        self.assertEqual(
+            inside_mother_bars([bar(10, 8), bar(10, 8),
+                                bar(10, 9), bar(10.1, 8.1), bar(10.1, 8.1)]),
+            [False, True, True, False, True])
+        self.assertEqual(inside_mother_bars([]), [])
+
     def test_zoom_keeps_candle_under_pointer(self):
         view = ChartView(200, 300)
         before = view.window(1000)
