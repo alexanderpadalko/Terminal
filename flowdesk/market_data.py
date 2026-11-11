@@ -14,6 +14,10 @@ from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
+from .moex_calendar import (CLOSED, EXTRA, REGULAR, SessionOverride,
+                            stock_session_kind, stock_trading_date,
+                            EXTRA_AUCTION, MORNING_AUCTION, EXTRA_HOLIDAYS_2026)
+
 MOSCOW = ZoneInfo("Europe/Moscow")
 UTC = timezone.utc
 TIMEFRAMES = ("M1", "M5", "H1", "D1", "W1", "MN1")
@@ -121,19 +125,24 @@ def period_floor(dt: datetime, tf: str) -> datetime:
 
 
 def aggregate(candles: list[Candle], tf: str, tz: ZoneInfo = MOSCOW,
-              *, moex_trading_day: bool = False) -> list[Candle]:
-    """Resample cleaned bars without fabricating missing source candles.
+              *, moex_trading_day: bool = False,
+              auction_overrides: dict | None = None) -> list[Candle]:
+    """Resample cleaned bars; EXTRA days belong to next REGULAR trade date.
 
-    MOEX weekend stock sessions belong to the next trading day (normally
-    Monday). For D/W/M only, assign those bars to the following Monday's
-    settlement calendar bucket. Exact special-holiday calendars still require
-    exchange-session verification; CSV imports retain their original dates.
+    Day/week/month are grouped by *exchange trading date*, not by physical
+    date of Saturday/Sunday/holiday. Intraday timestamps are never shifted.
+    CSV inputs keep their own physical dates unless moex_trading_day is True.
     """
     grouped: dict[datetime, list[Candle]] = {}
     for c in normalize(candles):
         local = c.time.astimezone(tz)
-        if moex_trading_day and tf in ("D1", "W1", "MN1") and local.weekday() >= 5:
-            local = local + timedelta(days=7 - local.weekday())
+        if moex_trading_day and tf in ("D1", "W1", "MN1"):
+            trade_day = stock_trading_date(local.date(), auction_overrides)
+            if trade_day is None:
+                raise ValueError(f"MOEX: свеча {local.isoformat()} в официально неторговый день. "
+                                 "Проверьте календарь ~/.flowdesk/auction_windows.json")
+            local = local.replace(year=trade_day.year, month=trade_day.month,
+                                  day=trade_day.day)
         key = period_floor(local, tf)
         grouped.setdefault(key, []).append(c)
     return [Candle(key, cs[0].open, max(c.high for c in cs), min(c.low for c in cs),
@@ -141,11 +150,14 @@ def aggregate(candles: list[Candle], tf: str, tz: ZoneInfo = MOSCOW,
             for key, cs in sorted(grouped.items())]
 
 
-def load_session_overrides(path: str | Path | None = None) -> dict[date, tuple[time, time] | None]:
-    """Optional per-date corrections from ~/.flowdesk/auction_windows.json.
+def load_session_overrides(path: str | Path | None = None) -> dict:
+    """Load optional per-date MOEX calendar corrections.
 
-    Example: {"2026-12-12": ["08:50", "09:00"], "2026-12-13": null}.
-    This supports schedule changes without hardcoded weekday/weekend rules.
+    Legacy syntax: {"2026-12-12": ["08:50", "09:00"], "2026-12-13": null}
+    Full syntax: {"2026-12-12": {"kind": "EXTRA", "auction":
+                                  ["08:50", "09:00"],
+                                  "trading_date": "2026-12-14"}}
+    Session kind is REGULAR/EXTRA/CLOSED; `null` disables the auction only.
     """
     filename = Path(path) if path is not None else Path.home() / ".flowdesk" / "auction_windows.json"
     if not filename.is_file():
@@ -153,41 +165,59 @@ def load_session_overrides(path: str | Path | None = None) -> dict[date, tuple[t
     raw = json.loads(filename.read_text(encoding="utf-8-sig"))
     if not isinstance(raw, dict):
         raise ValueError("Календарь MOEX должен быть JSON-словарём дат")
-    result = {}
-    for daystr, window in raw.items():
-        day = date.fromisoformat(daystr)
+
+    def parse_window(day: str, window):
         if window is None:
-            result[day] = None
-        elif isinstance(window, list) and len(window) == 2:
-            begins, ends = (time.fromisoformat(x) for x in window)
-            if begins >= ends:
-                raise ValueError(f"Неверное время аукциона {daystr}")
-            result[day] = (begins, ends)
+            return None
+        if not isinstance(window, list) or len(window) != 2:
+            raise ValueError(f"Неверное время аукциона {day}")
+        begins, ends = (time.fromisoformat(str(x)) for x in window)
+        if begins >= ends:
+            raise ValueError(f"Неверное время аукциона {day}")
+        return begins, ends
+
+    result = {}
+    for daystr, setting in raw.items():
+        day = date.fromisoformat(daystr)
+        if isinstance(setting, dict):
+            kind = setting.get("kind")
+            if kind is not None and kind not in (REGULAR, EXTRA, CLOSED):
+                raise ValueError(f"Неверный тип сессии {daystr}: {kind}")
+            if "auction" not in setting:
+                raise ValueError(f"Для {daystr} нужно указать 'auction' (пара времени или null)")
+            window = parse_window(daystr, setting["auction"])
+            dest = (date.fromisoformat(setting["trading_date"])
+                    if setting.get("trading_date") else None)
+            if kind == CLOSED and window is not None:
+                raise ValueError(f"В закрытый день {daystr} аукцион невозможен")
+            if dest is not None and dest < day:
+                raise ValueError(f"Торговый день {dest} не может предшествовать сессии {day}")
+            result[day] = SessionOverride(window, kind, dest)
         else:
-            raise ValueError(f"Неверная запись календаря MOEX: {daystr}")
+            result[day] = parse_window(daystr, setting)
     return result
 
 
 def opening_auction_window(day: date, board: str = "TQBR",
-                           overrides: dict[date, tuple[time, time] | None] | None = None
+                           overrides: dict | None = None
                            ) -> tuple[time, time] | None:
-    """Opening-auction window for the standard TQBR morning-session profile.
+    """Official TQBR session auction, including weekday public holidays.
 
-    MOEX's current ordinary calendar: weekdays 06:50–07:00 Moscow; weekends
-    with trading 09:50–10:00. A session can move on a particular date: callers
-    may supply a date-keyed exchange-calendar override. None = no auction.
-    Historical exceptional sessions require a separately verified override;
-    never infer an auction from zero range/low volume alone.
+    Calendar: MOEX 2024-2026 published notices; 2025-01-27 ordinary morning
+    session restart. For extra holidays 2026 auction is 09:50-10:00 even on
+    Monday/Wednesday/Friday. No OHLC/volume heuristics are used.
     """
     if board != "TQBR":
         raise ValueError("Для режима, отличного от TQBR, нет проверенного расписания аукционов")
     if overrides is not None and day in overrides:
-        return overrides[day]
-    # Morning session for equities resumed only on 27 Jan 2025 (MOEX).
-    # Before that, weekday opening auction was 09:50–10:00.
-    morning = day.weekday() < 5 and day >= date(2025, 1, 27)
-    return ((time(6, 50), time(7, 0)) if morning
-            else (time(9, 50), time(10, 0)))
+        value = overrides[day]
+        return value.auction if isinstance(value, SessionOverride) else value
+    kind = stock_session_kind(day, overrides)
+    if kind == CLOSED:
+        return None
+    if kind == EXTRA:
+        return EXTRA_AUCTION
+    return MORNING_AUCTION if day >= date(2025, 1, 27) else EXTRA_AUCTION
 
 
 def exclude_opening_auction(candles: list[Candle], tf: str,
@@ -207,6 +237,9 @@ def exclude_opening_auction(candles: list[Candle], tf: str,
     clean = []
     for candle in candles:
         local = candle.time.astimezone(MOSCOW)
+        if stock_session_kind(local.date(), overrides) == CLOSED:
+            raise ValueError(f"MOEX вернула свечу {local.isoformat()} в неторговый день. "
+                             "Уточните календарь через ~/.flowdesk/auction_windows.json")
         window = opening_auction_window(local.date(), board, overrides)
         if window is None:
             clean.append(candle)
@@ -257,7 +290,7 @@ def _iss_download(symbol: str, interval: int, *, days: int, limit: int,
         params = urllib.parse.urlencode({"interval": interval, "from": frm, "till": to,
                                          "start": start, "iss.meta": "off", "iss.only": "candles"})
         req = urllib.request.Request(urlbase + "?" + params,
-                                     headers={"User-Agent": "FlowDesk/0.2.6 (session-clean viewer)",
+                                     headers={"User-Agent": "FlowDesk/0.2.7 (MOEX-calendar viewer)",
                                               "Accept": "application/json"})
         with urllib.request.urlopen(req, timeout=timeout) as response:
             payload = json.load(response)
@@ -299,6 +332,8 @@ def download_moex(symbol: str, tf: str, days: int | None = None,
         raise ValueError("Проверьте тикер и код режима торгов")
     if tf not in TIMEFRAMES:
         raise ValueError(f"Неподдерживаемый ТФ: {tf}")
+    if auction_overrides is None:
+        auction_overrides = load_session_overrides()
     if not 1 <= limit <= 100000:
         raise ValueError("Некорректный лимит свечей")
     if tf in ("M1", "M5"):
@@ -321,7 +356,8 @@ def download_moex(symbol: str, tf: str, days: int | None = None,
                                    timeout=timeout, board=board)
             hourly = exclude_opening_auction(native, "H1", board=board,
                                              overrides=auction_overrides)
-        result = hourly if tf == "H1" else aggregate(hourly, tf, moex_trading_day=True)
+        result = hourly if tf == "H1" else aggregate(hourly, tf, moex_trading_day=True,
+                                                        auction_overrides=auction_overrides)
     if not result:
         raise ValueError("После исключения аукционов не осталось торговых свечей")
     return result[-limit:]
@@ -347,7 +383,8 @@ def load_moex_session_bundle(symbol: str, display_tf: str, *, board: str = "TQBR
     if not hours:
         raise ValueError("После исключения аукционов не осталось истории H1")
     dropped_hours = len(raw_hours) - len(hours)
-    families = {tf: aggregate(hours, tf, moex_trading_day=True) for tf in ("D1", "W1", "MN1")}
+    families = {tf: aggregate(hours, tf, moex_trading_day=True,
+                              auction_overrides=auction_overrides) for tf in ("D1", "W1", "MN1")}
     families["H1"] = hours
     if display_tf in ("M1", "M5"):
         visible = download_moex(symbol, display_tf, board=board,
@@ -364,10 +401,24 @@ def load_moex_session_bundle(symbol: str, display_tf: str, *, board: str = "TQBR
         "raw_h1_bars": len(raw_hours),
         "auction_h1_removed": dropped_hours,
         "schedule_overrides": [d.isoformat() for d in sorted(auction_overrides)],
-        "schedule_source": "MOEX stock morning restart 2025-01-27; weekend opening 09:50; optional per-date calendar",
+        "schedule_source": "Official MOEX 2024/2025/2026 stock-session notices; "
+                           "2025-01-27 morning restart; per-date override supported",
+        "calendar_years": [2024, 2025, 2026],
+        "holiday_extra_sessions_removed": sorted({
+            c.time.date().isoformat() for c in raw_hours
+            if c.time.date() in EXTRA_HOLIDAYS_2026 and
+            c not in hours
+        }),
+        "session_trade_date_mapping": [
+            {"physical_date": d.isoformat(),
+             "trade_date": stock_trading_date(d, auction_overrides).isoformat()}
+            for d in sorted({b.time.astimezone(MOSCOW).date() for b in hours})
+            if stock_session_kind(d, auction_overrides) == EXTRA and d.weekday() < 5
+        ],
         "higher_from_clean_h1": True,
-        "weekend_session": "assigned to next Monday trading date (MOEX standard)",
-        "warning": "D/W/M ограничены длиной очищенной H1; время специальных сессий сверяется по календарю биржи",
+        "weekend_session": "EXTRA days and holiday sessions assigned to NEXT REGULAR trading day",
+        "warning": "2024-2026 MOEX official calendars bundled; earlier/later dates need "
+                   "calendar overrides; D/W/M limited by cleaned H1 history",
     }
     return visible, families, overview
 
