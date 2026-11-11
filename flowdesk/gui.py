@@ -25,7 +25,6 @@ from . import __version__
 from .engine import Analysis, analyze
 from .pipeline import analyze_timeframes, source_coverage
 from .liquidity import serialize_audit
-from .rule1_shadow import serialize_shadow_rule_one
 from .market_data import (Candle, MOSCOW, TIMEFRAMES, load_moex_session_bundle,
                           exclude_opening_auction, load_session_overrides,
                           read_csv, infer_timeframe, candle_close_time)
@@ -590,16 +589,16 @@ class MainWindow(QMainWindow):
         def at(dt):
             return dt.strftime("%d.%m %H:%M") if dt is not None else "—"
         origin_line = (
-            f"<br>0 от H1: {at(state.range_low_at)}"
-            f" · 1 от H1: {at(state.range_high_at)}"
+            f"<br>0 от {analysis.flow_source_tf}: {at(state.range_low_at)}"
+            f" · 1 от {analysis.flow_source_tf}: {at(state.range_high_at)}"
             if state.side != 0 else ""
         )
         self.state_label.setText(f"Диапазон: {short_number(state.lo) if state.lo is not None else '—'} — {short_number(state.hi) if state.hi is not None else '—'}"
                                  f"{origin_line}<br>Рабочий FVG: {'есть' if state.guard and not state.guard_broken else 'нет'}"
                                  f"<br>Пара IDM: {self._pair_text(state)}"
-                                 f"<br>№1: теневой расчёт H1 + D/W/M (без переключения потока)")
-        events = [(analysis.candles[s.i].time.strftime("%d.%m %H:%M"), s.diagnosis) for s in analysis.flows if s.rule in (2, 3)]
-        self.events.setPlainText("\n".join(f"{t}  {reason}" for t, reason in events[-18:][::-1]) or "Нет подтверждённых по времени событий H1 №2/№3 (или ряд H1 отсутствует)")
+                                 f"<br>№1: включено · приоритет №2 → №1 → №3")
+        events = [(analysis.candles[s.i].time.strftime("%d.%m %H:%M"), s.diagnosis) for s in analysis.flows if s.rule in (1, 2, 3)]
+        self.events.setPlainText("\n".join(f"{t}  {reason}" for t, reason in events[-18:][::-1]) or "Нет подтверждённых событий №1/№2/№3 (или ряд H1 отсутствует)")
         zones = analysis.fvg[-17:][::-1]
         self.zones_table.setRowCount(len(zones))
         for i, z in enumerate(zones):
@@ -648,7 +647,7 @@ class MainWindow(QMainWindow):
                 "session_info": a.session_info if a.session_info else {
                     "mode": "CSV_SESSION_FILTERED_FOR_M1_M5_H1_OR_ASSUMED_FOR_HIGHER",
                     "warning": "Для D/W/M CSV требуется экспорт сессии без аукциона из TradingView"},
-                "caveats": ["Rule 1 SHADOW ONLY, no flow changes; FVG/HTF chronology unverified", "Rule 2/3 not verified against TradingView", "Quotes may be delayed", "Special MOEX sessions/older TF history need TradingView session parity checks"],
+                "caveats": ["Rules 2 > 1 > 3 applied; full Pine parity unverified", "Quotes may be delayed", "Special MOEX sessions/older TF history need TradingView session parity checks"],
                 "bars": len(a.candles),
                 "candles": [{"time": c.time.isoformat(), "open": c.open, "high": c.high, "low": c.low, "close": c.close, "volume": c.volume} for c in a.candles],
                 "flows": [{"time": c.time.isoformat(), "side": f.side, "lo": f.lo, "hi": f.hi, "start": f.start, "rule": f.rule, "diagnosis": f.diagnosis,
@@ -663,19 +662,21 @@ class MainWindow(QMainWindow):
                            "range_high_at": f.range_high_at.isoformat() if f.range_high_at else None,
                            "last_change_at": f.last_change_at.isoformat() if f.last_change_at else None,
                            "last_change_rule": f.last_change_rule,
-                           "range_origin": f.range_origin}
+                           "range_origin": f.range_origin,
+                           "rule1_check": f.rule1_check,
+                           "change_evidence": f.change_evidence}
                           for i, (c, f) in enumerate(zip(a.candles, a.flows))],
                 "fvg": [{"time": a.candles[z.created].time.isoformat(), "start": z.start, "side": z.side, "top": z.top, "bottom": z.bottom, "balanced": z.balanced, "broken_at": z.broken} for z in a.fvg],
-                "rule1_higher_liquidity": serialize_audit(a.liquidity_audit if a.timeframe == "H1" else
+                "rule1_higher_liquidity": serialize_audit(a.liquidity_audit if a.timeframe not in ("M1", "M5") else
                                                          self.parents["H1"].liquidity_audit if "H1" in self.parents else []),
-                "rule1_shadow": serialize_shadow_rule_one(a.rule1_shadow if a.timeframe == "H1" else
-                                                           self.parents["H1"].rule1_shadow if "H1" in self.parents else []),
+                "rule1_mode": "APPLIED_TO_CONFIRMED_FLOW",
                 "higher_timeframes": {
                     tf: {
                         "source": ("MOEX_CLEAN_H1_PHYSICAL_CALENDAR"
                                    if p.session_info.get("higher_from_clean_h1") else "CSV_OR_SUPPLIED_HIGHER_TF"),
                         "source_info": p.session_info,
                         "coverage": source_coverage(p),
+                        "rule1_higher_liquidity": serialize_audit(p.liquidity_audit),
                         "bars": len(p.candles),
                         "candles": [{"time": c.time.isoformat(), "open": c.open,
                                      "high": c.high, "low": c.low, "close": c.close,
@@ -702,6 +703,8 @@ class MainWindow(QMainWindow):
                                                         if f.source_confirmed_at else None),
                                    "range_start_at": (f.range_start_at.isoformat()
                                                       if f.range_start_at else None),
+                                   "rule1_check": f.rule1_check,
+                                   "change_evidence": f.change_evidence,
                                    "last_change_at": (f.last_change_at.isoformat()
                                                       if f.last_change_at else None)}
                                   for i, (c, f) in enumerate(zip(p.candles, p.flows))]

@@ -23,10 +23,11 @@ UTC = timezone.utc
 TIMEFRAMES = ("M1", "M5", "H1", "D1", "W1", "MN1")
 MOEX_INTERVALS = {"M1": 1, "M5": 1, "H1": 60, "D1": 24, "W1": 7, "MN1": 31}
 
-# Safety limit for a single historical fetch. For full monthly parity, an
-# extended cleaned history or a session-filtered TV CSV is still required.
-CANONICAL_H1_DAYS = 1095  # roughly three calendar years
-CANONICAL_H1_LIMIT = 30000
+# Request the available exchange archive, including the initial liquidity
+# context. The actual first returned bar is reported; availability is not
+# equivalent to completeness or to the TradingView session's first bar.
+CANONICAL_H1_DAYS = 36 * 366
+CANONICAL_H1_LIMIT = 200000
 
 
 @dataclass(frozen=True, slots=True)
@@ -300,7 +301,7 @@ def without_session_zeros(candles: list[Candle], intraday: bool = True) -> list[
 
 
 def _iss_download(symbol: str, interval: int, *, days: int, limit: int,
-                  timeout: int, board: str) -> list[Candle]:
+                  timeout: int, board: str, require_full: bool = False) -> list[Candle]:
     now = datetime.now(MOSCOW)
     frm = (now - timedelta(days=days)).date().isoformat()
     to = now.date().isoformat()
@@ -311,7 +312,7 @@ def _iss_download(symbol: str, interval: int, *, days: int, limit: int,
         params = urllib.parse.urlencode({"interval": interval, "from": frm, "till": to,
                                          "start": start, "iss.meta": "off", "iss.only": "candles"})
         req = urllib.request.Request(urlbase + "?" + params,
-                                     headers={"User-Agent": "FlowDesk/0.2.9 (confirmed source candles)",
+                                     headers={"User-Agent": "FlowDesk/0.2.10 (confirmed source candles)",
                                               "Accept": "application/json"})
         with urllib.request.urlopen(req, timeout=timeout) as response:
             payload = json.load(response)
@@ -322,6 +323,8 @@ def _iss_download(symbol: str, interval: int, *, days: int, limit: int,
         for row in chunk:
             item = dict(zip(fields, row))
             if all(item.get(k) is not None for k in ("open", "high", "low", "close")):
+                if require_full and len(all_bars) == limit:
+                    raise ValueError("Архив MOEX превышает лимит; расчёт по обрезанной истории отменён")
                 dt = datetime.fromisoformat(item["begin"]).replace(tzinfo=MOSCOW)
                 all_bars.append(Candle(dt, float(item["open"]), float(item["high"]),
                                        float(item["low"]), float(item["close"]),
@@ -396,13 +399,12 @@ def load_moex_session_bundle(symbol: str, display_tf: str, *, board: str = "TQBR
     if display_tf not in TIMEFRAMES:
         raise ValueError(f"Неподдерживаемый ТФ: {display_tf}")
     # Important: settlement dates must not shift chart D1/W1/MN1 bars.
-    # Source window intentionally longer than the 3,000 bars displayed. MTF
-    # signals near the left edge remain experimental until more history exists.
+    # Use the exchange archive for the calculation, not a three-year tail.
     if auction_overrides is None:
         auction_overrides = load_session_overrides()
     raw_hours = _iss_download(symbol.strip().upper(), 60, board=board.strip().upper(),
                               days=history_days, limit=CANONICAL_H1_LIMIT + history_days,
-                              timeout=15)
+                              timeout=15, require_full=True)
     hours = exclude_opening_auction(raw_hours, "H1", board=board.strip().upper(),
                                      overrides=auction_overrides)
     if not hours:
@@ -425,6 +427,8 @@ def load_moex_session_bundle(symbol: str, display_tf: str, *, board: str = "TQBR
         "base_h1_last": hours[-1].time.isoformat(),
         "base_h1_bars": len(hours),
         "raw_h1_bars": len(raw_hours),
+        "requested_history_days": history_days,
+        "history_request": "AVAILABLE_EXCHANGE_ARCHIVE",
         "auction_h1_removed": dropped_hours,
         "schedule_overrides": [d.isoformat() for d in sorted(auction_overrides)],
         "schedule_source": "Official MOEX 2024/2025/2026 stock-session notices; "
