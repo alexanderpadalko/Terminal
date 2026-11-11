@@ -2,6 +2,27 @@
 from dataclasses import dataclass
 
 
+def inside_mother_bars(candles) -> list[bool]:
+    """Flag inside candles using the *last non-inside mother*.
+
+    A candle is inside when its entire high-low range lies within the current
+    mother bar (inclusive on both edges). Nested inside candles do NOT replace
+    the mother. The first candle is always a mother. This mirrors the
+    high/low containment used by the indicator's FVG engine; it is used here
+    only for presentation, never for signal calculations.
+    """
+    inside_flags: list[bool] = []
+    mother_high = mother_low = None
+    for candle in candles:
+        inside = (mother_high is not None
+                  and candle.high <= mother_high
+                  and candle.low >= mother_low)
+        inside_flags.append(inside)
+        if not inside:
+            mother_high, mother_low = candle.high, candle.low
+    return inside_flags
+
+
 @dataclass
 class ChartView:
     count: int = 125
