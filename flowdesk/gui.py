@@ -38,6 +38,52 @@ UP = QColor("#20c997")
 DOWN = QColor("#f46b82")
 ACCENT = QColor("#66a8ff")
 
+# TV mode is the default; the previous dark palette remains available.
+# Only paint/UI colors are defined here. Market data and indicator calculations
+# must not depend on the selected visual theme.
+CHART_PALETTES = {
+    "tv": {
+        "background": QColor("#898989"),
+        "grid": QColor(119, 119, 119, 95),
+        "text": QColor("#292b2f"),
+        "structure_up": QColor("#007f70"),
+        "structure_down": QColor("#a31831"),
+        "candle_up": QColor("#ffffff"),
+        "candle_down": QColor("#111111"),
+        "candle_up_outline": QColor("#444444"),
+        "candle_down_outline": QColor("#171717"),
+        "wick": QColor("#353535"),
+        "flow_lines": (QColor("#21652c"), QColor("#21652c"),
+                       QColor("#65666a"), QColor("#9d2638"), QColor("#9d2638")),
+        "previous": QColor(62, 62, 62, 105),
+        "crosshair": QColor("#434343"),
+        "tooltip_bg": QColor("#343434"),
+        "tooltip_text": QColor("#ffffff"),
+        "price_marker": QColor("#161616"),
+        "price_marker_text": QColor("#ffffff"),
+    },
+    "dark": {
+        "background": BACKGROUND,
+        "grid": GRID,
+        "text": TEXT,
+        "structure_up": UP,
+        "structure_down": DOWN,
+        "candle_up": UP,
+        "candle_down": DOWN,
+        "candle_up_outline": UP,
+        "candle_down_outline": DOWN,
+        "wick": None,
+        "flow_lines": (QColor("#4da95c"), QColor("#4da95c"),
+                       QColor("#afafb8"), QColor("#dc6574"), QColor("#dc6574")),
+        "previous": QColor(85, 111, 144, 110),
+        "crosshair": QColor("#8395a8"),
+        "tooltip_bg": QColor("#34465c"),
+        "tooltip_text": TEXT,
+        "price_marker": None,
+        "price_marker_text": QColor("#09151d"),
+    },
+}
+
 
 def short_number(x: float) -> str:
     return f"{x:,.4f}".rstrip("0").rstrip(".").replace(",", " ")
@@ -155,6 +201,8 @@ class CandleChart(QWidget):
         self.show_fvg = True
         self.show_flow = True
         self.show_previous = True
+        self.visual_theme = "tv"
+        self._zone_labels = []
         self.viewport = ChartView()
         self.price_range = None
         self.last_price_range = None
@@ -168,6 +216,12 @@ class CandleChart(QWidget):
         self.x1 = 100
         self.top = 26
         self.bottom = 80
+
+    def set_theme(self, theme: str):
+        if theme not in CHART_PALETTES:
+            raise ValueError(f"Неизвестная тема графика: {theme}")
+        self.visual_theme = theme
+        self.update()
 
     def set_analysis(self, analysis: Analysis, parents: dict[str, Analysis] | None = None):
         self.analysis = analysis
