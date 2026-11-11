@@ -21,8 +21,8 @@ class TestAuctionWindow(unittest.TestCase):
     def test_moex_change_2025_and_2026_weekday_weekend(self):
         self.assertEqual(opening_auction_window(date(2024, 10, 18)),
                          (time(9, 50), time(10, 0)))
-        self.assertEqual(opening_auction_window(date(2025, 1, 26)),
-                         (time(9, 50), time(10, 0)))
+        # Weekend stock trading did not start until 1 March 2025.
+        self.assertIsNone(opening_auction_window(date(2025, 1, 26)))
         self.assertEqual(opening_auction_window(date(2025, 1, 27)),
                          (time(6, 50), time(7, 0)))
         self.assertEqual(opening_auction_window(date(2026, 11, 7)),
