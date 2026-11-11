@@ -1,0 +1,25 @@
+name: ISS Plus DEMO simultaneous candle control
+on:
+  pull_request:
+    paths:
+      - diagnostics/iss_plus_consistency.py
+      - .github/workflows/iss-plus-consistency.yml
+permissions:
+  contents: read
+jobs:
+  simultaneous:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.15.2'
+      - run: python -m pip install websockets==15.0.1 tzdata==2026.4
+      - run: python -u diagnostics/iss_plus_consistency.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ISSPlus-DEMO-simultaneous
+          path: iss-plus-consistency/
+          retention-days: 30

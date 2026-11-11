@@ -11,6 +11,7 @@ permissions:
 
 jobs:
   smoke:
+    if: github.event_name == 'workflow_dispatch' || github.event.action == 'opened' || github.event.action == 'reopened'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
