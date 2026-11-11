@@ -134,7 +134,13 @@ class TestPinnedTradingCalendar(unittest.TestCase):
         self.assertEqual(meta['holiday_extra_sessions_removed'], ['2026-11-04'])
         self.assertEqual(meta['session_trade_date_mapping'], [
             {'physical_date': '2026-11-04', 'trade_date': '2026-11-05'}])
-        self.assertEqual(higher['D1'][0].time.date(), date(2026, 11, 5))
+        # Chart candles stay on the physical date; the settlement date is
+        # provided separately as metadata, not used to aggregate OHLCV.
+        self.assertEqual(higher['D1'][0].time.date(), date(2026, 11, 4))
+        self.assertEqual(meta['higher_bar_grouping'],
+                         'PHYSICAL_MOSCOW_CALENDAR_DATE_FROM_CLEAN_H1')
+        self.assertEqual(meta['exchange_trading_date_usage'],
+                         'SETTLEMENT_METADATA_ONLY_NOT_BAR_GROUPING')
 
 
 if __name__ == "__main__":
