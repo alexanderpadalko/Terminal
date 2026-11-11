@@ -588,7 +588,8 @@ class CandleChart(QWidget):
         p.setPen(QPen(edge, 0.75, Qt.PenStyle.DotLine))
         p.drawLine(QPointF(x0, (y0 + y1) / 2), QPointF(x1, (y0 + y1) / 2))
         if x1 - x0 >= 68 and height >= 18:
-            label = f"FVG { {'D1': 'D', 'W1': 'W', 'MN1': 'M'}.get(tf, tf) }"
+            short_tf = {"D1": "D", "W1": "W", "MN1": "M"}.get(tf, tf)
+            label = f"FVG {short_tf}"
             width = min(98.0, x1 - x0 - 9.0)
             label_rect = QRectF(x1 - width - 4, low_y + (height - 16) / 2, width, 16)
             if not any(label_rect.intersects(existing) for existing in self._zone_labels):
