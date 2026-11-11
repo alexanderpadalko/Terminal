@@ -994,13 +994,15 @@ class MainWindow(StreamController, QMainWindow):
                 context[:2] == self.stream_key and info.get('tier') == 'network'):
             self.stream_needs_repair = False
         if info.get('stream_repair_required'):
-            self.stream_needs_repair = self.stream_repair_pending = True
+            self.stream_needs_repair = True
+            if self.worker.stream_batch:
+                self.stream_repair_pending = True
         self._show_data(analysis, higher, f"MOEX: {info['symbol']} / {info['board']}")
 
     def _failed(self, error: str):
-        if getattr(self.worker, 'stream_batch', ()):
+        if getattr(self.worker, 'stream_batch', ()) and error.startswith('StreamGap:'):
             self.stream_needs_repair = self.stream_repair_pending = True
-        elif getattr(self.worker, 'repair', False):
+        elif getattr(self.worker, 'repair', False) or getattr(self.worker, 'stream_batch', ()):
             # If minute priming fails, keep the original HTTP-only path usable.
             self.stream_disabled_key = self.stream_key
             self._stop_stream()

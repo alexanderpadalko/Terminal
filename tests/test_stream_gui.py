@@ -157,3 +157,19 @@ class TestStreamGui(unittest.TestCase):
         self.assertEqual(len(self.streams), 1)
         self.assertIsNone(self.window.stream_worker)
         self.assertTrue(self.window.auto_timer.isActive())
+
+    def test_offline_repair_does_not_create_a_tight_http_loop(self):
+        self.ready()
+        original = self.market.view
+        def offline(*args, **kwargs):
+            a, parents, info = original(*args, **kwargs)
+            info.update(tier='offline', stream_repair_required=True)
+            return a, parents, info
+        self.market.view = offline
+        self.window.stream_needs_repair = True
+        self.window._auto_refresh()
+        self.settle()
+        self.assertTrue(self.window.stream_needs_repair)
+        self.assertFalse(self.window.stream_repair_pending)
+        self.assertIsNone(self.window.worker)
+        self.assertTrue(self.window.auto_timer.isActive())
