@@ -14,13 +14,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from diagnostics.iss_plus_demo.probe import Evidence, Parser, Session, rows_from, stamp
 
-PATTERNS = [
-    ("SBER", "SBER*"), ("AFKS", "AFKS*"), ("GAZP", "GAZP*"),
-    ("LKOH", "LKOH*"), ("IRAO", "IRAO*"), ("SBMX", "SBMX*"),
-    ("SU262", "SU262*"), ("CNYRUB", "CNYRUB*"),
-    ("USD000", "USD000*"), ("IMOEX", "IMOEX*"),
-    ("Si", "Si*"), ("RI", "RI*"), ("BR", "BR*")
-]
+PATTERNS = []  # Discovery returned no frames in run 1; probe direct code candidates.
+
 FALLBACK = {
     "SBER": "MXSE.TQBR.SBER",
     "AFKS": "MXSE.TQBR.AFKS",
@@ -134,6 +129,23 @@ async def main():
                 continue
             source = "SEARCH.ticker" if full else "fallback_not_discovered"
             choices.append((label,picked,source))
+        choices.extend([
+            ("ROSN", "MXSE.TQBR.ROSN", "candidate_code"),
+            ("VTBR", "MXSE.TQBR.VTBR", "candidate_code"),
+            ("YDEX", "MXSE.TQBR.YDEX", "candidate_code"),
+            ("OZON", "MXSE.TQBR.OZON", "candidate_code"),
+            ("NVTK", "MXSE.TQBR.NVTK", "candidate_code"),
+            ("TATN", "MXSE.TQBR.TATN", "candidate_code"),
+            ("SBMX", "MXSE.TQTF.SBMX", "candidate_code"),
+            ("SU26238", "MXSE.TQOB.SU26238RMFS4", "candidate_code"),
+            ("SU26238BB", "MXSEBB.TQOB.SU26238RMFS4", "candidate_code"),
+            ("CNYRUB_TOM", "MXCX.CETS.CNYRUB_TOM", "candidate_code"),
+            ("USD000UTSTOM", "MXCX.CETS.USD000UTSTOM", "candidate_code"),
+            ("SiZ6_RFUD", "FORTS.RFUD.SiZ6", "candidate_code"),
+            ("SiZ6_FORTS", "FORTS.FORTS.SiZ6", "candidate_code"),
+            ("IMOEX_INDEX", "INDICES.MICEXINDEXCF.IMOEX", "candidate_code"),
+            ("IMOEX_ALT", "INDICES.INDICES.IMOEX", "candidate_code"),
+        ])
         seen = set()
         specs = []
         for label,ticker,source in choices:
@@ -162,7 +174,7 @@ async def main():
                 specs.append({"label":label+"-reference","ticker":ticker,
                               "discovered_by":"fallback_not_discovered",
                               "destination":"MXSE.securities","selector":f'TICKER="{ticker}"'})
-        specs=specs[:28]
+        specs=specs[:36]
         for i,spec in enumerate(specs):
             spec["id"]=f"inst-{i}"
             await session.send("SUBSCRIBE", {
