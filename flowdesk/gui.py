@@ -322,12 +322,10 @@ class CandleChart(QWidget):
         elif event.modifiers() & Qt.KeyboardModifier.ShiftModifier or event.angleDelta().x():
             self.viewport.pan(round(self.viewport.count * (0.12 if delta > 0 else -0.12)), len(self.analysis.candles))
         else:
-            first, last = self.window()
-            visible_count = max(1, last - first)
-            chart_width = ((self.x1 - self.x0) * visible_count /
-                           max(1, visible_count + self.viewport.right_padding))
+            # The right margin is a fixed number of empty slots; when
+            # zooming, it cancels out of the pixel-to-candle anchor.
             self.viewport.zoom(0.82 if delta > 0 else 1.22,
-                               (event.position().x() - self.x0) / max(1, chart_width),
+                               (event.position().x() - self.x0) / max(1, self.x1 - self.x0),
                                len(self.analysis.candles))
         event.accept()
         self.update()
@@ -379,10 +377,9 @@ class CandleChart(QWidget):
                 self.viewport.count = self.drag_count
                 self.viewport.offset = self.drag_offset
                 self.viewport.right_padding = self.drag_padding
-                first, last = self.window()
-                usable_width = ((self.x1 - self.x0) * max(1, last - first) /
-                                max(1, last - first + self.drag_padding))
-                fraction = (self.drag_origin.x() - self.x0) / max(1, usable_width)
+                # Keep the same real candle under the cursor while the
+                # visible candle count changes; right padding stays fixed.
+                fraction = (self.drag_origin.x() - self.x0) / max(1, self.x1 - self.x0)
                 factor = math.exp(max(-5.0, min(5.0, -dx * 0.009)))
                 self.viewport.zoom(factor, fraction, len(self.analysis.candles))
             elif self.drag_mode == "pan":
