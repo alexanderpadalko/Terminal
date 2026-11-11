@@ -1,10 +1,11 @@
 """Qt lifecycle wrapper; all network I/O lives off the GUI thread."""
 import asyncio
 import threading
+from datetime import datetime, timezone
 
 from PySide6.QtCore import QThread, Signal
 
-from .iss_plus import IssPlusClient
+from .iss_plus import FeedEvent, IssPlusClient
 
 
 class StreamWorker(QThread):
@@ -29,12 +30,14 @@ class StreamWorker(QThread):
         async def main():
             self._loop = asyncio.get_running_loop()
             self._task = asyncio.current_task()
-            if self._stop.is_set():
-                return
             try:
-                await IssPlusClient(self.symbol, self.board).run(self.event.emit)
+                if not self._stop.is_set():
+                    await IssPlusClient(self.symbol, self.board).run(self.event.emit)
             except asyncio.CancelledError:
                 pass
+            except Exception as exc:
+                self.event.emit(FeedEvent('status', self.symbol, self.board, 1, datetime.now(timezone.utc),
+                                          state='unavailable', detail=f'{type(exc).__name__}: {exc}'))
             finally:
                 self._task = self._loop = None
         asyncio.run(main())

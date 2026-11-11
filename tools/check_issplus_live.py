@@ -18,7 +18,8 @@ async def main():
     from websockets.asyncio.client import connect
     output = Path('issplus-live-result.json')
     result = {'started': datetime.now(timezone.utc).isoformat(), 'counts': {}, 'statuses': [],
-              'errors': [], 'http_repairs': 0, 'stream_batches': 0, 'ready_epochs': [], 'delay_samples': []}
+              'errors': [], 'http_repairs': 0, 'stream_batches': 0, 'accepted_batches': 0,
+              'minute_updates': 0, 'ready_epochs': [], 'delay_samples': []}
     sockets = []
     async def connector(*args, **kwargs):
         ws = await connect(*args, **kwargs)
@@ -64,7 +65,15 @@ async def main():
                             result['delay_samples'].append((q['published'] - q['source_timestamp']) / 1000)
                     if event.kind == 'candles' and repaired:
                         try:
+                            key = next(iter(service.memory))
+                            before = service.memory[key]
                             await asyncio.to_thread(service.ingest_stream, 'SBER', 'TQBR', [event])
+                            after = service.memory[key]
+                            if after is not before:
+                                result['accepted_batches'] += 1
+                                if event.timeframe == 'M1' and before.minutes != after.minutes:
+                                    result['minute_updates'] += 1
+                                    print('M1_APPLIED', after.minutes[-1].time.isoformat(), after.asof.isoformat(), flush=True)
                             a, _, info = await asyncio.to_thread(service.view, 'SBER', 'TQBR', 'M1')
                             result['stream_batches'] += 1
                             if info.get('stream_repair_required'):
@@ -80,6 +89,8 @@ async def main():
             assert {'M1', 'H1', 'D1', 'W1', 'MN1', 'quote'} <= counts.keys(), result
             assert len(set(result['ready_epochs'])) >= 2, result
             assert result['stream_batches'] > 5, result
+            assert result['accepted_batches'] > 3, result
+            assert result['minute_updates'] > 0, result
             result['success'] = True
     except Exception as exc:
         result['errors'].append(f'{type(exc).__name__}: {exc}')

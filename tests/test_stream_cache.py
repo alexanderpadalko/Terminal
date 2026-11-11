@@ -101,6 +101,13 @@ class TestStreamCache(unittest.TestCase):
         with self.assertRaises(ValueError):
             merge_stream(saved, [event('M1', [replace(candle(BASE), close=100)])], {})
 
+    def test_later_native_hour_cannot_seal_missing_earlier_partial_hour(self):
+        saved = snapshot()
+        later_hour = candle(BASE + timedelta(hours=1))
+        merged, _ = merge_stream(saved, [event('H1', [later_hour], BASE + timedelta(hours=3))], {})
+        self.assertLess(merged.asof, BASE + timedelta(hours=1))
+        self.assertTrue(merged.metadata['stream_repair_required'])
+
     def test_stream_replay_matches_fresh_replay_on_all_timeframes(self):
         saved = snapshot()
         initial, parents = analyze_timeframes(saved.sources({}), 'M1', asof=saved.asof)

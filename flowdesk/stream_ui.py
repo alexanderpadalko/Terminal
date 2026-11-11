@@ -76,6 +76,8 @@ class StreamController:
 
     def _feed_text(self):
         text = self.stream_state
+        if self.stream_ready and self.stream_needs_repair:
+            text = 'ISS+ DEMO · требуется восстановление HTTP'
         q = self.stream_quote
         if q.get('LAST') is not None:
             text += f" · Сделка {q['LAST']:g} · {q.get('TIME', '—')} · статус {q.get('TRADINGSTATUS', '—')}"
