@@ -42,9 +42,10 @@ class ChartView:
         start_padding = max(0, int(start_padding))
         max_offset = max(0, length - min(self.count, length))
         if bars >= 0:
-            consumed = min(start_padding, bars)
-            self.right_padding = start_padding - consumed
-            self.offset = min(max_offset, start_offset + bars - consumed)
+            # Preserve ordinary drag-right historical panning, while
+            # shrinking any existing future whitespace in parallel.
+            self.right_padding = max(0, start_padding - bars)
+            self.offset = min(max_offset, start_offset + bars)
         else:
             consumed = min(start_offset, -bars)
             self.offset = start_offset - consumed
