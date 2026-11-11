@@ -1,8 +1,6 @@
 name: Build Windows FlowDesk exe
 on:
   workflow_dispatch:
-  push:
-    branches: [codex/flowdesk-0.2.9-confirmed-bars]
   pull_request:
     branches: [main]
 
