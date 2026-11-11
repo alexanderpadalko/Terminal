@@ -139,17 +139,36 @@ class TimeframeBar(QWidget):
             self.buttons[tf] = button
             layout.addWidget(button)
         self.buttons[self._current].setChecked(True)
-        self.setStyleSheet("""
-            QWidget#timeframeBar { background: #101010; border-radius: 8px; }
-            QWidget#timeframeBar QToolButton {
-                background: transparent; color: #dfdfdf; border: none;
-                border-radius: 10px; padding: 0; font-size: 18px;
-            }
-            QWidget#timeframeBar QToolButton:hover { background: #262626; }
-            QWidget#timeframeBar QToolButton:checked { background: #303030; color: #ffffff; }
-            QWidget#timeframeBar QToolButton:focus { border: 1px solid #666666; }
-            QWidget#timeframeBar QToolButton:disabled { color: #6c6c6c; }
-        """)
+        self.set_theme("tv")
+
+    def set_theme(self, theme: str):
+        if theme == "tv":
+            self.setStyleSheet("""
+                QWidget#timeframeBar { background: #dedede; border-radius: 6px; }
+                QWidget#timeframeBar QToolButton {
+                    background: transparent; color: #393939; border: none;
+                    border-radius: 6px; padding: 0; font-size: 16px;
+                }
+                QWidget#timeframeBar QToolButton:hover { background: #cccccc; }
+                QWidget#timeframeBar QToolButton:checked {
+                    background: #ffffff; color: #111111; font-weight: 700;
+                    border: 1px solid #bcbcbc;
+                }
+                QWidget#timeframeBar QToolButton:focus { border: 1px solid #848484; }
+                QWidget#timeframeBar QToolButton:disabled { color: #aaaaaa; }
+            """)
+        else:
+            self.setStyleSheet("""
+                QWidget#timeframeBar { background: #101010; border-radius: 8px; }
+                QWidget#timeframeBar QToolButton {
+                    background: transparent; color: #dfdfdf; border: none;
+                    border-radius: 10px; padding: 0; font-size: 18px;
+                }
+                QWidget#timeframeBar QToolButton:hover { background: #262626; }
+                QWidget#timeframeBar QToolButton:checked { background: #303030; color: #ffffff; }
+                QWidget#timeframeBar QToolButton:focus { border: 1px solid #666666; }
+                QWidget#timeframeBar QToolButton:disabled { color: #6c6c6c; }
+            """)
 
     def currentText(self):
         return self._current
@@ -658,6 +677,17 @@ class MainWindow(QMainWindow):
         self.auto_checkbox.setChecked(True)
         self.auto_checkbox.setToolTip("Обновлять открытый инструмент MOEX через минуту после завершения запроса. Данные ISS поступают с задержкой около 15 минут.")
         navigation.addWidget(self.auto_checkbox)
+        navigation.addSpacing(10)
+        navigation.addWidget(QLabel("Тема:"))
+        self.visual_style = QComboBox()
+        self.visual_style.addItem("TradingView", "tv")
+        self.visual_style.addItem("Тёмная", "dark")
+        self.visual_style.setToolTip("Оформление графика. Не влияет на свечи и алгоритмы.")
+        self.visual_style.currentIndexChanged.connect(self._change_theme)
+        navigation.addWidget(self.visual_style)
+        self.panel_checkbox = QCheckBox("Панель")
+        self.panel_checkbox.setToolTip("Показать диагностику, последние FVG и события")
+        navigation.addWidget(self.panel_checkbox)
         navigation.addStretch()
         self.data_age = QLabel('')
         navigation.addWidget(self.data_age)
@@ -727,6 +757,10 @@ class MainWindow(QMainWindow):
         panel.addWidget(self.hover_info)
         splitter.addWidget(right)
         splitter.setSizes([1030, 320])
+        self.right_panel = right
+        self.panel_checkbox.toggled.connect(self.right_panel.setVisible)
+        # TV preset gives the price chart the maximum available width.
+        self.right_panel.hide()
         layout.addWidget(splitter, 1)
         self.status = QLabel()
         self.status.setObjectName("status")
