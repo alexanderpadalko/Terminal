@@ -889,7 +889,8 @@ class MainWindow(QMainWindow):
                 if col == 0:
                     item.setForeground(UP if z.side == 1 else DOWN)
                 self.zones_table.setItem(i, col, item)
-        session_desc = " · Аукцион открытия исключён на всех ТФ" if analysis.session_info.get("higher_from_clean_h1") else ""
+        session_desc = (" · Готовые свечи MOEX, включая аукцион" if analysis.session_info.get("native_higher")
+                        else " · Аукцион открытия исключён" if analysis.session_info.get("opening_auction_excluded") else "")
         coverage = " · ".join(
             f"{tf}: {p.confirmed_bars} закрытых ({p.candles[0].time:%d.%m.%Y}–{p.candles[-1].time:%d.%m.%Y})"
             for tf, p in parents.items() if p.candles and tf in ("D1", "W1", "MN1"))
@@ -937,7 +938,7 @@ class MainWindow(QMainWindow):
                 "calculation": source_coverage(a),
                 "session_info": a.session_info if a.session_info else {
                     "mode": "CSV_SESSION_FILTERED_FOR_M1_M5_H1_OR_ASSUMED_FOR_HIGHER",
-                    "warning": "Для H4/D/W/M CSV требуется экспорт сессии без аукциона из TradingView"},
+                    "warning": "Для H4 CSV проверьте сессию; D/W/M сохраняют предоставленные OHLCV, включая аукцион"},
                 "caveats": ["Rules 2 > 1 > 3 applied; full Pine parity unverified", "Quotes may be delayed", "Special MOEX sessions/older TF history need TradingView session parity checks"],
                 "bars": len(a.candles),
                 "candles": [serialize_candle(c) for c in a.candles],
@@ -963,7 +964,7 @@ class MainWindow(QMainWindow):
                 "rule1_mode": "APPLIED_TO_CONFIRMED_FLOW",
                 "higher_timeframes": {
                     tf: {
-                        "source": ("MOEX_CLEAN_H1_PHYSICAL_CALENDAR"
+                        "source": ("MOEX_NATIVE_CANDLES" if p.session_info.get("native_higher") else "MOEX_CLEAN_H1_PHYSICAL_CALENDAR"
                                    if p.session_info.get("higher_from_clean_h1") else "CSV_OR_SUPPLIED_HIGHER_TF"),
                         "source_info": p.session_info,
                         "coverage": source_coverage(p),

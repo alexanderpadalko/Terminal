@@ -17,10 +17,13 @@ from pathlib import Path
 from .market_data import (Candle, MOSCOW, TIMEFRAMES, _iss_download, aggregate,
                           exclude_opening_auction, load_moex_session_bundle,
                           load_session_overrides, normalize, candle_close_time)
-from .market_data import aggregate_moex_h4
+from .market_data import (aggregate_moex_h4, NATIVE_HIGHER, MOEX_INTERVALS,
+                          CANONICAL_H1_DAYS, bundle_source_info)
 from .pipeline import analyze_timeframes
 
 # Bump when cleaning/calendar semantics change; never reuse incompatible OHLC.
+# Native D/W/M add new SQLite rows; missing rows trigger a native archive
+# fetch while keeping the compatible H1/M1 key and its old full history.
 CACHE_POLICY = 'physical-clean-h1-calendar-2026-v1'
 
 
@@ -32,13 +35,16 @@ class MarketSnapshot:
     hours: list[Candle]
     minutes: list[Candle] | None
     metadata: dict
+    native_higher: dict = field(default_factory=dict)
     analyses: dict = field(default_factory=dict)
     series: dict = field(default_factory=dict)
 
     def sources(self, sessions=None):
         if not self.series:
+            if not all(self.native_higher.get(tf) for tf in NATIVE_HIGHER):
+                raise ValueError('В снимке нет готовых свечей Д/Н/М MOEX; требуется загрузка')
             self.series = {'H1': self.hours}
-            self.series.update({tf: aggregate(self.hours, tf) for tf in ('D1', 'W1', 'MN1')})
+            self.series.update(self.native_higher)
             self.series['H4'] = aggregate_moex_h4(self.hours, auction_overrides=sessions)
             if self.minutes:
                 self.series['M1'] = self.minutes
@@ -68,7 +74,7 @@ class SnapshotStore:
             if row is None:
                 return None
             data = {}
-            for tf in ('H1', 'M1'):
+            for tf in ('H1', 'M1', *NATIVE_HIGHER):
                 values = db.execute('SELECT time, open, high, low, close, volume FROM candles '
                                     'WHERE key=? AND tf=? ORDER BY time', (key, tf)).fetchall()
                 data[tf] = normalize([Candle(datetime.fromisoformat(t), o, h, l, c, v)
@@ -78,7 +84,8 @@ class SnapshotStore:
             asof = datetime.fromisoformat(row[2])
             if asof.tzinfo is None:
                 raise ValueError('В сохранённом снимке нет часового пояса')
-            return MarketSnapshot(row[0], row[1], asof, data['H1'], data['M1'] or None, json.loads(row[3]))
+            return MarketSnapshot(row[0], row[1], asof, data['H1'], data['M1'] or None,
+                                  json.loads(row[3]), {tf: data[tf] for tf in NATIVE_HIGHER if data[tf]})
 
     def write(self, key, snapshot):
         with closing(self._connect()) as db, db:
@@ -88,7 +95,8 @@ class SnapshotStore:
             db.execute('DELETE FROM candles WHERE key=?', (key,))
             db.executemany('INSERT INTO candles VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
                            ((key, tf, c.time.isoformat(), c.open, c.high, c.low, c.close, c.volume)
-                            for tf, bars in [('H1', snapshot.hours), ('M1', snapshot.minutes or [])]
+                            for tf, bars in [('H1', snapshot.hours), ('M1', snapshot.minutes or []),
+                                             *snapshot.native_higher.items()]
                             for c in bars))
 
 
@@ -111,9 +119,15 @@ class MarketService:
         if previous is not None:
             days = max(2, (asof.astimezone(MOSCOW).date() - previous.hours[-1].time.astimezone(MOSCOW).date()).days + 2)
             kwargs['history_days'] = days
+        kwargs['higher_history_days'] = {
+            tf: (max(2, (asof.astimezone(MOSCOW).date() - previous.native_higher[tf][-1].time.astimezone(MOSCOW).date()).days + 2)
+                 if previous and previous.native_higher.get(tf) else CANONICAL_H1_DAYS)
+            for tf in NATIVE_HIGHER}
         progress('Обновление последних H1' if previous else 'Первая загрузка архива H1')
         _, families, fetched_meta = load_moex_session_bundle(symbol, 'H1', **kwargs)
         hours = normalize((previous.hours if previous else []) + families['H1'])
+        native_higher = {tf: normalize((previous.native_higher.get(tf, []) if previous else []) + families[tf])
+                         for tf in NATIVE_HIGHER}
         minutes = previous.minutes if previous else None
         if need_minutes or minutes:
             progress('Загрузка минутных свечей для M1 и M5')
@@ -138,7 +152,21 @@ class MarketService:
                                               set(fetched_meta.get(field_name, [])))
         metadata.update(base_h1_first=hours[0].time.isoformat(), base_h1_last=hours[-1].time.isoformat(),
                         base_h1_bars=len(hours), snapshot_asof=asof.isoformat(), cache_policy=CACHE_POLICY)
-        return MarketSnapshot(symbol, board, asof, hours, minutes, metadata)
+        metadata['sources'] = {tf: {**bundle_source_info(fetched_meta, tf),
+                                    'native_higher': True, 'mode': 'MOEX_NATIVE_CANDLES',
+                                    'symbol': symbol, 'board': board, 'iss_interval': MOEX_INTERVALS[tf],
+                                    'higher_from_clean_h1': False, 'opening_auction_excluded': False,
+                                    'first': bars[0].time.isoformat(), 'last': bars[-1].time.isoformat(),
+                                    'bars': len(bars), 'snapshot_asof': asof.isoformat()}
+                               for tf, bars in native_higher.items()}
+        for tf in ('H1', 'H4', 'M1', 'M5'):
+            metadata['sources'][tf] = {**fetched_meta.get('sources', {}).get(tf, {}),
+                                        'mode': 'MOEX_CLEAN_INTRADAY',
+                                        'symbol': symbol, 'board': board, 'iss_interval': MOEX_INTERVALS[tf],
+                                        'native_higher': False, 'opening_auction_excluded': True,
+                                        'higher_from_clean_h1': tf == 'H4',
+                                        'snapshot_asof': asof.isoformat()}
+        return MarketSnapshot(symbol, board, asof, hours, minutes, metadata, native_higher)
 
     def view(self, symbol, board, tf, *, refresh=False, overrides=None, provenance=None, progress=None):
         symbol, board = symbol.strip().upper(), board.strip().upper()
@@ -156,7 +184,8 @@ class MarketService:
             except (sqlite3.Error, OSError, ValueError) as exc:
                 warning = f'Кеш недоступен: {exc}'
         needs_minutes = tf in ('M1', 'M5') and not (overrides or {}).get(tf)
-        must_fetch = saved is None or refresh or needs_minutes and not saved.minutes
+        has_native = saved is not None and all(saved.native_higher.get(t) for t in NATIVE_HIGHER)
+        must_fetch = saved is None or refresh or not has_native or needs_minutes and not saved.minutes
         snapshot = saved
         if must_fetch:
             try:
@@ -167,7 +196,7 @@ class MarketService:
                 except (sqlite3.Error, OSError) as exc:
                     warning = f'Данные загружены; кеш недоступен: {exc}'
             except Exception as exc:
-                if saved is None or needs_minutes and not saved.minutes:
+                if saved is None or not has_native or needs_minutes and not saved.minutes:
                     raise
                 snapshot, tier = saved, 'offline'
                 warning = f'Обновление недоступно; сохранённые данные: {exc}'
@@ -176,6 +205,10 @@ class MarketService:
         while len(self.memory) > 4:
             self.memory.popitem(last=False)
         series = snapshot.sources(sessions)
+        source_provenance = {t: {**bundle_source_info(snapshot.metadata, t),
+                                  'first': bars[0].time.isoformat(), 'last': bars[-1].time.isoformat(),
+                                  'bars': len(bars), 'snapshot_asof': snapshot.asof.isoformat()}
+                             for t, bars in series.items()}
         if overrides:
             cutoff = snapshot.asof
             for source_tf, bars in overrides.items():
@@ -186,13 +219,13 @@ class MarketService:
                         cutoff = observed
                         warning = (warning + ' · ' if warning else '') + f'Расчёт ограничен снимком незакрытого CSV {source_tf}; обновите импорт для продолжения'
             main, parents = analyze_timeframes({**series, **overrides}, tf, asof=cutoff,
-                                               provenance={**{t: snapshot.metadata for t in series}, **(provenance or {})})
+                                               provenance={**source_provenance, **(provenance or {})})
         else:
             if not snapshot.analyses:
                 progress('Расчёт потоков по загруженной истории')
                 first_tf = 'M1' if snapshot.minutes else 'H1'
                 main, parents = analyze_timeframes(series, first_tf, asof=snapshot.asof,
-                                                   provenance={t: snapshot.metadata for t in series})
+                                                   provenance=source_provenance)
                 snapshot.analyses = {main.timeframe: main, **parents}
             main = snapshot.analyses[tf]
             parents = {t: a for t, a in snapshot.analyses.items()

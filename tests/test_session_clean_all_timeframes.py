@@ -150,29 +150,34 @@ class TestAllTimeframesRebuilt(unittest.TestCase):
         output = analyze(clean, 'H1')
         self.assertFalse(any(z.bottom == 9.065 and z.top == 9.208 for z in output.fvg))
 
-    def test_download_moex_higher_rebuilds_from_hourly_not_native_daily(self):
+    def test_download_moex_higher_keeps_native_auction_ohlcv(self):
         d = date(2026, 11, 9)
-        raw = [bar(d, 6, o=50, hi=50, lo=50, close=50),
-               bar(d, 7, o=10, hi=11, lo=9, close=10)]
+        raw = [bar(d, 6, o=50, hi=50, lo=9, close=10)]
         with patch('flowdesk.market_data._iss_download', return_value=raw) as mocked:
             result = download_moex('AFKS', 'D1', days=1)
-        self.assertEqual(mocked.call_args.args[1], 60)
+        self.assertEqual(mocked.call_args.args[1], 24)
         self.assertEqual(len(result), 1)
-        self.assertEqual(result[0].high, 11)
+        self.assertEqual(result[0].high, 50)
+        self.assertEqual(result[0].time.hour, 0)
 
-    def test_session_bundle_single_hourly_source_all_tfs(self):
+    def test_session_bundle_cleans_intraday_and_loads_native_higher(self):
         d = date(2026, 11, 9)
         raw = [bar(d, 6, o=50, hi=50, lo=50, close=50),
                bar(d, 7, o=10, hi=11, lo=9, close=10),
                bar(d, 8, o=10, hi=12, lo=9, close=11)]
-        with patch('flowdesk.market_data._iss_download', return_value=raw) as mocked:
+        def exchange(symbol, interval, **kwargs):
+            return raw if interval == 60 else [bar(d, 0, o=50, hi=50, lo=9, close=11, vol=999)]
+        with patch('flowdesk.market_data._iss_download', side_effect=exchange) as mocked:
             displayed, sources, provenance = load_moex_session_bundle('AFKS', 'H1')
-        self.assertEqual(mocked.call_count, 1)
+        self.assertEqual([c.args[1] for c in mocked.call_args_list], [60, 24, 7, 31])
         self.assertEqual(len(displayed), 2)
         self.assertEqual(set(sources), {'H1', 'H4', 'D1', 'W1', 'MN1'})
         self.assertEqual({tf: sources[tf][0].high for tf in ('D1', 'W1', 'MN1')},
-                         {'D1': 12, 'W1': 12, 'MN1': 12})
-        self.assertTrue(provenance['higher_from_clean_h1'])
+                         {'D1': 50, 'W1': 50, 'MN1': 50})
+        self.assertFalse(provenance['higher_from_clean_h1'])
+        self.assertTrue(provenance['sources']['D1']['native_higher'])
+        self.assertFalse(provenance['sources']['D1']['opening_auction_excluded'])
+        self.assertTrue(provenance['sources']['H1']['opening_auction_excluded'])
 
 
 if __name__ == '__main__':

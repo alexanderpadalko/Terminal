@@ -16,7 +16,7 @@ HOURS = [Candle(BASE.replace(hour=9), 8.7, 9, 8.527, 8.8),
 
 def bundle(hours=HOURS):
     return hours, {'H1': hours, **{t: aggregate(hours, t) for t in ('D1', 'W1', 'MN1')}}, {
-        'higher_from_clean_h1': True, 'raw_h1_bars': len(hours), 'auction_h1_removed': 0}
+        'higher_from_clean_h1': False, 'raw_h1_bars': len(hours), 'auction_h1_removed': 0}
 
 
 class TestMarketCache(unittest.TestCase):

@@ -138,7 +138,7 @@ class TestPinnedTradingCalendar(unittest.TestCase):
         # provided separately as metadata, not used to aggregate OHLCV.
         self.assertEqual(higher['D1'][0].time.date(), date(2026, 11, 4))
         self.assertEqual(meta['higher_bar_grouping'],
-                         'PHYSICAL_MOSCOW_CALENDAR_DATE_FROM_CLEAN_H1')
+                         'NATIVE_MOEX_OHLCV_MOSCOW_PERIOD_LABELS')
         self.assertEqual(meta['exchange_trading_date_usage'],
                          'SETTLEMENT_METADATA_ONLY_NOT_BAR_GROUPING')
 

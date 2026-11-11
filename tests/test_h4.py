@@ -87,7 +87,7 @@ class TestH4(unittest.TestCase):
         hours = [hour(11, h) for h in range(7, 13)]
         asof = hour(11, 12).time.replace(minute=30)
         metadata = {'higher_from_clean_h1': True}
-        bundle = (hours, {'H1': hours}, metadata)
+        bundle = (hours, {'H1': hours, **{tf: aggregate(hours, tf) for tf in ('D1', 'W1', 'MN1')}}, metadata)
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / 'cache.sqlite3'
             service = MarketService(path, clock=lambda: asof)
