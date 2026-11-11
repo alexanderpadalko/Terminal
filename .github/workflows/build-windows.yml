@@ -51,6 +51,7 @@ jobs:
         run: |
           $env:QT_QPA_PLATFORM='offscreen'
           python -c "from PySide6.QtWidgets import QApplication; from flowdesk.gui import MainWindow; app = QApplication([]); w=MainWindow(); print('GUI constructed:', w.windowTitle()); w.close()"
+          python tools/preview_ui.py
       - name: Build portable Windows executable
         run: python -m PyInstaller --clean --noconfirm --windowed --onedir --name FlowDesk --collect-all tzdata main.py
       - name: Publish entire standalone directory

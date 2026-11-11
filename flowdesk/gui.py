@@ -22,6 +22,8 @@ from PySide6.QtWidgets import (
 )
 
 from . import __version__
+from .chart_view import ChartView
+from .market_cache import MarketService
 from .engine import Analysis, analyze
 from .pipeline import analyze_timeframes, source_coverage
 from .liquidity import serialize_audit
@@ -62,25 +64,24 @@ def demo_data() -> list[Candle]:
 
 
 class MarketWorker(QThread):
-    loaded = Signal(object, object, str)
+    loaded = Signal(object, object, object)
     failed = Signal(str)
+    progress = Signal(str)
 
-    def __init__(self, symbol: str, tf: str, board: str):
+    def __init__(self, symbol: str, tf: str, board: str, service: MarketService,
+                 *, refresh=False, overrides=None, provenance=None):
         super().__init__()
         self.symbol, self.tf, self.board = symbol, tf, board
+        self.service, self.refresh = service, refresh
+        self.overrides, self.provenance = overrides, provenance
 
     def run(self):
         try:
-            bars, series, session_info = load_moex_session_bundle(
-                self.symbol, self.tf, board=self.board, display_limit=3000)
-            # The chart window does not limit the calculation history.
-            # Retain all loaded H1/D/W/M and use ONE timestamp for the bundle.
-            if self.tf in ("M1", "M5"):
-                series[self.tf] = bars
-            main, higher = analyze_timeframes(
-                series, self.tf, asof=datetime.now(timezone.utc),
-                provenance={tf: session_info for tf in series})
-            self.loaded.emit(main, higher, self.symbol)
+            main, higher, info = self.service.view(
+                self.symbol, self.board, self.tf, refresh=self.refresh,
+                overrides=self.overrides, provenance=self.provenance,
+                progress=self.progress.emit)
+            self.loaded.emit(main, higher, info)
         except Exception as e:
             self.failed.emit(f"{type(e).__name__}: {e}")
 
@@ -91,19 +92,24 @@ class CandleChart(QWidget):
     def __init__(self):
         super().__init__()
         self.setMouseTracking(True)
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.setMinimumSize(600, 430)
         self.analysis: Analysis | None = None
         self.parents: dict[str, Analysis] = {}
+        self.times = []
         self.show_structure = True
         self.show_fvg = True
         self.show_flow = True
         self.show_previous = True
-        self.view_count = 125
-        self.offset = 0
+        self.viewport = ChartView()
+        self.price_range = None
+        self.last_price_range = None
+        self.include_flow_in_scale = False
         self.cursor_x: float | None = None
         self.cursor_y: float | None = None
         self.drag_origin = None
         self.drag_offset = 0
+        self.drag_price = None
         self.x0 = 65
         self.x1 = 100
         self.top = 26
@@ -112,44 +118,138 @@ class CandleChart(QWidget):
     def set_analysis(self, analysis: Analysis, parents: dict[str, Analysis] | None = None):
         self.analysis = analysis
         self.parents = parents or {}
+        self.times = [c.time.timestamp() for c in analysis.candles]
         self.offset = 0
         self.update()
 
     def window(self):
         n = len(self.analysis.candles) if self.analysis else 0
-        end = max(0, n - min(self.offset, max(0, n - 8)))
-        start = max(0, end - self.view_count)
-        return start, end
+        return self.viewport.window(n)
+
+    @property
+    def offset(self):
+        return self.viewport.offset
+
+    @offset.setter
+    def offset(self, value):
+        self.viewport.offset = value
+
+    def view_state(self):
+        _, end = self.window()
+        return {'count': self.viewport.count, 'offset': self.offset,
+                'end': self.analysis.candles[end - 1].time.timestamp() if self.analysis and end and self.offset else None,
+                'price_range': self.price_range, 'flow_scale': self.include_flow_in_scale}
+
+    def restore_view(self, state):
+        self.viewport.count = state['count']
+        self.offset = state['offset']
+        if state['end'] is not None:
+            ends = self.times
+            end = bisect.bisect_right(ends, state['end'])
+            self.offset = max(0, len(ends) - end) if end else 0
+        self.price_range = state['price_range']
+        self.include_flow_in_scale = state['flow_scale']
+        self.update()
+
+    def latest(self):
+        self.viewport.latest()
+        self.update()
+
+    def auto_price(self):
+        self.price_range = None
+        self.include_flow_in_scale = False
+        self.update()
+
+    def fit_flow(self):
+        self.price_range = None
+        self.include_flow_in_scale = True
+        self.update()
+
+    def reset_view(self):
+        self.viewport = ChartView()
+        self.auto_price()
+
+    def _zoom_price(self, factor, at_y):
+        if self.last_price_range is None:
+            return
+        lo, hi = self.price_range or self.last_price_range
+        fraction = min(1, max(0, (self.bottom - at_y) / max(1, self.bottom - self.top)))
+        anchor = lo + fraction * (hi - lo)
+        span = max(1e-8, (hi - lo) * factor)
+        self.price_range = (anchor - fraction * span, anchor + (1 - fraction) * span)
 
     def wheelEvent(self, event):
-        delta = event.angleDelta().y()
-        if delta > 0:
-            self.view_count = max(25, int(self.view_count * 0.82))
-        elif delta < 0:
-            self.view_count = min(500, int(self.view_count * 1.23) + 1)
+        if not self.analysis:
+            return
+        delta = event.angleDelta().y() or event.angleDelta().x()
+        if not delta:
+            return
+        if event.position().x() > self.x1 or event.modifiers() & Qt.KeyboardModifier.ControlModifier:
+            self._zoom_price(0.82 if delta > 0 else 1.22, event.position().y())
+        elif event.modifiers() & Qt.KeyboardModifier.ShiftModifier or event.angleDelta().x():
+            self.viewport.pan(round(self.viewport.count * (0.12 if delta > 0 else -0.12)), len(self.analysis.candles))
+        else:
+            self.viewport.zoom(0.82 if delta > 0 else 1.22,
+                               (event.position().x() - self.x0) / max(1, self.x1 - self.x0),
+                               len(self.analysis.candles))
+        event.accept()
         self.update()
 
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
-            self.drag_origin = event.position().x()
+            self.setFocus()
+            self.drag_origin = event.position()
             self.drag_offset = self.offset
+            self.drag_price = (self.price_range or self.last_price_range) if event.position().x() > self.x1 else None
+            self.setCursor(Qt.CursorShape.ClosedHandCursor)
 
     def mouseReleaseEvent(self, event):
         self.drag_origin = None
+        self.drag_price = None
+        self.unsetCursor()
 
     def mouseMoveEvent(self, event):
         self.cursor_x, self.cursor_y = event.position().x(), event.position().y()
         if self.drag_origin is not None and self.analysis:
-            dx = self.cursor_x - self.drag_origin
-            width = max(1, self.width() - 145)
-            bars_drag = int(dx * self.view_count / width)
-            self.offset = max(0, min(len(self.analysis.candles) - 8, self.drag_offset + bars_drag))
+            if self.drag_price:
+                lo, hi = self.drag_price
+                shift = (self.cursor_y - self.drag_origin.y()) * (hi - lo) / max(1, self.bottom - self.top)
+                self.price_range = (lo + shift, hi + shift)
+            else:
+                dx = self.cursor_x - self.drag_origin.x()
+                first, last = self.window()
+                bars_drag = round(dx * (last - first) / max(1, self.x1 - self.x0))
+                self.offset = self.drag_offset
+                self.viewport.pan(bars_drag, len(self.analysis.candles))
         if self.analysis:
             first, last = self.window()
-            plot_width = self.width() - 155
-            index = first + int((self.cursor_x - 66) / max(1, plot_width) * max(1, last - first))
+            index = first + math.floor((self.cursor_x - self.x0) / max(1, self.x1 - self.x0) * max(1, last - first))
             if first <= index < last:
                 self.crosshair.emit(index)
+        self.update()
+
+    def mouseDoubleClickEvent(self, event):
+        if event.position().x() > self.x1:
+            self.auto_price()
+        else:
+            self.reset_view()
+
+    def keyPressEvent(self, event):
+        if not self.analysis:
+            return
+        key = event.key()
+        if key == Qt.Key.Key_End:
+            self.latest()
+        elif key == Qt.Key.Key_Home:
+            self.offset = max(0, len(self.analysis.candles) - self.viewport.count)
+        elif key in (Qt.Key.Key_Left, Qt.Key.Key_Right):
+            self.viewport.pan(round(self.viewport.count * (0.15 if key == Qt.Key.Key_Left else -0.15)), len(self.analysis.candles))
+        elif key in (Qt.Key.Key_Plus, Qt.Key.Key_Equal, Qt.Key.Key_Minus):
+            self.viewport.zoom(1.22 if key == Qt.Key.Key_Minus else 0.82, 0.5, len(self.analysis.candles))
+        elif key in (Qt.Key.Key_0, Qt.Key.Key_F):
+            self.reset_view() if key == Qt.Key.Key_0 else self.auto_price()
+        else:
+            return super().keyPressEvent(event)
         self.update()
 
     def leaveEvent(self, event):
@@ -178,17 +278,16 @@ class CandleChart(QWidget):
         visible = candles[first:last]
         lowest = min(b.low for b in visible)
         highest = max(b.high for b in visible)
-        if self.show_fvg:
-            for z in self.analysis.fvg[-300:]:
-                if z.created >= first and z.start <= last and (z.broken is None or z.broken >= first):
-                    lowest, highest = min(lowest, z.bottom), max(highest, z.top)
-        if self.show_flow and self.analysis.flows:
+        if self.include_flow_in_scale and self.analysis.flows:
             st = self.analysis.flows[last - 1]
             if st.lo is not None:
                 lowest, highest = min(lowest, st.lo), max(highest, st.hi)
         gap = max(0.001, (highest - lowest) * 0.075)
         lowest -= gap
         highest += gap
+        if self.price_range is not None:
+            lowest, highest = self.price_range
+        self.last_price_range = (lowest, highest)
         def y(value: float):
             return self.bottom - (value - lowest) / max(1e-8, highest - lowest) * (self.bottom - self.top)
         p.setFont(QFont("Segoe UI", 9))
@@ -205,6 +304,8 @@ class CandleChart(QWidget):
             p.drawLine(QPointF(x(idx), self.top), QPointF(x(idx), self.bottom))
             p.setPen(TEXT)
             p.drawText(QRectF(x(idx) - 52, self.bottom + 10, 104, 20), int(Qt.AlignmentFlag.AlignCenter), candles[idx].time.strftime("%d.%m %H:%M" if self.analysis.timeframe in ("M1", "M5", "H1") else "%d.%m.%Y"))
+        p.save()
+        p.setClipRect(QRectF(self.x0, self.top, self.x1 - self.x0, self.bottom - self.top))
         # FVG backgrounds and edges: local zones preserve break candle bounds.
         if self.show_fvg:
             local_zones = self.analysis.fvg[-300:]
@@ -219,7 +320,7 @@ class CandleChart(QWidget):
             for parent_tf, parent in self.parents.items():
                 if not parent.candles:
                     continue
-                times = [b.time.timestamp() for b in candles]
+                times = self.times
                 for z in parent.published_fvg[-14:]:
                     left_ts = parent.candles[z.start].time.timestamp()
                     right_ts = parent.candles[z.broken].time.timestamp() if z.broken is not None else candles[-1].time.timestamp()
@@ -278,26 +379,36 @@ class CandleChart(QWidget):
                         pen.setStyle(Qt.PenStyle.DashLine)
                         p.setPen(pen)
                         p.drawLine(QPointF(x(max(first, old_start)), Y), QPointF(x(min(last - 1, max(first, old_end))), Y))
+        p.restore()
         # Price marker and floating header.
         latest = candles[last - 1]
         color = UP if latest.close >= latest.open else DOWN
-        p.fillRect(QRectF(self.x1 + 3, y(latest.close) - 10, 82, 20), color)
+        p.fillRect(QRectF(self.x1 + 3, min(self.bottom, max(self.top, y(latest.close))) - 10, 82, 20), color)
         p.setPen(QColor("#09151d"))
         p.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
-        p.drawText(QRectF(self.x1 + 5, y(latest.close) - 10, 80, 20), int(Qt.AlignmentFlag.AlignCenter), short_number(latest.close))
+        p.drawText(QRectF(self.x1 + 5, min(self.bottom, max(self.top, y(latest.close))) - 10, 80, 20), int(Qt.AlignmentFlag.AlignCenter), short_number(latest.close))
         p.setPen(TEXT)
         p.setFont(QFont("Segoe UI", 10, QFont.Weight.Bold))
+        hover_i = first + math.floor((self.cursor_x - self.x0) / span * count) if self.cursor_x is not None else -1
+        header_bar = candles[hover_i] if first <= hover_i < last and self.cursor_y is not None and self.top <= self.cursor_y <= self.bottom else latest
         p.drawText(QRectF(self.x0, 0, max(150, self.width() - 120), 23), 0,
-                   f"{self.analysis.timeframe}   O {short_number(latest.open)}   H {short_number(latest.high)}   L {short_number(latest.low)}   C {short_number(latest.close)}")
+                   f"{self.analysis.timeframe}   {header_bar.time:%d.%m %H:%M}   O {short_number(header_bar.open)}   H {short_number(header_bar.high)}   L {short_number(header_bar.low)}   C {short_number(header_bar.close)}")
         if self.cursor_x is not None and self.x0 <= self.cursor_x <= self.x1 and self.top <= self.cursor_y <= self.bottom:
             pen = QPen(QColor("#8395a8"), 1, Qt.PenStyle.DashLine)
             p.setPen(pen)
-            p.drawLine(QPointF(self.cursor_x, self.top), QPointF(self.cursor_x, self.bottom))
+            snap_x = x(min(last - 1, max(first, hover_i)))
+            p.drawLine(QPointF(snap_x, self.top), QPointF(snap_x, self.bottom))
             p.drawLine(QPointF(self.x0, self.cursor_y), QPointF(self.x1, self.cursor_y))
+            price = lowest + (self.bottom - self.cursor_y) / max(1, self.bottom - self.top) * (highest - lowest)
+            p.fillRect(QRectF(self.x1 + 3, self.cursor_y - 10, 82, 20), QColor('#34465c'))
+            p.setPen(TEXT)
+            p.drawText(QRectF(self.x1 + 5, self.cursor_y - 10, 80, 20), int(Qt.AlignmentFlag.AlignCenter), short_number(price))
+            p.fillRect(QRectF(snap_x - 65, self.bottom + 5, 130, 22), QColor('#34465c'))
+            p.drawText(QRectF(snap_x - 65, self.bottom + 5, 130, 22), int(Qt.AlignmentFlag.AlignCenter), header_bar.time.strftime('%d.%m.%Y %H:%M'))
         p.setPen(QColor("#8294a9"))
         p.setFont(QFont("Segoe UI", 8))
         p.drawText(QRectF(self.x0, self.height() - 32, self.width() - 170, 20), 0,
-                   "Прокрутка: масштаб · ЛКМ+перетаскивание: история · Диагностика не сверена с Pine")
+                   "Колесо: масштаб под курсором · Shift+колесо: история · Шкала цены: масштаб/сдвиг · End: последние · F: автоцена")
         p.end()
 
     def _draw_zone(self, p, x0, x1, y0, y1, side, broken, tf, stride, parent=False):
@@ -325,12 +436,21 @@ class CandleChart(QWidget):
 
 
 class MainWindow(QMainWindow):
-    def __init__(self):
+    def __init__(self, service=None):
         super().__init__()
         self.setWindowTitle(f"FlowDesk {__version__} — Структура и FVG · Windows")
         self.setMinimumSize(1060, 690)
         self.resize(1420, 830)
         self.worker: MarketWorker | None = None
+        self.market_service = service or MarketService()
+        self.pending_market = None
+        self.desired_market = None
+        self.loaded_market = None
+        self.data_info = {}
+        self.chart_views = {}
+        self.csv_overrides, self.csv_provenance = {}, {}
+        self.local_series, self.local_provenance = {}, {}
+        self.closing_after_load = False
         self.source = "DEMO (синтетические свечи)"
         self.analysis: Analysis | None = None
         self.parents: dict[str, Analysis] = {}
@@ -358,6 +478,7 @@ class MainWindow(QMainWindow):
         self.symbol.setFixedWidth(110)
         self.symbol.setPlaceholderText("Тикер")
         header.addWidget(self.symbol)
+        self.symbol.returnPressed.connect(self.load_moex)
         self.tf = QComboBox()
         self.tf.addItems(list(TIMEFRAMES))
         self.tf.setCurrentText("H1")
@@ -377,6 +498,18 @@ class MainWindow(QMainWindow):
         header.addWidget(self.export_button)
         header.addStretch()
         layout.addLayout(header)
+        navigation = QHBoxLayout()
+        for caption, callback in [('К последним · End', self.chart.latest),
+                                  ('Автоцена · F', self.chart.auto_price),
+                                  ('Диапазон потока', self.chart.fit_flow),
+                                  ('Сброс вида · 0', self.chart.reset_view)]:
+            button = QPushButton(caption)
+            button.clicked.connect(callback)
+            navigation.addWidget(button)
+        navigation.addStretch()
+        self.data_age = QLabel('')
+        navigation.addWidget(self.data_age)
+        layout.addLayout(navigation)
         self.banner = QLabel("ПРЕДВАРИТЕЛЬНЫЕ РАСЧЁТЫ • совпадение с TradingView не подтверждено • без выставления заявок")
         self.banner.setObjectName("warning")
         layout.addWidget(self.banner)
@@ -448,6 +581,7 @@ class MainWindow(QMainWindow):
         self.status.setWordWrap(True)
         layout.addWidget(self.status)
         self.chart.crosshair.connect(self._hover)
+        self.tf.currentTextChanged.connect(self._timeframe_changed)
         self._style()
 
     def _style(self):
@@ -472,26 +606,98 @@ class MainWindow(QMainWindow):
         self.chart.update()
 
     def load_moex(self):
-        if self.worker and self.worker.isRunning():
-            return
+        self._request_market(refresh=True)
+
+    def _timeframe_changed(self, tf):
+        if self.source.startswith('MOEX:') or self.worker and self.worker.isRunning():
+            self._request_market(refresh=False)
+        elif self.analysis and tf != self.analysis.timeframe:
+            series = self.local_series or {self.analysis.timeframe: self.analysis.candles,
+                                           **{t: a.candles for t, a in self.parents.items()}}
+            if tf in series:
+                provenance = self.local_provenance or {self.analysis.timeframe: self.analysis.session_info,
+                                                       **{t: a.session_info for t, a in self.parents.items()}}
+                a, parents = analyze_timeframes(series, tf, asof=self.analysis.asof, provenance=provenance)
+                self._show_data(a, parents, self.source)
+            else:
+                self.tf.blockSignals(True)
+                self.tf.setCurrentText(self.analysis.timeframe)
+                self.tf.blockSignals(False)
+                self.status.setText(f'Для {tf} загрузите инструмент MOEX или соответствующий CSV')
+
+    def _request_market(self, *, refresh):
         symbol = self.symbol.text().strip().upper()
         if not symbol:
             QMessageBox.warning(self, "Тикер", "Введите тикер, например SBER")
             return
+        request = (symbol, self.board.currentText(), self.tf.currentText(), refresh)
+        self.desired_market = request[:3]
+        if self.worker and self.worker.isRunning():
+            self.pending_market = request
+            self.status.setText(f'Следующий график: {symbol} · {request[2]}; завершение текущей загрузки')
+            return
+        self._start_market(request)
+
+    def _start_market(self, request):
+        symbol, board, tf, refresh = request
+        if self.loaded_market is None or self.loaded_market[:2] != request[:2]:
+            self.csv_overrides, self.csv_provenance = {}, {}
         self.load_button.setEnabled(False)
-        self.status.setText(f"Запрос данных MOEX ISS: {symbol} · {self.tf.currentText()} (исторические свечи, возможна задержка)")
-        self.worker = MarketWorker(symbol, self.tf.currentText(), self.board.currentText())
+        self.export_button.setEnabled(False)
+        self.csv_button.setEnabled(False)
+        self.h1_button.setEnabled(False)
+        self.status.setText(f'Открытие {symbol} · {tf}…')
+        self.worker = MarketWorker(symbol, tf, board, self.market_service, refresh=refresh,
+                                   overrides=dict(self.csv_overrides), provenance=dict(self.csv_provenance))
         self.worker.loaded.connect(self._loaded)
         self.worker.failed.connect(self._failed)
-        self.worker.finished.connect(lambda: self.load_button.setEnabled(True))
+        self.worker.progress.connect(self.status.setText)
+        self.worker.finished.connect(self._market_finished)
         self.worker.start()
 
-    def _loaded(self, analysis: Analysis, higher: dict, symbol: str):
-        self._show_data(analysis, higher, f"MOEX: {symbol} / {self.board.currentText()}")
+    def _loaded(self, analysis: Analysis, higher: dict, info: dict):
+        context = (info['symbol'], info['board'], info['tf'])
+        if context != self.desired_market or self.closing_after_load:
+            return
+        self.loaded_market = context
+        self.data_info = info
+        self._show_data(analysis, higher, f"MOEX: {info['symbol']} / {info['board']}")
 
     def _failed(self, error: str):
         self.status.setText(f"Ошибка загрузки: {error}")
-        QMessageBox.warning(self, "MOEX ISS", error)
+        if not self.pending_market and not self.closing_after_load:
+            QMessageBox.warning(self, "MOEX ISS", error)
+
+    def _market_finished(self):
+        finished = self.worker
+        self.worker = None
+        if finished:
+            finished.deleteLater()
+        if self.closing_after_load:
+            self.close()
+            return
+        if self.pending_market:
+            request, self.pending_market = self.pending_market, None
+            self._start_market(request)
+            return
+        for control in (self.load_button, self.csv_button, self.h1_button, self.export_button):
+            control.setEnabled(True)
+        if self.analysis:
+            self.tf.blockSignals(True)
+            self.tf.setCurrentText(self.analysis.timeframe)
+            self.tf.blockSignals(False)
+            if self.loaded_market:
+                self.symbol.setText(self.loaded_market[0])
+                self.board.setCurrentText(self.loaded_market[1])
+
+    def closeEvent(self, event):
+        if self.worker and self.worker.isRunning():
+            self.closing_after_load = True
+            self.pending_market = None
+            self.hide()
+            event.ignore()
+        else:
+            event.accept()
 
     def open_csv(self):
         path, _ = QFileDialog.getOpenFileName(self, "Выбрать экспорт TradingView", "", "CSV (*.csv);;Все файлы (*.*)")
@@ -507,7 +713,10 @@ class MainWindow(QMainWindow):
                                                   overrides=load_session_overrides())
             if not candles:
                 raise ValueError("В CSV не осталось свечей после фильтрации аукциона")
-            self.tf.setCurrentText(tf)
+            self.data_info, self.csv_overrides, self.csv_provenance = {}, {}, {}
+            self.loaded_market = None
+            self.local_series = {tf: candles}
+            self.local_provenance = {tf: {'mode': 'USER_CSV', 'file': Path(path).name}}
             # Never apply a prior H1 CSV from another instrument to a newly
             # opened lower-TF CSV. User explicitly imports the matching H1.
             analysis, _ = analyze_timeframes({tf: candles}, tf)
@@ -556,17 +765,33 @@ class MainWindow(QMainWindow):
                 provenance[tf] = {"mode": "USER_CSV", "file": Path(path).name,
                                   "session": "USER_SELECTED", "symbol_verified": False}
                 imported.add(tf)
-            updated, parents = analyze_timeframes(series, main.timeframe, provenance=provenance)
+            updated, parents = analyze_timeframes(series, main.timeframe, asof=main.asof, provenance=provenance)
+            if self.source.startswith('MOEX:'):
+                self.csv_overrides.update({tf: series[tf] for tf in imported})
+                self.csv_provenance.update({tf: provenance[tf] for tf in imported})
+            else:
+                self.local_series.update(series)
+                self.local_provenance.update(provenance)
             updated.flow_source_note += "; добавлены старшие CSV того же инструмента (тикер проверяется вручную)"
             self._show_data(updated, parents, self.source)
         except Exception as exc:
             QMessageBox.critical(self, "Ошибка импорта старших CSV", str(exc))
 
     def _show_data(self, analysis: Analysis, parents: dict, source: str):
+        if self.analysis:
+            self.chart_views[(self.source, self.analysis.timeframe)] = self.chart.view_state()
         self.source = source
         self.analysis = analysis
         self.parents = parents
         self.chart.set_analysis(analysis, parents)
+        saved_view = self.chart_views.get((source, analysis.timeframe))
+        if saved_view:
+            self.chart.restore_view(saved_view)
+        else:
+            self.chart.reset_view()
+        self.tf.blockSignals(True)
+        self.tf.setCurrentText(analysis.timeframe)
+        self.tf.blockSignals(False)
         state = analysis.flows[-1]
         price = analysis.candles[-1].close
         flow_origin = ("H1, только закрытые свечи" if analysis.timeframe in ("M1", "M5") else
@@ -613,6 +838,15 @@ class MainWindow(QMainWindow):
             f"{tf}: {p.confirmed_bars} закрытых ({p.candles[0].time:%d.%m.%Y}–{p.candles[-1].time:%d.%m.%Y})"
             for tf, p in parents.items() if p.candles and tf in ("D1", "W1", "MN1"))
         self.status.setText(f"{source} · {len(analysis.candles)} свечей ({analysis.confirmed_bars} закрытых) · {len(analysis.fvg)} FVG{session_desc} · {analysis.flow_source_note} · {coverage} · НЕ сверено с Pine")
+        if self.data_info:
+            observed = datetime.fromisoformat(self.data_info['asof']).astimezone(MOSCOW)
+            origin = {'memory': 'Сохранённые данные', 'disk': 'Сохранённые данные',
+                      'offline': 'Офлайн', 'network': 'Обновлено'}[self.data_info['tier']]
+            self.data_age.setText(f'{origin} · {observed:%d.%m %H:%M:%S} МСК')
+            if self.data_info.get('warning'):
+                self.status.setText(self.status.text() + ' · ' + self.data_info['warning'])
+        else:
+            self.data_age.setText('')
 
     def _pair_text(self, state) -> str:
         pair = state.liquidity
@@ -643,6 +877,7 @@ class MainWindow(QMainWindow):
                 "flow_source_tf": a.flow_source_tf,
                 "flow_status": a.flow_status,
                 "flow_source_note": a.flow_source_note,
+                "data_snapshot": self.data_info,
                 "calculation": source_coverage(a),
                 "session_info": a.session_info if a.session_info else {
                     "mode": "CSV_SESSION_FILTERED_FOR_M1_M5_H1_OR_ASSUMED_FOR_HIGHER",
