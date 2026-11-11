@@ -81,7 +81,7 @@ class TestNativeHigherCache(unittest.TestCase):
         self.addCleanup(self.directory.cleanup)
         self.path = Path(self.directory.name) / 'cache.sqlite3'
         self.now = BASE.replace(hour=11, minute=16)
-        self.service = MarketService(self.path, clock=lambda: self.now)
+        self.service = MarketService(self.path, clock=lambda: self.now, feed_delay=timedelta(0))
         calendar = patch('flowdesk.market_cache.load_session_overrides', return_value={})
         calendar.start()
         self.addCleanup(calendar.stop)
@@ -93,7 +93,7 @@ class TestNativeHigherCache(unittest.TestCase):
     def test_native_ohlcv_and_provenance_survive_restart_without_network(self):
         self.seed()
         self.now += timedelta(days=40)
-        restarted = MarketService(self.path, clock=lambda: self.now)
+        restarted = MarketService(self.path, clock=lambda: self.now, feed_delay=timedelta(0))
         with patch('flowdesk.market_cache.load_moex_session_bundle', side_effect=AssertionError('network')) as request:
             for tf in NATIVE_HIGHER:
                 result, _, info = restarted.view('AFKS', 'TQBR', tf)

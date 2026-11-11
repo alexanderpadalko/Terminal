@@ -25,7 +25,7 @@ class TestMarketCache(unittest.TestCase):
         self.addCleanup(self.directory.cleanup)
         self.path = Path(self.directory.name) / 'market.sqlite3'
         self.now = BASE.replace(hour=11, minute=16)
-        self.service = MarketService(self.path, clock=lambda: self.now)
+        self.service = MarketService(self.path, clock=lambda: self.now, feed_delay=timedelta(0))
         self.sessions = patch('flowdesk.market_cache.load_session_overrides', return_value={})
         self.sessions.start()
         self.addCleanup(self.sessions.stop)
@@ -54,7 +54,7 @@ class TestMarketCache(unittest.TestCase):
 
     def test_restart_restores_observation_time_and_history_without_network(self):
         self.seed()
-        later = MarketService(self.path, clock=lambda: BASE.replace(hour=15))
+        later = MarketService(self.path, clock=lambda: BASE.replace(hour=15), feed_delay=timedelta(0))
         with patch('flowdesk.market_cache.load_moex_session_bundle') as network:
             restored, _, info = later.view('AFKS', 'TQBR', 'H1')
         network.assert_not_called()

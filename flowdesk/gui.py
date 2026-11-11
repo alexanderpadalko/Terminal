@@ -510,6 +510,11 @@ class MainWindow(QMainWindow):
         self.parents: dict[str, Analysis] = {}
         self.chart = CandleChart()
         self._build_ui()
+        self.auto_timer = QTimer(self)
+        self.auto_timer.setSingleShot(True)
+        self.auto_timer.setInterval(60000)
+        self.auto_timer.timeout.connect(self._auto_refresh)
+        self.auto_checkbox.toggled.connect(self._schedule_auto_refresh)
         self._show_data(analyze(demo_data(), "H1"), {}, self.source)
 
     def _build_ui(self):
@@ -558,6 +563,10 @@ class MainWindow(QMainWindow):
             button = QPushButton(caption)
             button.clicked.connect(callback)
             navigation.addWidget(button)
+        self.auto_checkbox = QCheckBox("Авто · 60 с")
+        self.auto_checkbox.setChecked(True)
+        self.auto_checkbox.setToolTip("Обновлять открытый инструмент MOEX через минуту после завершения запроса. Данные ISS поступают с задержкой около 15 минут.")
+        navigation.addWidget(self.auto_checkbox)
         navigation.addStretch()
         self.data_age = QLabel('')
         navigation.addWidget(self.data_age)
@@ -660,6 +669,24 @@ class MainWindow(QMainWindow):
     def load_moex(self):
         self._request_market(refresh=True)
 
+    def _schedule_auto_refresh(self, *_):
+        self.auto_timer.stop()
+        if (self.auto_checkbox.isChecked() and self.loaded_market and
+                self.source.startswith('MOEX:') and self.worker is None and not self.closing_after_load):
+            self.auto_timer.start()
+
+    def _auto_refresh(self):
+        if (not self.auto_checkbox.isChecked() or not self.loaded_market or
+                not self.source.startswith('MOEX:') or self.worker is not None or self.closing_after_load):
+            return
+        # Never open an unsubmitted ticker/board or replace a queued user request.
+        context = (self.symbol.text().strip().upper(), self.board.currentText(), self.tf.currentText())
+        if context != self.loaded_market:
+            self._schedule_auto_refresh()
+            return
+        self.desired_market = self.loaded_market
+        self._start_market((*self.loaded_market, True), automatic=True)
+
     def _timeframe_changed(self, tf):
         if self.source.startswith('MOEX:') or self.worker is not None:
             self._request_market(refresh=False)
@@ -690,7 +717,8 @@ class MainWindow(QMainWindow):
             return
         self._start_market(request)
 
-    def _start_market(self, request):
+    def _start_market(self, request, *, automatic=False):
+        self.auto_timer.stop()
         symbol, board, tf, refresh = request
         if self.loaded_market is None or self.loaded_market[:2] != request[:2]:
             self.csv_overrides, self.csv_provenance = {}, {}
@@ -701,6 +729,7 @@ class MainWindow(QMainWindow):
         self.status.setText(f'Открытие {symbol} · {tf}…')
         self.worker = MarketWorker(symbol, tf, board, self.market_service, refresh=refresh,
                                    overrides=dict(self.csv_overrides), provenance=dict(self.csv_provenance))
+        self.worker.automatic = automatic
         self.worker.loaded.connect(self._loaded)
         self.worker.failed.connect(self._failed)
         self.worker.progress.connect(self.status.setText)
@@ -717,7 +746,7 @@ class MainWindow(QMainWindow):
 
     def _failed(self, error: str):
         self.status.setText(f"Ошибка загрузки: {error}")
-        if not self.pending_market and not self.closing_after_load:
+        if not self.pending_market and not self.closing_after_load and not getattr(self.worker, 'automatic', False):
             QMessageBox.warning(self, "MOEX ISS", error)
 
     def _market_finished(self):
@@ -725,6 +754,7 @@ class MainWindow(QMainWindow):
         if finished is not self.worker:
             finished.deleteLater()
             return
+        automatic = getattr(finished, 'automatic', False)
         self.worker = None
         if finished:
             finished.deleteLater()
@@ -741,11 +771,13 @@ class MainWindow(QMainWindow):
             self.tf.blockSignals(True)
             self.tf.setCurrentText(self.analysis.timeframe)
             self.tf.blockSignals(False)
-            if self.loaded_market:
+            if self.loaded_market and not automatic:
                 self.symbol.setText(self.loaded_market[0])
                 self.board.setCurrentText(self.loaded_market[1])
+        self._schedule_auto_refresh()
 
     def closeEvent(self, event):
+        self.auto_timer.stop()
         if self.worker is not None:
             self.closing_after_load = True
             self.pending_market = None
@@ -837,6 +869,9 @@ class MainWindow(QMainWindow):
         if self.analysis:
             self.chart_views[(self.source, self.analysis.timeframe)] = self.chart.view_state()
         self.source = source
+        self.auto_checkbox.setEnabled(source.startswith('MOEX:'))
+        if not source.startswith('MOEX:'):
+            self.auto_timer.stop()
         self.analysis = analysis
         self.parents = parents
         self.chart.set_analysis(analysis, parents)
@@ -899,7 +934,10 @@ class MainWindow(QMainWindow):
             observed = datetime.fromisoformat(self.data_info['asof']).astimezone(MOSCOW)
             origin = {'memory': 'Сохранённые данные', 'disk': 'Сохранённые данные',
                       'offline': 'Офлайн', 'network': 'Обновлено'}[self.data_info['tier']]
-            self.data_age.setText(f'{origin} · {observed:%d.%m %H:%M:%S} МСК')
+            requested = datetime.fromisoformat(self.data_info.get('requested_at', self.data_info['asof'])).astimezone(MOSCOW)
+            delay = self.data_info.get('feed_delay_seconds', 0)
+            self.data_age.setText(f'{origin} · {requested:%H:%M:%S} МСК' + (f' · задержка ≈{delay // 60} мин' if delay else ''))
+            self.data_age.setToolTip(f'Начало запроса: {requested:%d.%m.%Y %H:%M:%S} МСК\nРасчёт закрытых свечей до: {observed:%d.%m.%Y %H:%M:%S} МСК')
             if self.data_info.get('warning'):
                 self.status.setText(self.status.text() + ' · ' + self.data_info['warning'])
         else:

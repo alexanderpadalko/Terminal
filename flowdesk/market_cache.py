@@ -11,7 +11,7 @@ import sqlite3
 from collections import OrderedDict
 from contextlib import closing
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from .market_data import (Candle, MOSCOW, TIMEFRAMES, _iss_download, aggregate,
@@ -25,6 +25,7 @@ from .pipeline import analyze_timeframes
 # Native D/W/M add new SQLite rows; missing rows trigger a native archive
 # fetch while keeping the compatible H1/M1 key and its old full history.
 CACHE_POLICY = 'physical-clean-h1-calendar-2026-v1'
+PUBLIC_FEED_DELAY = timedelta(minutes=15)
 
 
 @dataclass
@@ -101,9 +102,12 @@ class SnapshotStore:
 
 
 class MarketService:
-    def __init__(self, path: str | Path | None = None, *, clock=None):
+    def __init__(self, path: str | Path | None = None, *, clock=None, feed_delay=PUBLIC_FEED_DELAY):
         self.store = SnapshotStore(path or Path.home() / '.flowdesk' / 'market_cache_v1.sqlite3')
         self.clock = clock or (lambda: datetime.now(timezone.utc))
+        if feed_delay < timedelta(0):
+            raise ValueError('Задержка источника не может быть отрицательной')
+        self.feed_delay = feed_delay
         self.memory = OrderedDict()
 
     @staticmethod
@@ -114,7 +118,8 @@ class MarketService:
     def _fetch(self, symbol, board, previous, need_minutes, overrides, progress):
         # Freeze before network I/O: a request spanning an hour boundary must
         # not confirm a price observed while that hour was still forming.
-        asof = self.clock()
+        requested_at = self.clock()
+        asof = requested_at - self.feed_delay
         kwargs = {'board': board, 'auction_overrides': overrides}
         if previous is not None:
             days = max(2, (asof.astimezone(MOSCOW).date() - previous.hours[-1].time.astimezone(MOSCOW).date()).days + 2)
@@ -151,7 +156,9 @@ class MarketService:
                 metadata[field_name] = sorted(set(previous.metadata.get(field_name, [])) |
                                               set(fetched_meta.get(field_name, [])))
         metadata.update(base_h1_first=hours[0].time.isoformat(), base_h1_last=hours[-1].time.isoformat(),
-                        base_h1_bars=len(hours), snapshot_asof=asof.isoformat(), cache_policy=CACHE_POLICY)
+                        base_h1_bars=len(hours), snapshot_asof=asof.isoformat(), cache_policy=CACHE_POLICY,
+                        request_started_at=requested_at.isoformat(),
+                        feed_delay_seconds=int(self.feed_delay.total_seconds()))
         metadata['sources'] = {tf: {**bundle_source_info(fetched_meta, tf),
                                     'native_higher': True, 'mode': 'MOEX_NATIVE_CANDLES',
                                     'symbol': symbol, 'board': board, 'iss_interval': MOEX_INTERVALS[tf],
@@ -183,6 +190,17 @@ class MarketService:
                 saved = self.store.read(key)
             except (sqlite3.Error, OSError, ValueError) as exc:
                 warning = f'Кеш недоступен: {exc}'
+        # Old snapshots used request wall time. Tighten their horizon once,
+        # without redownloading raw history or promoting stale forming bars.
+        if saved is not None:
+            recorded_delay = timedelta(seconds=saved.metadata.get('feed_delay_seconds', 0))
+            if recorded_delay < self.feed_delay:
+                requested = saved.metadata.get('request_started_at', (saved.asof + recorded_delay).isoformat())
+                cutoff = saved.asof - (self.feed_delay - recorded_delay)
+                saved = MarketSnapshot(saved.symbol, saved.board, cutoff, saved.hours, saved.minutes,
+                                        {**saved.metadata, 'request_started_at': requested,
+                                         'feed_delay_seconds': int(self.feed_delay.total_seconds()),
+                                         'snapshot_asof': cutoff.isoformat()}, saved.native_higher)
         needs_minutes = tf in ('M1', 'M5') and not (overrides or {}).get(tf)
         has_native = saved is not None and all(saved.native_higher.get(t) for t in NATIVE_HIGHER)
         must_fetch = saved is None or refresh or not has_native or needs_minutes and not saved.minutes
@@ -231,4 +249,6 @@ class MarketService:
             parents = {t: a for t, a in snapshot.analyses.items()
                        if TIMEFRAMES.index(t) > TIMEFRAMES.index(tf)}
         return main, parents, {'symbol': symbol, 'board': board, 'tf': tf, 'tier': tier,
-                               'asof': main.asof.isoformat(), 'warning': warning}
+                               'asof': main.asof.isoformat(), 'warning': warning,
+                               'requested_at': snapshot.metadata.get('request_started_at', snapshot.asof.isoformat()),
+                               'feed_delay_seconds': snapshot.metadata.get('feed_delay_seconds', 0)}

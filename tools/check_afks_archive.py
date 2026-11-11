@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from flowdesk.market_data import (load_moex_session_bundle, load_session_overrides,
                                   serialize_candle, bundle_source_info, NATIVE_HIGHER)
-from flowdesk.market_cache import MarketService, MarketSnapshot
+from flowdesk.market_cache import MarketService, MarketSnapshot, PUBLIC_FEED_DELAY
 from flowdesk.pipeline import analyze_timeframes, source_coverage
 
 
@@ -18,8 +18,11 @@ def main():
     destination.mkdir(exist_ok=True)
     report = {'parity': 'UNVERIFIED', 'data_source': 'MOEX AFKS TQBR native D/W/M + cleaned intraday'}
     try:
-        asof = datetime.now(timezone.utc)
+        requested_at = datetime.now(timezone.utc)
+        asof = requested_at - PUBLIC_FEED_DELAY
         _, series, provenance = load_moex_session_bundle('AFKS', 'H1')
+        provenance.update(request_started_at=requested_at.isoformat(),
+                          feed_delay_seconds=int(PUBLIC_FEED_DELAY.total_seconds()))
         # Save the fetched market inputs so a later calculation can reproduce
         # this check without making any requests or depending on current time.
         (destination / 'inputs.json').write_text(json.dumps({

@@ -90,7 +90,7 @@ class TestH4(unittest.TestCase):
         bundle = (hours, {'H1': hours, **{tf: aggregate(hours, tf) for tf in ('D1', 'W1', 'MN1')}}, metadata)
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / 'cache.sqlite3'
-            service = MarketService(path, clock=lambda: asof)
+            service = MarketService(path, clock=lambda: asof, feed_delay=timedelta(0))
             with patch('flowdesk.market_cache.load_session_overrides', return_value={}), \
                  patch('flowdesk.market_cache.load_moex_session_bundle', return_value=bundle) as network:
                 service.view('AFKS', 'TQBR', 'H1')
@@ -98,7 +98,7 @@ class TestH4(unittest.TestCase):
             self.assertEqual(network.call_count, 1)
             self.assertEqual((len(h4.candles), h4.confirmed_bars), (2, 1))
             self.assertEqual(candle_close_time(h4.candles[-1], 'H4').hour, 15)
-            later = MarketService(path, clock=lambda: asof + timedelta(days=1))
+            later = MarketService(path, clock=lambda: asof + timedelta(days=1), feed_delay=timedelta(0))
             with patch('flowdesk.market_cache.load_session_overrides', return_value={}), \
                  patch('flowdesk.market_cache.load_moex_session_bundle') as network:
                 restored, _, info = later.view('AFKS', 'TQBR', 'H4')
