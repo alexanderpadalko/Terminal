@@ -525,14 +525,21 @@ class CandleChart(QWidget):
                         p.setPen(pen)
                         p.drawLine(QPointF(x(max(first, old_start)), Y), QPointF(x(min(last - 1, max(first, old_end))), Y))
         p.restore()
-        # Price axis marker is neutral in TV mode; preserve color in dark mode.
+        # Prevent price-axis tags from overlapping when the crosshair is
+        # hovering near the latest close (only presentation, no data mutation).
         latest = candles[last - 1]
         color = colors["candle_up"] if latest.close >= latest.open else colors["candle_down"]
-        p.fillRect(QRectF(self.x1 + 3, min(self.bottom, max(self.top, y(latest.close))) - 10, 82, 20),
-                   colors["price_marker"] or color)
-        p.setPen(colors["price_marker_text"])
-        p.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
-        p.drawText(QRectF(self.x1 + 5, min(self.bottom, max(self.top, y(latest.close))) - 10, 80, 20), int(Qt.AlignmentFlag.AlignCenter), short_number(latest.close))
+        last_price_y = min(self.bottom, max(self.top, y(latest.close)))
+        hover_on_chart = (self.cursor_x is not None and self.cursor_y is not None
+                          and self.x0 <= self.cursor_x <= self.x1
+                          and self.top <= self.cursor_y <= self.bottom)
+        if not (hover_on_chart and abs(self.cursor_y - last_price_y) < 22):
+            p.fillRect(QRectF(self.x1 + 3, last_price_y - 10, 82, 20),
+                       colors["price_marker"] or color)
+            p.setPen(colors["price_marker_text"])
+            p.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
+            p.drawText(QRectF(self.x1 + 5, last_price_y - 10, 80, 20),
+                       int(Qt.AlignmentFlag.AlignCenter), short_number(latest.close))
         p.setPen(colors["text"])
         p.setFont(QFont("Segoe UI", 10, QFont.Weight.Bold))
         hover_i = first + math.floor((self.cursor_x - self.x0) / span * count) if self.cursor_x is not None else -1
