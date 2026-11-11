@@ -147,6 +147,17 @@ class TestGuiNavigation(unittest.TestCase):
         self.assertEqual(self.window.source, 'MOEX: AFKS / TQBR')
         self.assertEqual(self.window.board.currentText(), 'TQBR')
 
+    def test_selection_after_thread_exit_before_finished_delivery_is_queued(self):
+        self.window.symbol.setText('AFKS')
+        self.window.load_moex()
+        # The thread has exited, but its queued loaded/finished signals have
+        # not reached the GUI. A new selection must not replace that worker.
+        self.assertTrue(self.window.worker.wait(3000))
+        self.window.tf.setCurrentText('D1')
+        self.settled()
+        self.assertEqual(self.window.analysis.timeframe, 'D1')
+        self.assertEqual([x[2] for x in self.market.calls], ['H1', 'D1'])
+
     def test_close_during_fetch_does_not_destroy_running_thread(self):
         self.market.gate = threading.Event()
         self.window.load_moex()

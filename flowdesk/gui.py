@@ -609,7 +609,7 @@ class MainWindow(QMainWindow):
         self._request_market(refresh=True)
 
     def _timeframe_changed(self, tf):
-        if self.source.startswith('MOEX:') or self.worker and self.worker.isRunning():
+        if self.source.startswith('MOEX:') or self.worker is not None:
             self._request_market(refresh=False)
         elif self.analysis and tf != self.analysis.timeframe:
             series = self.local_series or {self.analysis.timeframe: self.analysis.candles,
@@ -632,7 +632,7 @@ class MainWindow(QMainWindow):
             return
         request = (symbol, self.board.currentText(), self.tf.currentText(), refresh)
         self.desired_market = request[:3]
-        if self.worker and self.worker.isRunning():
+        if self.worker is not None:
             self.pending_market = request
             self.status.setText(f'Следующий график: {symbol} · {request[2]}; завершение текущей загрузки')
             return
@@ -669,7 +669,10 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "MOEX ISS", error)
 
     def _market_finished(self):
-        finished = self.worker
+        finished = self.sender()
+        if finished is not self.worker:
+            finished.deleteLater()
+            return
         self.worker = None
         if finished:
             finished.deleteLater()
@@ -691,7 +694,7 @@ class MainWindow(QMainWindow):
                 self.board.setCurrentText(self.loaded_market[1])
 
     def closeEvent(self, event):
-        if self.worker and self.worker.isRunning():
+        if self.worker is not None:
             self.closing_after_load = True
             self.pending_market = None
             self.hide()
