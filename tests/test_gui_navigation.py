@@ -32,7 +32,8 @@ class FakeMarket:
             self.gate.wait(4)
         start = datetime(2025, 1, 1, tzinfo=MOSCOW)
         delta = {'M1': timedelta(minutes=1), 'M5': timedelta(minutes=5),
-                 'H1': timedelta(hours=1), 'D1': timedelta(days=1)}.get(tf, timedelta(days=7))
+                 'H1': timedelta(hours=1), 'H4': timedelta(hours=4),
+                 'D1': timedelta(days=1)}.get(tf, timedelta(days=7))
         bars = [Candle(start + i * delta, 10, 11 + (i % 20) * .1, 9, 10) for i in range(400)]
         a = analyze(bars, tf)
         return a, {}, {'symbol': symbol, 'board': board, 'tf': tf, 'tier': 'memory',
@@ -123,6 +124,36 @@ class TestGuiNavigation(unittest.TestCase):
         self.assertEqual(chart.analysis.candles[chart.window()[1] - 1].time, end)
         self.assertEqual(chart.viewport.count, 80)
         self.assertEqual(self.window.tf.currentText(), 'H1')
+
+    def test_interval_buttons_select_h4_and_remain_exclusive(self):
+        self.window.symbol.setText('AFKS')
+        self.window.load_moex()
+        self.settled()
+        bar = self.window.tf
+        self.assertEqual([b.text() for b in bar.buttons.values()], ['1м', '5м', '1ч', '4ч', 'Д', 'Н', 'М'])
+        QTest.mouseClick(bar.buttons['H4'], Qt.MouseButton.LeftButton)
+        self.settled()
+        self.assertEqual(self.window.analysis.timeframe, 'H4')
+        self.assertEqual(bar.currentText(), 'H4')
+        self.assertEqual([tf for tf, b in bar.buttons.items() if b.isChecked()], ['H4'])
+        calls = len(self.market.calls)
+        QTest.mouseClick(bar.buttons['H4'], Qt.MouseButton.LeftButton)
+        self.app.processEvents()
+        self.assertEqual(len(self.market.calls), calls)
+        QTest.mouseClick(bar.buttons['M5'], Qt.MouseButton.LeftButton)
+        self.settled()
+        self.assertEqual(self.window.analysis.timeframe, 'M5')
+        self.assertEqual([tf for tf, b in bar.buttons.items() if b.isChecked()], ['M5'])
+
+    def test_programmatic_interval_sync_does_not_fetch(self):
+        bar = self.window.tf
+        bar.blockSignals(True)
+        bar.setCurrentText('H4')
+        bar.blockSignals(False)
+        self.app.processEvents()
+        self.assertEqual(bar.currentText(), 'H4')
+        self.assertTrue(bar.buttons['H4'].isChecked())
+        self.assertEqual(self.market.calls, [])
 
     def test_rapid_selection_publishes_last_request_without_exporting_old_tf(self):
         self.market.gate = threading.Event()

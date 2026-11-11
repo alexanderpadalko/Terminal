@@ -1,4 +1,4 @@
-"""Closed-source liquidity captures consumed by Rule 1 on H1/D1/W1.
+"""Closed-source liquidity captures consumed by Rule 1 on H1/H4/D1/W1.
 
 Sessions and initial history still require comparison with the user's Pine.
 """
@@ -15,7 +15,7 @@ if TYPE_CHECKING:
     from .engine import Analysis
 
 SOURCES = ("MN1", "W1", "D1")  # Most distant -> closest (tie goes to closest).
-HIGHER_SOURCES = {"H1": SOURCES, "D1": ("MN1", "W1"),
+HIGHER_SOURCES = {"H1": SOURCES, "H4": SOURCES, "D1": ("MN1", "W1"),
                   "W1": ("MN1",), "MN1": ()}
 
 
@@ -102,7 +102,7 @@ def audit_higher_captures(h1: "Analysis", sources: dict[str, "Analysis"],
     clone of request.security() / barmerge session behavior.
     """
     if h1.timeframe not in HIGHER_SOURCES:
-        raise ValueError("Higher liquidity requires H1/D1/W1/MN1 consumer")
+        raise ValueError("Higher liquidity requires H1/H4/D1/W1/MN1 consumer")
     source_tfs = HIGHER_SOURCES[h1.timeframe]
     states = {tf: _SourceState() for tf in source_tfs}
     bars_by_tf: dict[str, list[Candle]] = {}

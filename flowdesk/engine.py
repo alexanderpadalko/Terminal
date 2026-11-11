@@ -690,7 +690,7 @@ def analyze(
     higher_liquidity: dict[str, Analysis] | None = None,
 ) -> Analysis:
     """Local structure/FVG; a separate H1 source is mandatory for low-TF flow."""
-    if timeframe not in ("M1", "M5", "H1", "D1", "W1", "MN1"):
+    if timeframe not in ("M1", "M5", "H1", "H4", "D1", "W1", "MN1"):
         raise ValueError("Неизвестный таймфрейм")
     if asof is not None and asof.tzinfo is None:
         raise ValueError("Время расчёта должно содержать часовой пояс")

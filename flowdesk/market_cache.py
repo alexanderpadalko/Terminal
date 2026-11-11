@@ -1,4 +1,4 @@
-"""Persistent MOEX snapshots, shared by all six chart timeframes.
+"""Persistent MOEX snapshots, shared by all seven chart timeframes.
 
 Cached bars keep their observation timestamp. Opening a saved snapshot later
 must never promote its then-forming candles to confirmed ones.
@@ -17,6 +17,7 @@ from pathlib import Path
 from .market_data import (Candle, MOSCOW, TIMEFRAMES, _iss_download, aggregate,
                           exclude_opening_auction, load_moex_session_bundle,
                           load_session_overrides, normalize, candle_close_time)
+from .market_data import aggregate_moex_h4
 from .pipeline import analyze_timeframes
 
 # Bump when cleaning/calendar semantics change; never reuse incompatible OHLC.
@@ -34,10 +35,11 @@ class MarketSnapshot:
     analyses: dict = field(default_factory=dict)
     series: dict = field(default_factory=dict)
 
-    def sources(self):
+    def sources(self, sessions=None):
         if not self.series:
             self.series = {'H1': self.hours}
             self.series.update({tf: aggregate(self.hours, tf) for tf in ('D1', 'W1', 'MN1')})
+            self.series['H4'] = aggregate_moex_h4(self.hours, auction_overrides=sessions)
             if self.minutes:
                 self.series['M1'] = self.minutes
                 self.series['M5'] = aggregate(self.minutes, 'M5')
@@ -173,7 +175,7 @@ class MarketService:
         self.memory.move_to_end(key)
         while len(self.memory) > 4:
             self.memory.popitem(last=False)
-        series = snapshot.sources()
+        series = snapshot.sources(sessions)
         if overrides:
             cutoff = snapshot.asof
             for source_tf, bars in overrides.items():

@@ -7,7 +7,7 @@ from pathlib import Path
 from datetime import datetime, timezone
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from flowdesk.market_data import load_moex_session_bundle, load_session_overrides
+from flowdesk.market_data import load_moex_session_bundle, load_session_overrides, serialize_candle
 from flowdesk.market_cache import MarketService, MarketSnapshot
 from flowdesk.pipeline import analyze_timeframes, source_coverage
 
@@ -23,8 +23,7 @@ def main():
         # this check without making any requests or depending on current time.
         (destination / 'inputs.json').write_text(json.dumps({
             'asof': asof.isoformat(), 'session_info': provenance,
-            'series': {tf: [{'time': c.time.isoformat(), 'open': c.open, 'high': c.high,
-                            'low': c.low, 'close': c.close, 'volume': c.volume} for c in bars]
+            'series': {tf: [serialize_candle(c) for c in bars]
                        for tf, bars in series.items()}}), encoding='utf-8')
         main_analysis, parents = analyze_timeframes(series, 'H1', asof=asof)
         report['sources'] = {}
@@ -52,7 +51,7 @@ def main():
         checks = {}
         with patch('flowdesk.market_cache.load_moex_session_bundle', side_effect=AssertionError('Unexpected archive request')), \
              patch('flowdesk.market_cache._iss_download', side_effect=AssertionError('Unexpected minute request')):
-            for tf in ('M1', 'M5', 'H1', 'D1', 'W1', 'MN1'):
+            for tf in ('M1', 'M5', 'H1', 'H4', 'D1', 'W1', 'MN1'):
                 began = time.perf_counter()
                 result, _, info = service.view('AFKS', 'TQBR', tf)
                 checks[tf] = {'milliseconds': round((time.perf_counter() - began) * 1000, 3),

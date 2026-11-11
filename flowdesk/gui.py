@@ -18,7 +18,7 @@ from PySide6.QtWidgets import (
     QApplication, QCheckBox, QComboBox, QFileDialog, QFrame, QGridLayout,
     QHBoxLayout, QLabel, QLineEdit, QMainWindow, QMessageBox, QPlainTextEdit,
     QPushButton, QSplitter, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
-    QInputDialog,
+    QInputDialog, QButtonGroup, QToolButton,
 )
 
 from . import __version__
@@ -29,7 +29,7 @@ from .pipeline import analyze_timeframes, source_coverage
 from .liquidity import serialize_audit
 from .market_data import (Candle, MOSCOW, TIMEFRAMES, load_moex_session_bundle,
                           exclude_opening_auction, load_session_overrides,
-                          read_csv, infer_timeframe, candle_close_time)
+                          read_csv, infer_timeframe, candle_close_time, serialize_candle)
 
 BACKGROUND = QColor("#0c131e")
 GRID = QColor("#202b3b")
@@ -61,6 +61,60 @@ def demo_data() -> list[Candle]:
         result.append(Candle(start + timedelta(hours=i), last, hi, lo, nxt, rng.uniform(100, 2000)))
         last = nxt
     return result
+
+
+class TimeframeBar(QWidget):
+    """Exclusive chart interval buttons with a stable selection signal."""
+    currentTextChanged = Signal(str)
+    LABELS = (("M1", "1м"), ("M5", "5м"), ("H1", "1ч"),
+              ("H4", "4ч"), ("D1", "Д"), ("W1", "Н"), ("MN1", "М"))
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setObjectName("timeframeBar")
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(5, 0, 5, 0)
+        layout.setSpacing(3)
+        self.group = QButtonGroup(self)
+        self.group.setExclusive(True)
+        self.buttons = {}
+        self._current = "H1"
+        for tf, label in self.LABELS:
+            button = QToolButton(self)
+            button.setText(label)
+            button.setCheckable(True)
+            button.setFixedSize(37, 42)
+            button.setCursor(Qt.CursorShape.PointingHandCursor)
+            button.setToolTip({"M1": "1 минута", "M5": "5 минут", "H1": "1 час",
+                               "H4": "4 часа", "D1": "День", "W1": "Неделя", "MN1": "Месяц"}[tf])
+            button.setAccessibleName(button.toolTip())
+            button.clicked.connect(lambda checked=False, value=tf: self.setCurrentText(value))
+            self.group.addButton(button)
+            self.buttons[tf] = button
+            layout.addWidget(button)
+        self.buttons[self._current].setChecked(True)
+        self.setStyleSheet("""
+            QWidget#timeframeBar { background: #101010; border-radius: 8px; }
+            QWidget#timeframeBar QToolButton {
+                background: transparent; color: #dfdfdf; border: none;
+                border-radius: 10px; padding: 0; font-size: 18px;
+            }
+            QWidget#timeframeBar QToolButton:hover { background: #262626; }
+            QWidget#timeframeBar QToolButton:checked { background: #303030; color: #ffffff; }
+            QWidget#timeframeBar QToolButton:focus { border: 1px solid #666666; }
+            QWidget#timeframeBar QToolButton:disabled { color: #6c6c6c; }
+        """)
+
+    def currentText(self):
+        return self._current
+
+    def setCurrentText(self, tf):
+        if tf not in self.buttons:
+            raise ValueError(f"Неизвестный ТФ: {tf}")
+        self.buttons[tf].setChecked(True)
+        if tf != self._current:
+            self._current = tf
+            self.currentTextChanged.emit(tf)
 
 
 class MarketWorker(QThread):
@@ -303,7 +357,7 @@ class CandleChart(QWidget):
             p.setPen(QPen(GRID, 1))
             p.drawLine(QPointF(x(idx), self.top), QPointF(x(idx), self.bottom))
             p.setPen(TEXT)
-            p.drawText(QRectF(x(idx) - 52, self.bottom + 10, 104, 20), int(Qt.AlignmentFlag.AlignCenter), candles[idx].time.strftime("%d.%m %H:%M" if self.analysis.timeframe in ("M1", "M5", "H1") else "%d.%m.%Y"))
+            p.drawText(QRectF(x(idx) - 52, self.bottom + 10, 104, 20), int(Qt.AlignmentFlag.AlignCenter), candles[idx].time.strftime("%d.%m %H:%M" if self.analysis.timeframe in ("M1", "M5", "H1", "H4") else "%d.%m.%Y"))
         p.save()
         p.setClipRect(QRectF(self.x0, self.top, self.x1 - self.x0, self.bottom - self.top))
         # FVG backgrounds and edges: local zones preserve break candle bounds.
@@ -479,9 +533,7 @@ class MainWindow(QMainWindow):
         self.symbol.setPlaceholderText("Тикер")
         header.addWidget(self.symbol)
         self.symbol.returnPressed.connect(self.load_moex)
-        self.tf = QComboBox()
-        self.tf.addItems(list(TIMEFRAMES))
-        self.tf.setCurrentText("H1")
+        self.tf = TimeframeBar()
         header.addWidget(self.tf)
         self.load_button = QPushButton("Обновить MOEX")
         self.load_button.clicked.connect(self.load_moex)
@@ -490,7 +542,7 @@ class MainWindow(QMainWindow):
         self.csv_button.clicked.connect(self.open_csv)
         header.addWidget(self.csv_button)
         self.h1_button = QPushButton("Добавить старший CSV")
-        self.h1_button.setToolTip("H1 для M1/M5; D1/W1/MN1 для старшей ликвидности. CSV того же инструмента и сессии.")
+        self.h1_button.setToolTip("H1 для M1/M5; H4/D1/W1/MN1 для старших зон. CSV того же инструмента и сессии.")
         self.h1_button.clicked.connect(self.open_parent_csv)
         header.addWidget(self.h1_button)
         self.export_button = QPushButton("Экспорт диагностики")
@@ -740,7 +792,7 @@ class MainWindow(QMainWindow):
             series[main.timeframe] = main.candles
             provenance = {tf: parent.session_info for tf, parent in self.parents.items()}
             provenance[main.timeframe] = main.session_info
-            allowed = [tf for tf in ("H1", "D1", "W1", "MN1")
+            allowed = [tf for tf in ("H1", "H4", "D1", "W1", "MN1")
                        if TIMEFRAMES.index(tf) > TIMEFRAMES.index(main.timeframe)]
             if not allowed:
                 raise ValueError("Для MN1 старший таймфрейм не предусмотрен")
@@ -885,10 +937,10 @@ class MainWindow(QMainWindow):
                 "calculation": source_coverage(a),
                 "session_info": a.session_info if a.session_info else {
                     "mode": "CSV_SESSION_FILTERED_FOR_M1_M5_H1_OR_ASSUMED_FOR_HIGHER",
-                    "warning": "Для D/W/M CSV требуется экспорт сессии без аукциона из TradingView"},
+                    "warning": "Для H4/D/W/M CSV требуется экспорт сессии без аукциона из TradingView"},
                 "caveats": ["Rules 2 > 1 > 3 applied; full Pine parity unverified", "Quotes may be delayed", "Special MOEX sessions/older TF history need TradingView session parity checks"],
                 "bars": len(a.candles),
-                "candles": [{"time": c.time.isoformat(), "open": c.open, "high": c.high, "low": c.low, "close": c.close, "volume": c.volume} for c in a.candles],
+                "candles": [serialize_candle(c) for c in a.candles],
                 "flows": [{"time": c.time.isoformat(), "side": f.side, "lo": f.lo, "hi": f.hi, "start": f.start, "rule": f.rule, "diagnosis": f.diagnosis,
                            "bar_confirmed": a.is_confirmed(i), "live_range": f.live_range,
                            "source_tf": f.source_tf or a.flow_source_tf,
@@ -917,10 +969,7 @@ class MainWindow(QMainWindow):
                         "coverage": source_coverage(p),
                         "rule1_higher_liquidity": serialize_audit(p.liquidity_audit),
                         "bars": len(p.candles),
-                        "candles": [{"time": c.time.isoformat(), "open": c.open,
-                                     "high": c.high, "low": c.low, "close": c.close,
-                                     "volume": c.volume}
-                                    for c in p.candles],
+                        "candles": [serialize_candle(c) for c in p.candles],
                         "pairs": [{"time": c.time.isoformat(),
                                    "high": pair.high, "low": pair.low,
                                    "high_key": pair.high_key, "low_key": pair.low_key,
@@ -948,7 +997,7 @@ class MainWindow(QMainWindow):
                                                       if f.last_change_at else None)}
                                   for i, (c, f) in enumerate(zip(p.candles, p.flows))]
                     }
-                    for tf in ("D1", "W1", "MN1")
+                    for tf in ("H4", "D1", "W1", "MN1")
                     for p in [a if a.timeframe == tf else self.parents.get(tf)]
                     if p is not None
                 },

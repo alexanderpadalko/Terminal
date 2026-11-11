@@ -22,8 +22,8 @@ from .moex_calendar import (CLOSED, EXTRA, REGULAR, SessionOverride,
 
 MOSCOW = ZoneInfo("Europe/Moscow")
 UTC = timezone.utc
-TIMEFRAMES = ("M1", "M5", "H1", "D1", "W1", "MN1")
-MOEX_INTERVALS = {"M1": 1, "M5": 1, "H1": 60, "D1": 24, "W1": 7, "MN1": 31}
+TIMEFRAMES = ("M1", "M5", "H1", "H4", "D1", "W1", "MN1")
+MOEX_INTERVALS = {"M1": 1, "M5": 1, "H1": 60, "H4": 60, "D1": 24, "W1": 7, "MN1": 31}
 
 # Request the available exchange archive, including the initial liquidity
 # context. The actual first returned bar is reported; availability is not
@@ -40,10 +40,13 @@ class Candle:
     low: float
     close: float
     volume: float = 0.0
+    scheduled_close: datetime | None = None
 
     def __post_init__(self):
         if self.time.tzinfo is None:
             raise ValueError("Время свечи должно содержать часовой пояс")
+        if self.scheduled_close is not None and (self.scheduled_close.tzinfo is None or self.scheduled_close <= self.time):
+            raise ValueError("Неверное время закрытия свечи")
         values = (self.open, self.high, self.low, self.close, self.volume)
         if not all(math.isfinite(v) for v in values):
             raise ValueError("OHLCV содержит NaN/Inf")
@@ -54,6 +57,12 @@ class Candle:
 def normalize(candles: list[Candle]) -> list[Candle]:
     """Chronological order, last value wins when timestamps repeat."""
     return sorted({x.time.astimezone(UTC): x for x in candles}.values(), key=lambda x: x.time)
+
+
+def serialize_candle(c: Candle) -> dict:
+    return {"time": c.time.isoformat(), "open": c.open, "high": c.high,
+            "low": c.low, "close": c.close, "volume": c.volume,
+            **({"scheduled_close": c.scheduled_close.isoformat()} if c.scheduled_close else {})}
 
 
 def parse_time(value: str) -> datetime:
@@ -115,6 +124,8 @@ def period_floor(dt: datetime, tf: str) -> datetime:
         return dt.replace(minute=dt.minute // 5 * 5, second=0, microsecond=0)
     if tf == "H1":
         return dt.replace(minute=0, second=0, microsecond=0)
+    if tf == "H4":
+        return dt.replace(hour=dt.hour // 4 * 4, minute=0, second=0, microsecond=0)
     if tf == "D1":
         return dt.replace(hour=0, minute=0, second=0, microsecond=0)
     if tf == "W1":
@@ -133,6 +144,8 @@ def candle_close_time(candle: Candle, tf: str) -> datetime:
     This is a conservative calendar cutoff, not an exchange session-close
     timestamp. Do not infer completion from the presence of the next bar.
     """
+    if tf == "H4":
+        return candle.scheduled_close or candle.time + timedelta(hours=4)
     if tf in ("M1", "M5", "H1"):
         return candle.time + timedelta(minutes={"M1": 1, "M5": 5, "H1": 60}[tf])
     start = period_floor(candle.time.astimezone(MOSCOW), tf)
@@ -144,6 +157,43 @@ def candle_close_time(candle: Candle, tf: str) -> datetime:
         return start.replace(year=start.year + (start.month == 12),
                              month=start.month % 12 + 1, day=1)
     raise ValueError(f"Неизвестный ТФ: {tf}")
+
+
+def aggregate_moex_h4(candles: list[Candle], *, auction_overrides: dict | None = None) -> list[Candle]:
+    """Four-hour bars anchored at the TQBR session open, from cleaned H1.
+
+    Intraday bars follow the session opening, not the D1 midnight label.
+    Final source hours end at 00:00 on evening sessions, at 19:00 on EXTRA
+    sessions and before the launch of evening trading (22 June 2020).
+    Historical admission to evening trading remains unverified: where it is
+    unknown, nominal later closes are conservative, never inferred from a
+    missing next trade. No empty bars or intermediate prices are fabricated.
+    Sources: tradingview.com/pine-script-docs/concepts/time/;
+    moex.com/n29024; moex.com/n77059; moex.com/n103379.
+    """
+    days = {}
+    for bar in normalize(candles):
+        days.setdefault(bar.time.astimezone(MOSCOW).date(), []).append(bar)
+    result = []
+    for day, hours in days.items():
+        window = opening_auction_window(day, overrides=auction_overrides)
+        earliest = hours[0].time.astimezone(MOSCOW).replace(minute=0, second=0, microsecond=0)
+        configured = datetime.combine(day, window[1], MOSCOW) if window else earliest
+        anchor = min(configured, earliest)
+        short_session = stock_session_kind(day, auction_overrides) == EXTRA or day < date(2020, 6, 22)
+        end = datetime.combine(day, time(19), MOSCOW) if short_session else datetime.combine(day + timedelta(days=1), time.min, MOSCOW)
+        # Observed old sessions can exceed a generic historical schedule.
+        # Retain all prices and avoid assigning a close before the last hour.
+        end = max(end, candle_close_time(hours[-1], 'H1'))
+        grouped = {}
+        for bar in hours:
+            local = bar.time.astimezone(MOSCOW)
+            key = anchor + timedelta(hours=4 * int((local - anchor).total_seconds() // 14400))
+            grouped.setdefault(key, []).append(bar)
+        for key, chunk in grouped.items():
+            result.append(Candle(key, chunk[0].open, max(c.high for c in chunk), min(c.low for c in chunk),
+                                 chunk[-1].close, sum(c.volume for c in chunk), min(key + timedelta(hours=4), end)))
+    return result
 
 
 def aggregate(candles: list[Candle], tf: str, tz: ZoneInfo = MOSCOW,
@@ -356,7 +406,7 @@ def download_moex(symbol: str, tf: str, days: int | None = None,
     """Return an opening-auction-clean series for EVERY supported timeframe.
 
     M1/M5 originate from MOEX minute candles; H1 from MOEX hour candles after
-    dropping auction-only hours. D1/W1/MN1 are REBUILT from cleaned H1; never
+    dropping auction-only hours. H4/D1/W1/MN1 are REBUILT from cleaned H1; never
     use MOEX native higher OHLC (they already include auction prices).
 
     High-timeframe history is limited by the available cleaned H1 lookback.
@@ -395,7 +445,8 @@ def download_moex(symbol: str, tf: str, days: int | None = None,
         # charts keep OHLC grouped by the PHYSICAL calendar interval. A MOEX
         # extra session can be assigned to another date for settlement, but
         # moving its prices into that date distorts D1 FVG boundaries.
-        result = hourly if tf == "H1" else aggregate(hourly, tf)
+        result = (hourly if tf == "H1" else aggregate_moex_h4(hourly, auction_overrides=auction_overrides)
+                  if tf == "H4" else aggregate(hourly, tf))
     if not result:
         raise ValueError("После исключения аукционов не осталось торговых свечей")
     return result[-limit:]
@@ -406,7 +457,7 @@ def load_moex_session_bundle(symbol: str, display_tf: str, *, board: str = "TQBR
                              history_days: int = CANONICAL_H1_DAYS,
                              auction_overrides: dict[date, tuple[time, time] | None] | None = None
                              ) -> tuple[list[Candle], dict[str, list[Candle]], dict]:
-    """Download H1 ONCE; build calendar-aligned D/W/M from the cleaned source."""
+    """Download H1 once; build session H4 and calendar D/W/M from the clean source."""
     if display_tf not in TIMEFRAMES:
         raise ValueError(f"Неподдерживаемый ТФ: {display_tf}")
     # Important: settlement dates must not shift chart D1/W1/MN1 bars.
@@ -434,6 +485,7 @@ def load_moex_session_bundle(symbol: str, display_tf: str, *, board: str = "TQBR
         raise ValueError("После исключения аукционов не осталось истории H1")
     dropped_hours = len(raw_hours) - len(hours)
     families = {tf: aggregate(hours, tf) for tf in ("D1", "W1", "MN1")}
+    families['H4'] = aggregate_moex_h4(hours, auction_overrides=auction_overrides)
     families["H1"] = hours
     if display_tf in ("M1", "M5"):
         visible = download_moex(symbol, display_tf, board=board,
@@ -471,6 +523,8 @@ def load_moex_session_bundle(symbol: str, display_tf: str, *, board: str = "TQBR
             if stock_session_kind(d, auction_overrides) == EXTRA and d.weekday() < 5
         ],
         "higher_from_clean_h1": True,
+        "h4_grouping": "TQBR_SESSION_OPEN_ANCHORED_FROM_CLEAN_H1",
+        "h4_history_session_admission_verified": False,
         "weekend_session": "EXTRA sessions stay on PHYSICAL date for D/W/M chart bars; "
                            "the next regular settlement trading day is diagnostic metadata",
         "warning": "2024-2026 MOEX official calendars bundled; earlier/later dates need "
@@ -500,6 +554,8 @@ def infer_timeframe(candles: list[Candle]) -> str | None:
         return "M5"
     if 3540 <= typical <= 3660:
         return "H1"
+    if 14340 <= typical <= 14460:
+        return "H4"
     if 82800 <= typical <= 90000:
         return "D1"
     if 5.5 * 86400 <= typical <= 8.5 * 86400:

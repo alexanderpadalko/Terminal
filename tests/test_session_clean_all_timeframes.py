@@ -169,7 +169,7 @@ class TestAllTimeframesRebuilt(unittest.TestCase):
             displayed, sources, provenance = load_moex_session_bundle('AFKS', 'H1')
         self.assertEqual(mocked.call_count, 1)
         self.assertEqual(len(displayed), 2)
-        self.assertEqual(set(sources), {'H1', 'D1', 'W1', 'MN1'})
+        self.assertEqual(set(sources), {'H1', 'H4', 'D1', 'W1', 'MN1'})
         self.assertEqual({tf: sources[tf][0].high for tf in ('D1', 'W1', 'MN1')},
                          {'D1': 12, 'W1': 12, 'MN1': 12})
         self.assertTrue(provenance['higher_from_clean_h1'])

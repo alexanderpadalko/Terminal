@@ -26,7 +26,7 @@ def analyze_timeframes(series: dict[str, list[Candle]], display_tf: str,
             continue
         result = analyze(normalize(series[tf]), tf, asof=asof,
                          higher_h1=analyses.get("H1"),
-                         higher_liquidity=analyses if tf in ("H1", "D1", "W1", "MN1") else None)
+                         higher_liquidity=analyses if tf in ("H1", "H4", "D1", "W1", "MN1") else None)
         result.session_info = dict((provenance or {}).get(tf, {}))
         analyses[tf] = result
     main = analyses.pop(display_tf)
