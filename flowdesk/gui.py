@@ -22,7 +22,7 @@ from PySide6.QtWidgets import (
 )
 
 from . import __version__
-from .chart_view import ChartView, inside_mother_bars
+from .chart_view import ChartView, inside_mother_bars, time_axis_zoom_factor
 from .market_cache import MarketService
 from .stream_worker import StreamWorker
 from .stream_ui import StreamController
@@ -394,10 +394,11 @@ class CandleChart(QWidget):
             dy = self.cursor_y - self.drag_origin.y()
             if self.drag_mode == "price_scale" and self.drag_price is not None:
                 lo, hi = self.drag_price
-                factor = math.exp(max(-5.0, min(5.0, dy * 0.009)))
-                fraction = min(1.0, max(0.0, (self.bottom - self.drag_origin.y()) /
-                                             max(1, self.bottom - self.top)))
-                anchor = lo + fraction * (hi - lo)
+                # The reference keeps the middle of the price pane fixed,
+                # irrespective of where the axis was grabbed (14-18 s).
+                factor = math.exp(max(-5.0, min(5.0, dy * 0.005)))
+                fraction = 0.5
+                anchor = (lo + hi) / 2
                 new_span = max(1e-8, (hi - lo) * factor)
                 self.price_range = (anchor - fraction * new_span,
                                     anchor + (1.0 - fraction) * new_span)
@@ -407,7 +408,8 @@ class CandleChart(QWidget):
                 self.viewport.right_padding = self.drag_padding
                 # Time-scale stretching keeps the right edge fixed.
                 fraction = 1.0
-                factor = math.exp(max(-5.0, min(5.0, -dx * 0.009)))
+                factor = time_axis_zoom_factor(self.drag_origin.x() - self.x0,
+                                               dx, self.x1 - self.x0)
                 self.viewport.zoom(factor, fraction, len(self.analysis.candles))
             elif self.drag_mode == "pan":
                 # Two-dimensional pan: horizontal translation navigates

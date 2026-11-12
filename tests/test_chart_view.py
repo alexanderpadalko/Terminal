@@ -1,9 +1,17 @@
 import unittest
-from flowdesk.chart_view import ChartView, inside_mother_bars
+from flowdesk.chart_view import ChartView, inside_mother_bars, time_axis_zoom_factor
 from types import SimpleNamespace
 
 
 class TestChartView(unittest.TestCase):
+    def test_time_axis_factor_is_monotonic_and_safe_across_right_edge(self):
+        factors = [time_axis_zoom_factor(500, dx, 1000) for dx in (-500, 0, 100, 400, 500, 900)]
+        self.assertEqual(factors, sorted(factors))
+        self.assertLess(factors[0], 1)
+        self.assertEqual(factors[1], 1)
+        self.assertGreater(factors[2], 1)
+        self.assertTrue(all(0 < factor <= 50 for factor in factors))
+
     def test_inside_candles_follow_last_noninside_mother(self):
         def bar(hi, lo):
             return SimpleNamespace(high=hi, low=lo)

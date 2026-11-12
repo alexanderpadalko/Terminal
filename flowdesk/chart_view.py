@@ -3,6 +3,17 @@ from dataclasses import dataclass
 import math
 
 
+def time_axis_zoom_factor(start_x, dx, width):
+    """Stretch the ruler about its right edge, as in the reference video.
+
+    Moving the ruler to the right reduces candle spacing. Use the distance
+    to the fixed edge so the gesture scales with the chart, not a fixed
+    exponential multiplier per pixel. Bound a drag beyond the edge.
+    """
+    distance = max(1.0, float(width) - float(start_x))
+    return distance / max(distance / 50.0, distance - float(dx))
+
+
 def inside_mother_bars(candles) -> list[bool]:
     """Flag inside candles using the *last non-inside mother*.
 
