@@ -125,6 +125,8 @@ class TestStartupWatchlistGui(unittest.TestCase):
                     raise InterruptedError('stopped')
                 return self.cached()
         w = MainWindow(service=FakeMarket(), watchlist_service=SlowList())
+        # Network instrument-list refresh now requires explicit HTTP consent.
+        w.http_checkbox.setChecked(True)
         w.show()
         QTest.qWait(30)
         self.assertIsNotNone(w.list_worker)
