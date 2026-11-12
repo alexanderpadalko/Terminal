@@ -1,5 +1,5 @@
 """Bridge pinned v2.11 numeric state to the existing chart data model."""
-from bisect import bisect_left
+from bisect import bisect_left,bisect_right
 from copy import deepcopy
 from datetime import datetime
 from .reference_runtime import ReferenceContext
@@ -75,6 +75,8 @@ def market_state(analysis,settings):
     """Run the actual v2.11 replay and live-shadow blocks on chart pivots."""
     from .engine import StructureEngine
     candles=analysis.candles
+    if analysis.asof is not None:
+        candles=candles[:bisect_right(candles,analysis.asof,key=lambda bar:bar.time)]
     if (not candles or not settings.enableMarketStructureInput or
             settings.showMarketOnlyOnH1 and analysis.timeframe not in ('H1','H4')):
         return {}
@@ -102,7 +104,7 @@ def market_state(analysis,settings):
         prior=point
     context.observe(candles,len(candles)-1)
     context.env.update(fields)
-    confirmed=analysis.confirmed_bars
+    confirmed=sum(analysis.is_confirmed(i) for i in range(len(candles)))
     if confirmed==0:return {}
     context.env['barstate'].isconfirmed=confirmed==len(candles)
     context.env['enableMarketStructure']=True
@@ -113,4 +115,6 @@ def market_state(analysis,settings):
                    'marketChartMaximum','marketChartMaximumBar','marketChartMinimum','marketChartMinimumBar'}
     display_names.update('market'+prefix+suffix for prefix in ('Bos','Choch','Extreme')
                          for suffix in ('Value','TriggerValue','Bar','BreakBar','Idm','IdmBar','IdmSweepBar','StepBars','StepValues'))
-    return {k:deepcopy(v) for k,v in context.env.items() if k in display_names}
+    result={k:deepcopy(v) for k,v in context.env.items() if k in display_names}
+    result['source_right_index']=len(candles)-.5
+    return result

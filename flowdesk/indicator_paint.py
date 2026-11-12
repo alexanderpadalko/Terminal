@@ -39,7 +39,7 @@ def draw_market(chart,p,x,y,first,last):
                 points.extend([(index,points[-1][1]),(index,new_value)])
         points.append((end,points[-1][1]))
         line(points,color,width,label)
-    edge=len(chart.analysis.candles)-.5
+    edge=state.get('source_right_index',len(chart.analysis.candles)-.5)
     if state.get('marketRangeOnly'):
         horizontal(state.get('marketChartMaximumBar'),edge,state.get('marketChartMaximum'),cfg.marketMaxColor,cfg.marketMaxWidth,'Максимум графика')
         horizontal(state.get('marketChartMinimumBar'),edge,state.get('marketChartMinimum'),cfg.marketMinColor,cfg.marketMinWidth,'Минимум графика')

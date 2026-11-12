@@ -71,7 +71,7 @@ class TestH4(unittest.TestCase):
         self.assertEqual(HIGHER_SOURCES['H4'], ('MN1', 'W1', 'D1'))
         self.assertEqual(HIGHER_SOURCES['H1'], ('MN1', 'W1', 'D1','H4'))
 
-    def test_h4_does_not_change_existing_flow_histories(self):
+    def test_h4_enables_h1_input_and_keeps_unrelated_higher_histories(self):
         hours = [hour(day, h, 10 + ((day + h) % 5)) for day in (9, 10, 11) for h in range(7, 24)]
         minutes = [Candle(hours[0].time + timedelta(minutes=i), 10, 11, 9, 10) for i in range(180)]
         series = {'H1': hours, 'M1': minutes, 'M5': aggregate(minutes, 'M5'),
@@ -81,6 +81,12 @@ class TestH4(unittest.TestCase):
             with self.subTest(tf=tf):
                 before, _ = analyze_timeframes(series, tf, asof=asof)
                 after, _ = analyze_timeframes({**series, 'H4': aggregate_moex_h4(hours)}, tf, asof=asof)
+                if tf=='H1':
+                    self.assertTrue(all(row.source_status.get('H4')=='NO_DATA' for row in before.liquidity_audit))
+                    self.assertTrue(any(row.source_status.get('H4')=='READY' for row in after.liquidity_audit))
+                    self.assertEqual(after.flow_source_tf,'H1')
+                    self.assertEqual(len(after.flows),len(hours))
+                    continue
                 self.assertEqual([asdict(f) for f in before.flows], [asdict(f) for f in after.flows])
 
     def test_cached_h4_reuses_hours_and_restores_fixed_close_time(self):

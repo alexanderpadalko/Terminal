@@ -90,6 +90,14 @@ class TestSettingsV211(unittest.TestCase):
 
 
 class TestV211Calculations(unittest.TestCase):
+    def test_future_http_tail_cannot_enter_market_replay_before_observation(self):
+        data=bars(40)
+        cutoff=BASE+timedelta(hours=10,minutes=30)
+        early=analyze(data[:11],'H1',asof=cutoff)
+        future=analyze(data,'H1',asof=cutoff)
+        self.assertEqual(future.market,early.market)
+        self.assertEqual(future.market['source_right_index'],10.5)
+
     def test_rule_two_uses_confirmed_close_and_live_keeps_previous_direction(self):
         data=[Candle(BASE,9,10,8,9,100),Candle(BASE+timedelta(hours=1),10,11,9.3,10.8,100),
               Candle(BASE+timedelta(hours=2),9,10,7.5,7.8,100)]
