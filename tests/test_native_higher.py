@@ -1,6 +1,7 @@
 """Native D/W/M OHLCV, independent history and coherent cache migration."""
 import tempfile
 import unittest
+from dataclasses import replace
 from datetime import datetime, timedelta
 from pathlib import Path
 from unittest.mock import patch
@@ -13,6 +14,11 @@ from flowdesk.market_data import (Candle, MOSCOW, NATIVE_HIGHER, CANONICAL_H1_DA
 
 BASE = datetime(2026, 11, 11, tzinfo=MOSCOW)
 HOURS = [Candle(BASE.replace(hour=h), 10, 12, 9, 11, 100) for h in (7, 8, 9)]
+
+
+def raw_values(bars):
+    # Confirmation metadata is derived separately; native prices/labels stay intact.
+    return [replace(bar,scheduled_close=None) for bar in bars]
 
 
 def native_data(extra_day=False, revised=False):
@@ -66,7 +72,7 @@ class TestNativeHigherDownload(unittest.TestCase):
         self.assertEqual(calls[60]['days'], 2)
         self.assertEqual(calls[24]['days'], 42)
         self.assertEqual(calls[7]['days'], CANONICAL_H1_DAYS)
-        self.assertEqual(series['D1'], native_data()['D1'])
+        self.assertEqual(raw_values(series['D1']), native_data()['D1'])
         self.assertLess(series['D1'][0].time, series['H1'][0].time)
         self.assertEqual(series['D1'][-1].high, 55)
         self.assertEqual(max(b.high for b in series['H1']), 12)
@@ -97,7 +103,7 @@ class TestNativeHigherCache(unittest.TestCase):
         with patch('flowdesk.market_cache.load_moex_session_bundle', side_effect=AssertionError('network')) as request:
             for tf in NATIVE_HIGHER:
                 result, _, info = restarted.view('AFKS', 'TQBR', tf)
-                self.assertEqual(result.candles, native_data()[tf])
+                self.assertEqual(raw_values(result.candles), native_data()[tf])
                 self.assertTrue(result.session_info['native_higher'])
                 self.assertFalse(result.session_info['opening_auction_excluded'])
                 self.assertFalse(result.session_info['higher_from_clean_h1'])
@@ -115,7 +121,7 @@ class TestNativeHigherCache(unittest.TestCase):
         self.assertEqual(request.call_args.kwargs['history_days'], 2)
         self.assertEqual(request.call_args.kwargs['higher_history_days'], {tf: CANONICAL_H1_DAYS for tf in NATIVE_HIGHER})
         self.assertEqual(result.candles, [old_hour, *HOURS])
-        self.assertEqual(parents['D1'].candles, native_data()['D1'])
+        self.assertEqual(raw_values(parents['D1'].candles), native_data()['D1'])
         self.assertEqual(self.service.store.read(key).native_higher, native_data())
 
     def test_failed_migration_keeps_old_cache_and_never_substitutes_derived_higher(self):
@@ -156,7 +162,9 @@ class TestNativeHigherCache(unittest.TestCase):
         self.assertIs(higher['MN1'], parents['MN1'])
         self.assertEqual(higher['D1'].candles[-1].high, 55)
         self.assertEqual(info['tier'], 'offline')
-        self.assertEqual(result.asof, BASE.replace(hour=11, minute=16))
+        self.assertEqual(result.asof, HOURS[-1].time+timedelta(hours=1))
+        self.assertEqual(self.service.store.read(self.service.key('AFKS','TQBR',{})).asof,
+                         BASE.replace(hour=11,minute=16))
 
     def test_native_csv_override_is_separate_from_persisted_exchange_data(self):
         self.seed()
@@ -165,8 +173,9 @@ class TestNativeHigherCache(unittest.TestCase):
                                          provenance={'D1': {'mode': 'USER_CSV'}})
         self.assertEqual(parents['D1'].candles, csv)
         result, _, _ = self.service.view('AFKS', 'TQBR', 'D1')
-        self.assertEqual(result.candles, native_data()['D1'])
+        self.assertEqual(raw_values(result.candles), native_data()['D1'])
 
 
 if __name__ == '__main__':
     unittest.main()
+

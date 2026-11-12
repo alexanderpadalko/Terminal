@@ -4,6 +4,7 @@ import math
 
 from .market_data import (MOSCOW, TIMEFRAMES, Candle, aggregate, candle_close_time,
                           exclude_opening_auction, normalize, period_floor)
+from .moex_clock import with_session_closes,confirmation_time
 
 
 class StreamGap(ValueError):
@@ -20,7 +21,8 @@ DEPENDENTS = {
 
 def merge_stream(saved, events, sessions):
     from .market_cache import MarketSnapshot, PUBLIC_FEED_DELAY
-    raw = {'H1': saved.hours, 'M1': saved.minutes or [], **saved.native_higher}
+    raw = {tf:with_session_closes(bars,tf,saved.board,sessions) for tf,bars in
+           {'H1': saved.hours, 'M1': saved.minutes or [], **saved.native_higher}.items()}
     updates = {tf: {} for tf in raw}
     metadata = dict(saved.metadata)
     baseline = datetime.fromisoformat(metadata.get('http_completed_at', saved.asof.isoformat()))
@@ -37,6 +39,7 @@ def merge_stream(saved, events, sessions):
         bars = list(event.candles)
         if tf in ('M1', 'H1'):
             bars = exclude_opening_auction(bars, tf, board=saved.board, overrides=sessions)
+        bars=with_session_closes(bars,tf,saved.board,sessions)
         for bar in bars:
             if (bar.time.tzinfo is None or not all(math.isfinite(x) for x in
                     (bar.open, bar.high, bar.low, bar.close, bar.volume)) or bar.volume < 0 or
@@ -69,7 +72,7 @@ def merge_stream(saved, events, sessions):
     if updates['M1'] and merged['M1'] and desired > saved.asof:
         hours = {c.time: c for c in merged['H1']}
         groups = aggregate([c for c in merged['M1'] if candle_close_time(c, 'M1') <= desired], 'H1')
-        for bar in groups:
+        for bar in with_session_closes(groups,'H1',saved.board,sessions):
             end = candle_close_time(bar, 'H1')
             if end <= saved.asof or bar.time.isoformat() in final_keys.get('H1', set()):
                 continue
@@ -92,7 +95,7 @@ def merge_stream(saved, events, sessions):
     cutoff = max(saved.asof, cutoff)
     metadata.update(stream_final_horizons={tf: t.isoformat() for tf, t in proofs.items()},
                     stream_final_keys={tf: sorted(key for key in keys if
-                        candle_close_time(Candle(datetime.fromisoformat(key), 0, 0, 0, 0), tf) > cutoff)
+                        confirmation_time(Candle(datetime.fromisoformat(key), 0, 0, 0, 0),tf,saved.board,sessions) > cutoff)
                         for tf, keys in final_keys.items()},
                     stream_desired_asof=desired.isoformat(), stream_received_at=received.isoformat(),
                     stream_developing_h1=sorted(developing), snapshot_asof=cutoff.isoformat(),

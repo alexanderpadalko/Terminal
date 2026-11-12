@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import sqlite3
 from collections import OrderedDict
 from contextlib import closing
@@ -20,6 +21,7 @@ from .market_data import (Candle, MOSCOW, TIMEFRAMES, _iss_download, aggregate,
 from .market_data import (aggregate_moex_h4, NATIVE_HIGHER, MOEX_INTERVALS,
                           CANONICAL_H1_DAYS, bundle_source_info)
 from .pipeline import analyze_timeframes
+from .moex_clock import with_session_closes
 
 # Bump when cleaning/calendar semantics change; never reuse incompatible OHLC.
 # Native D/W/M add new SQLite rows; missing rows trigger a native archive
@@ -45,13 +47,15 @@ class MarketSnapshot:
         if not self.series:
             if not all(self.native_higher.get(tf) for tf in NATIVE_HIGHER):
                 raise ValueError('В снимке нет готовых свечей Д/Н/М MOEX; требуется загрузка')
-            self.series = {'H1': self.hours}
-            self.series.update(self.native_higher)
+            hours=with_session_closes(self.hours,'H1',self.board,sessions)
+            self.series = {'H1': hours}
+            self.series.update({tf:with_session_closes(bars,tf,self.board,sessions)
+                                for tf,bars in self.native_higher.items()})
             if self.board == 'RFUD':
                 from .futures_data import aggregate_h4
-                self.series['H4'] = aggregate_h4(self.hours)
+                self.series['H4'] = aggregate_h4(hours)
             else:
-                self.series['H4'] = aggregate_moex_h4(self.hours, auction_overrides=sessions)
+                self.series['H4'] = aggregate_moex_h4(hours, auction_overrides=sessions)
             if self.minutes:
                 self.series['M1'] = self.minutes
                 self.series['M5'] = aggregate(self.minutes, 'M5')
@@ -162,12 +166,8 @@ class MarketService:
                 raise ValueError('После исключения аукциона нет минутных свечей')
             minutes = normalize((minutes or []) + clean)
         metadata = dict(fetched_meta)
-        minimum_tick=(previous.metadata.get('minimum_tick') if previous else None)
-        if self.load_metadata and minimum_tick is None:
-            from .market_data import security_tick
-            minimum_tick=security_tick(symbol,board,requested_at.astimezone(MOSCOW).date().isoformat())
-        metadata['minimum_tick']=minimum_tick
-        metadata['minimum_tick_source']='MOEX_MINSTEP' if minimum_tick else 'DEFAULT_0.01_UNVERIFIED'
+        if previous:
+            metadata.update({k:v for k,v in previous.metadata.items() if k.startswith('minimum_tick')})
         if previous:
             metadata['latest_fetch'] = fetched_meta
             # Overlapping pages cannot be added to raw/auction totals without
@@ -198,6 +198,35 @@ class MarketService:
                                         'higher_from_clean_h1': tf == 'H4' and board != 'RFUD',
                                         'snapshot_asof': asof.isoformat()}
         return MarketSnapshot(symbol, board, asof, hours, minutes, metadata, native_higher)
+
+    def _refresh_tick(self,snapshot):
+        """Metadata-only recovery must not advance the OHLCV observation clock."""
+        if not self.load_metadata:
+            return False
+        def valid(value):
+            return isinstance(value,(int,float)) and not isinstance(value,bool) and math.isfinite(value) and value>0
+        metadata=snapshot.metadata
+        now=self.clock()
+        day=now.astimezone(MOSCOW).date().isoformat()
+        tick=metadata.get('minimum_tick')
+        if valid(tick) and metadata.get('minimum_tick_date')==day:
+            return False
+        attempted=metadata.get('minimum_tick_attempted_at')
+        if attempted:
+            try:
+                if now-datetime.fromisoformat(attempted)<timedelta(seconds=60):
+                    return False
+            except (ValueError,TypeError):
+                pass
+        from .market_data import security_tick
+        fresh=security_tick(snapshot.symbol,snapshot.board,day)
+        metadata['minimum_tick_attempted_at']=now.isoformat()
+        if valid(fresh):
+            metadata.update(minimum_tick=float(fresh),minimum_tick_date=day,minimum_tick_source='MOEX_MINSTEP')
+        else:
+            metadata.update(minimum_tick=tick if valid(tick) else None,
+                            minimum_tick_source='MOEX_MINSTEP_STALE' if valid(tick) else 'DEFAULT_0.01_UNVERIFIED')
+        return True
 
     def ingest_stream(self, symbol, board, events):
         # The GUI serializes this with HTTP and calculation in MarketWorker.
@@ -262,11 +291,16 @@ class MarketService:
                 snapshot, tier = saved, 'offline'
                 warning = f'Обновление недоступно; сохранённые данные: {exc}'
         self.memory[key] = snapshot
+        if self._refresh_tick(snapshot):
+            try:
+                self.store.write_delta(key,snapshot,{})
+            except (sqlite3.Error,OSError) as exc:
+                warning=f'MINSTEP cache unavailable: {exc}'
         self.memory.move_to_end(key)
         while len(self.memory) > 4:
             self.memory.popitem(last=False)
         series = snapshot.sources(sessions)
-        calculation_key=settings.calculation_key() if settings is not None else 'legacy-v204'
+        calculation_key=f'{settings.calculation_key()}|tick:{snapshot.metadata.get("minimum_tick") or .01}'
         if snapshot.calculation_key!=calculation_key:
             snapshot.analyses={}
             snapshot.calculation_key=calculation_key
@@ -287,12 +321,13 @@ class MarketService:
             main, parents = analyze_timeframes({**series, **overrides}, tf, asof=cutoff,
                                                provenance={**source_provenance, **(provenance or {})},settings=settings)
         else:
-            first_tf = 'M1' if snapshot.minutes else 'H1'
-            if any(t not in snapshot.analyses for t in series if TIMEFRAMES.index(t) >= TIMEFRAMES.index(first_tf)):
+            horizon=min(snapshot.asof,candle_close_time(series[tf][-1],tf))
+            if (tf not in snapshot.analyses or snapshot.analyses[tf].asof!=horizon or
+                    any(t not in snapshot.analyses for t in series if TIMEFRAMES.index(t)>=TIMEFRAMES.index(tf))):
                 progress('Расчёт потоков по загруженной истории')
-                main, parents = analyze_timeframes(series, first_tf, asof=snapshot.asof,
+                main, parents = analyze_timeframes(series, tf, asof=snapshot.asof,
                                                    provenance=source_provenance, cached=snapshot.analyses,settings=settings)
-                snapshot.analyses = {main.timeframe: main, **parents}
+                snapshot.analyses.update({main.timeframe: main, **parents})
             main = snapshot.analyses[tf]
             parents = {t: a for t, a in snapshot.analyses.items()
                        if TIMEFRAMES.index(t) > TIMEFRAMES.index(tf)}

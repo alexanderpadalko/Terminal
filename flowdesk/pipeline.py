@@ -2,9 +2,10 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from bisect import bisect_right
 
 from .engine import Analysis, analyze
-from .market_data import Candle, TIMEFRAMES, normalize
+from .market_data import Candle, TIMEFRAMES, normalize,candle_close_time
 
 
 def analyze_timeframes(series: dict[str, list[Candle]], display_tf: str,
@@ -22,6 +23,8 @@ def analyze_timeframes(series: dict[str, list[Candle]], display_tf: str,
     if display_tf not in TIMEFRAMES or not series.get(display_tf):
         raise ValueError("Нет свечей выбранного таймфрейма")
     asof = asof if asof is not None else datetime.now(timezone.utc)
+    main_candles=normalize(series[display_tf])
+    asof=min(asof,candle_close_time(main_candles[-1],display_tf))
     if settings is None:
         from .settings import IndicatorSettings
         settings=IndicatorSettings()
@@ -31,12 +34,16 @@ def analyze_timeframes(series: dict[str, list[Candle]], display_tf: str,
     if settings is not None:
         for tf in ('MN1','W1','D1','H4'):
             if series.get(tf):
-                limited[tf]=analyze(normalize(series[tf])[-settings.liquidityHistoryBars:],tf,
+                bars=normalize(series[tf])
+                known=bars[:bisect_right(bars,asof,key=lambda bar:bar.time)]
+                if not known:
+                    continue
+                limited[tf]=analyze(known[-settings.liquidityHistoryBars:],tf,
                     asof=asof,higher_liquidity=limited,settings=settings,minimum_tick=minimum_tick)
     for tf in reversed(TIMEFRAMES[TIMEFRAMES.index(display_tf):]):
         if not series.get(tf):
             continue
-        if cached and tf in cached:
+        if cached and tf in cached and cached[tf].asof==asof:
             analyses[tf] = cached[tf]
             continue
         result = analyze(normalize(series[tf]), tf, asof=asof,

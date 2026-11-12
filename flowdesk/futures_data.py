@@ -49,7 +49,8 @@ def aggregate_h4(candles):
         extra = day.weekday() >= 5 or stock_session_kind(day) == EXTRA
         end = (datetime.combine(day, time(19), MOSCOW) if extra else
                datetime.combine(day + timedelta(days=1), time.min, MOSCOW))
-        end = max(end, candle_close_time(bars[-1], 'H1'))
+        from .moex_clock import session_end,confirmation_time
+        end = max(session_end(day,'RFUD') or end,confirmation_time(bars[-1],'H1','RFUD'))
         groups = {}
         for c in bars:
             key = anchor + timedelta(hours=4 * int((c.time - anchor).total_seconds() // 14400))
@@ -69,6 +70,9 @@ def bundle(symbol, display_tf, *, display_limit=3000, history_days=CANONICAL_H1_
         raise ValueError('Нет часовых свечей фьючерса RFUD')
     families = {tf: download_native_higher(symbol, tf, board='RFUD',
                 days=(higher_history_days or {}).get(tf, CANONICAL_H1_DAYS)) for tf in NATIVE_HIGHER}
+    from .moex_clock import with_session_closes
+    hours=with_session_closes(hours,'H1','RFUD')
+    families={tf:with_session_closes(bars,tf,'RFUD') for tf,bars in families.items()}
     families.update(H1=hours, H4=aggregate_h4(hours))
     visible = (download_moex(symbol, display_tf, board='RFUD', limit=display_limit)
                if display_tf in ('M1', 'M5') else families[display_tf][-display_limit:])
@@ -77,6 +81,7 @@ def bundle(symbol, display_tf, *, display_limit=3000, history_days=CANONICAL_H1_
         'observed_legacy_trading_days': [], 'schedule_overrides': [], 'holiday_extra_sessions_removed': [],
         'futures_h4_schedule': 'physical session: 2025-01-27 09:00; 2026-07-14 07:00; extra days 10:00',
         'legacy_session_schedule_verified': False,
+        'confirmation_clock': 'MOEX_2026_SESSION_CLOSE_WITH_NOMINAL_FALLBACK',
         'warning': 'RFUD historical sessions before 2025 and H4/TradingView parity remain unverified',
         'sources': {tf: {'mode': 'MOEX_RFUD_NATIVE_CANDLES', 'native_higher': tf in NATIVE_HIGHER,
             'opening_auction_excluded': tf not in NATIVE_HIGHER, 'higher_from_native_h1': tf == 'H4',

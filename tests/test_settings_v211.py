@@ -183,7 +183,9 @@ class TestVwapAndSummary(unittest.TestCase):
         price=data[-1].close
         guard=FVG(0,1,2,price+1,price-1,1)
         source=Analysis(data,[],[],[FlowState(i,1,price-3,price+3,guard=guard) for i in range(3)],[], 'H1')
-        main=Analysis(data,[],[],source.flows,[],'M1')
+        last=data[-1]
+        minute=Candle(last.time+timedelta(minutes=59),last.open,last.high,last.low,last.close,last.volume)
+        main=Analysis([minute],[],[],source.flows,[],'M1')
         main.summary_sources={'H1':source}
         row=summary_rows(main)[0]
         self.assertEqual((row['flow'],row['fvg']),(1,1))

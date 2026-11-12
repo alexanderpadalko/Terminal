@@ -25,7 +25,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: FlowDesk-0.2.25-ISSPlus-Live-Evidence
+          name: FlowDesk-0.2.26-ISSPlus-Live-Evidence
           path: |
             issplus-live-result.json
             issplus-live-cache.sqlite3
@@ -92,14 +92,14 @@ jobs:
       - name: Publish entire standalone directory
         uses: actions/upload-artifact@v4
         with:
-          name: FlowDesk-0.2.25-Windows-x64
+          name: FlowDesk-0.2.26-Windows-x64
           path: dist/FlowDesk/
           if-no-files-found: error
           retention-days: 30
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: FlowDesk-0.2.25-Preview
+          name: FlowDesk-0.2.26-Preview
           path: |
             ui-preview.png
             candle-time-preview.png
@@ -111,7 +111,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: FlowDesk-0.2.25-Instrument-List-Evidence
+          name: FlowDesk-0.2.26-Instrument-List-Evidence
           path: |
             watchlist-live-result.json
             flowdesk/data/watchlist_seed.json
@@ -119,13 +119,13 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: FlowDesk-0.2.25-Process-Exit-Evidence
+          name: FlowDesk-0.2.26-Process-Exit-Evidence
           path: shutdown-exe-result.json
           retention-days: 30
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: FlowDesk-0.2.25-FVG-Display-Evidence
+          name: FlowDesk-0.2.26-FVG-Display-Evidence
           path: |
             fvg-display-live-result.json
             fvg-display-live-cache.sqlite3

@@ -36,24 +36,30 @@ CANONICAL_H1_LIMIT = 200000
 
 
 @lru_cache(maxsize=128)
-def security_tick(symbol,board,day):
-    """Official instrument MINSTEP, refreshed once per trading-calendar date."""
+def _security_tick(symbol,board,day):
+    """Only successful official MINSTEP responses enter the daily cache."""
     market='futures/markets/forts' if board=='RFUD' else 'stock/markets/shares'
     if board=='RFUD':
         from .futures_data import iss_symbol
         symbol=iss_symbol(symbol)
     url=f'https://iss.moex.com/iss/engines/{market}/boards/{board}/securities/{symbol}.json?iss.meta=off&iss.only=securities&securities.columns=SECID,MINSTEP'
+    checkpoint()
+    with urllib.request.urlopen(url,timeout=5) as response:
+        table=json.load(response).get('securities',{})
+    checkpoint()
+    for row in table.get('data',[]):
+        value=dict(zip(table.get('columns',[]),row)).get('MINSTEP')
+        if value is not None and not isinstance(value,bool) and math.isfinite(float(value)) and float(value)>0:
+            return float(value)
+    raise ValueError('MINSTEP unavailable')
+
+
+def security_tick(symbol,board,day):
+    """Network failure/empty metadata is retryable, not cached as a day-long miss."""
     try:
-        checkpoint()
-        with urllib.request.urlopen(url,timeout=5) as response:
-            table=json.load(response).get('securities',{})
-        checkpoint()
-        for row in table.get('data',[]):
-            value=dict(zip(table.get('columns',[]),row)).get('MINSTEP')
-            if value is not None and float(value)>0:return float(value)
-    except (OSError,ValueError,KeyError):
+        return _security_tick(symbol,board,day)
+    except (OSError,ValueError,KeyError,TypeError):
         return None
-    return None
 
 
 @dataclass(frozen=True, slots=True)
@@ -163,13 +169,15 @@ def period_floor(dt: datetime, tf: str) -> datetime:
 
 
 def candle_close_time(candle: Candle, tf: str) -> datetime:
-    """Nominal interval end; higher periods use Moscow chart boundaries.
+    """Explicit scheduled end, otherwise a conservative nominal interval end.
 
     This is a conservative calendar cutoff, not an exchange session-close
     timestamp. Do not infer completion from the presence of the next bar.
     """
+    if candle.scheduled_close is not None:
+        return candle.scheduled_close
     if tf == "H4":
-        return candle.scheduled_close or candle.time + timedelta(hours=4)
+        return candle.time + timedelta(hours=4)
     if tf in ("M1", "M5", "H1"):
         return candle.time + timedelta(minutes={"M1": 1, "M5": 5, "H1": 60}[tf])
     start = period_floor(candle.time.astimezone(MOSCOW), tf)
@@ -187,8 +195,8 @@ def aggregate_moex_h4(candles: list[Candle], *, auction_overrides: dict | None =
     """Four-hour bars anchored at the TQBR session open, from cleaned H1.
 
     Intraday bars follow the session opening, not the D1 midnight label.
-    Final source hours end at 00:00 on evening sessions, at 19:00 on EXTRA
-    sessions and before the launch of evening trading (22 June 2020).
+    Verified 2026 final source hours end at 23:50 on evening sessions, at
+    19:00 on EXTRA sessions. Other years retain conservative nominal ends.
     Historical admission to evening trading remains unverified: where it is
     unknown, nominal later closes are conservative, never inferred from a
     missing next trade. No empty bars or intermediate prices are fabricated.
@@ -208,7 +216,9 @@ def aggregate_moex_h4(candles: list[Candle], *, auction_overrides: dict | None =
         end = datetime.combine(day, time(19), MOSCOW) if short_session else datetime.combine(day + timedelta(days=1), time.min, MOSCOW)
         # Observed old sessions can exceed a generic historical schedule.
         # Retain all prices and avoid assigning a close before the last hour.
-        end = max(end, candle_close_time(hours[-1], 'H1'))
+        from .moex_clock import session_end,confirmation_time
+        end = max(session_end(day,'TQBR',auction_overrides) or end,
+                  confirmation_time(hours[-1],'H1','TQBR',auction_overrides))
         grouped = {}
         for bar in hours:
             local = bar.time.astimezone(MOSCOW)
@@ -550,6 +560,10 @@ def load_moex_session_bundle(symbol: str, display_tf: str, *, board: str = "TQBR
     families = {tf: download_native_higher(symbol, tf, board=board,
                                           days=(higher_history_days or {}).get(tf, CANONICAL_H1_DAYS))
                 for tf in NATIVE_HIGHER}
+    from .moex_clock import with_session_closes
+    hours=with_session_closes(hours,'H1',board.strip().upper(),auction_overrides)
+    families={tf:with_session_closes(bars,tf,board.strip().upper(),auction_overrides)
+              for tf,bars in families.items()}
     families['H4'] = aggregate_moex_h4(hours, auction_overrides=auction_overrides)
     families["H1"] = hours
     if display_tf in ("M1", "M5"):
@@ -596,7 +610,9 @@ def load_moex_session_bundle(symbol: str, display_tf: str, *, board: str = "TQBR
                     "calendar overrides; pre-2024 trading days observed in ISS are retained "
                     "with the existing assumed auction window, not a verified historical schedule; "
                     "D/W/M use native MOEX OHLCV including auction prices; "
-                    "HTF source candle closing times remain approximated at calendar midnight",
+                    "2026 closing horizons use published market-session ends; instrument-specific "
+                    "earlier closes and other years remain unverified and use conservative nominal ends",
+        "confirmation_clock": "MOEX_2026_SESSION_CLOSE_WITH_NOMINAL_FALLBACK",
     }
     overview["sources"] = {
         tf: {"mode": "MOEX_NATIVE_CANDLES" if tf in NATIVE_HIGHER else "MOEX_CLEAN_INTRADAY",

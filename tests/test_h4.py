@@ -26,7 +26,7 @@ class TestH4(unittest.TestCase):
         self.assertEqual((bars[0].open, bars[0].high, bars[0].low, bars[0].close, bars[0].volume),
                          (7, 12, 6, 11, 400))
         self.assertEqual(candle_close_time(bars[0], 'H4'), source[0].time.replace(hour=11))
-        self.assertEqual(candle_close_time(bars[-1], 'H4'), source[0].time.replace(hour=0) + timedelta(days=1))
+        self.assertEqual(candle_close_time(bars[-1], 'H4'), source[0].time.replace(hour=23,minute=50))
         self.assertEqual(sum(b.volume for b in bars), sum(b.volume for b in source))
 
     def test_extra_session_starts_at_ten_and_final_bar_closes_at_nineteen(self):
@@ -48,7 +48,7 @@ class TestH4(unittest.TestCase):
     def test_no_cross_day_merging_or_empty_bar_fabrication(self):
         bars = aggregate_moex_h4([hour(11, 23), hour(12, 7)])
         self.assertEqual([(b.time.day, b.time.hour, b.volume) for b in bars], [(11, 23, 100), (12, 7, 100)])
-        self.assertEqual(candle_close_time(bars[0], 'H4'), hour(12, 0).time)
+        self.assertEqual(candle_close_time(bars[0], 'H4'), hour(11, 23).time.replace(minute=50))
 
     def test_scheduled_close_survives_diagnostic_export(self):
         bar = aggregate_moex_h4([hour(11, 23)])[0]

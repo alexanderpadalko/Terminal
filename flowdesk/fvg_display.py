@@ -5,12 +5,12 @@ Only this display plan decides which already calculated zones reach Qt.
 """
 from __future__ import annotations
 
-from bisect import bisect_right
 from collections import Counter
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from datetime import datetime
 
 from .market_data import candle_close_time
+from .publication import chart_cutoff,source_cutoff,published_state
 
 HIGHER = ('H1', 'H4', 'D1', 'W1', 'MN1')
 REFERENCE_SHA256 = 'CC2E1422F6D865C7D4814B7FF7CD4EEA82F87EB89642E8EF5F158A47B85D057F'
@@ -100,25 +100,12 @@ def in_working_parent(child: DisplayZone, parents):
 
 
 def _cutoff(source, cutoff):
-    return min(cutoff, source.asof) if source.asof is not None else cutoff
+    return source_cutoff(source,cutoff)
 
 
 def _state(source, cutoff):
     """Use the last closed source state; live bounds may only extend its episode."""
-    cutoff = _cutoff(source, cutoff)
-    index = bisect_right(source.candles, cutoff,
-                         key=lambda b: candle_close_time(b, source.timeframe)) - 1
-    if not 0 <= index < len(source.flows):
-        return None, None, cutoff
-    state = source.flows[index]
-    live_i = bisect_right(source.candles, cutoff, key=lambda b: b.time) - 1
-    if index < live_i < len(source.flows):
-        live = source.flows[live_i]
-        if live.live_range and live.side == state.side and live.start == state.start:
-            state = replace(state,
-                lo=min(state.lo, live.lo) if state.side == -1 else state.lo,
-                hi=max(state.hi, live.hi) if state.side == 1 else state.hi)
-    return state, index, cutoff
+    return published_state(source,cutoff,live=True)
 
 
 def _at(source, index, *, close=False):
@@ -185,7 +172,7 @@ def select_fvg_display(analysis, parents=None, settings=None):
     if not analysis.candles:
         return DisplayPlan((), (), {}, None, 0, settings)
     right_time = candle_close_time(analysis.candles[-1], analysis.timeframe)
-    cutoff = analysis.asof or right_time
+    cutoff = chart_cutoff(analysis)
     lower = analysis.timeframe in ('M1', 'M5')
     drawn, admitted_parents = [], []
     allowed = HIGHER if lower else HIGHER[HIGHER.index(analysis.timeframe)+1:]

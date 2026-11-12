@@ -1,6 +1,6 @@
 """Qt-independent VWAP and current instrument summary for the pinned settings."""
-from bisect import bisect_right
-from .market_data import MOSCOW,candle_close_time
+from .market_data import MOSCOW
+from .publication import chart_cutoff,published_state
 
 
 def period_key(dt,anchor):
@@ -53,19 +53,14 @@ def vwap_series(candles,anchor='Session',source='hlc3'):
 def summary_rows(analysis):
     """Five source states, published by their own close; price is chart close."""
     price=analysis.candles[-1].close if analysis.candles else None
-    cutoff=analysis.asof
+    cutoff=chart_cutoff(analysis)
     rows=[]
     sources=analysis.summary_sources
     for tf in ('H1','H4','D1','W1','MN1'):
-        source=sources.get(tf)
-        if source is None and tf==analysis.timeframe:source=analysis
+        source=analysis if tf==analysis.timeframe else sources.get(tf)
         state=None
         if source and source.candles:
-            boundary=min(cutoff,source.asof) if cutoff and source.asof else cutoff or source.asof
-            index=(bisect_right(source.candles,boundary,key=lambda b:candle_close_time(b,tf))-1
-                   if boundary else len(source.candles)-1)
-            if index>=0:
-                state=source.flows[index]
+            state,_,_=published_state(source,cutoff,live=tf=='H1')
         side=state.side if state is not None else 0
         guard=state.guard if state is not None else None
         working=bool(guard and side and not state.guard_broken and state.lo is not None and state.hi is not None

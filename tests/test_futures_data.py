@@ -33,4 +33,4 @@ class TestFuturesData(unittest.TestCase):
         result = aggregate_h4(bars)
         self.assertEqual([c.time.hour for c in result], [7, 11, 15, 19, 23])
         self.assertEqual(sum(c.volume for c in result), sum(c.volume for c in bars))
-        self.assertEqual(result[-1].scheduled_close, start.replace(hour=0) + timedelta(days=1))
+        self.assertEqual(result[-1].scheduled_close, start.replace(hour=23,minute=50))

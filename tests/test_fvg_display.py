@@ -76,7 +76,9 @@ class TestFvgDisplay(unittest.TestCase):
     def test_children_of_either_direction_must_not_start_before_parent(self):
         parent = source()
         for tf in ('M1', 'M5'):
-            a = source(tf, count=120, guard=False, start=T0)
+            # Keep the chart open through 08:00 as well as its observation
+            # horizon; a shorter archive cannot publish a 04:00 parent yet.
+            a = source(tf, count=480 if tf=='M1' else 120, guard=False, start=T0)
             a.asof = T0+timedelta(hours=8)
             # Parent starts at 01:00; a three-candle child starting at 00:00
             # cannot be admitted even when price and direction overlap.
