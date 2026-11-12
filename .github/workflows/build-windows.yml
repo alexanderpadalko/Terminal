@@ -85,8 +85,10 @@ jobs:
           python -c "from PySide6.QtWidgets import QApplication; from flowdesk.gui import MainWindow; app = QApplication([]); w=MainWindow(); print('GUI constructed:', w.windowTitle()); w.close()"
           python tools/preview_ui.py
           python tools/preview_settings.py
+      - name: Prepare FlowDesk app/taskbar and executable icon
+        run: python tools/build_app_icon.py
       - name: Build portable Windows executable
-        run: python -m PyInstaller --clean --noconfirm --windowed --onedir --name FlowDesk --collect-all tzdata --collect-all websockets --add-data "flowdesk/data;flowdesk/data" main.py
+        run: python -m PyInstaller --clean --noconfirm --windowed --onedir --name FlowDesk --icon flowdesk/assets/flowdesk.ico --add-data "flowdesk/assets;flowdesk/assets" --collect-all tzdata --collect-all websockets --add-data "flowdesk/data;flowdesk/data" main.py
       - name: Verify packaged process exits after WM_CLOSE
         run: python -u tools/check_exe_shutdown.py dist/FlowDesk/FlowDesk.exe
       - name: Publish entire standalone directory
