@@ -155,7 +155,10 @@ class TestStreamGui(unittest.TestCase):
         with patch.object(self.window,'_update_channel_indicator',wraps=self.window._update_channel_indicator) as update:
             for i in range(100):stream.send(kind='quote',quote={'LAST':100+i,'TIME':'13:15:00'})
             self.assertEqual(update.call_count,0)
-            QTest.qWait(280)
+            # Windows CI can delay a 250ms Qt timer under heavy test load.
+            deadline=time.monotonic()+2
+            while update.call_count == 0 and time.monotonic() < deadline:
+                QTest.qWait(30)
             self.assertEqual(update.call_count,1)
         self.assertIn('199',self.window.feed_label.text())
 
