@@ -124,7 +124,7 @@ def audit_rule_one_shadow(h1: "Analysis", captures: list[CaptureState],
         raise ValueError("H1, capture and flow histories must have equal lengths")
     bars = h1.candles
     by_created: dict[int, list[FVG]] = defaultdict(list)
-    for zone in h1.fvg:
+    for zone in h1.published_fvg:
         if 0 <= zone.created < len(bars):
             by_created[zone.created].append(zone)
     structure = StructureEngine()

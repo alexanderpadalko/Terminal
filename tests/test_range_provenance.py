@@ -19,7 +19,7 @@ class TestRangeProvenance(unittest.TestCase):
         self.assertEqual((f.rule,f.side), (2,-1))
         self.assertEqual(f.last_change_rule,2)
         self.assertEqual(f.last_change_at, BASE + timedelta(hours=2))
-        self.assertIn("встречного FVG нет", f.range_origin)
+        self.assertIn("встречного fvg нет", f.range_origin.lower())
         self.assertEqual(f.range_high_at,BASE + timedelta(hours=1))
         self.assertEqual(f.lo,7.5)
 
@@ -39,3 +39,4 @@ class TestRangeProvenance(unittest.TestCase):
                 self.assertIsNotNone(getattr(f,name))
             self.assertLessEqual(f.range_low_at,self.h1.candles[f.i].time)
             self.assertLessEqual(f.range_high_at,self.h1.candles[f.i].time)
+

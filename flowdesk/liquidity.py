@@ -1,9 +1,6 @@
-"""Preliminary, **read-only** higher-timeframe liquidity audit for Pine Rule 1.
+"""Closed-source liquidity captures consumed by Rule 1 on H1/H4/D1/W1.
 
-This is *not* a rule-1 trading signal. It tracks historical MAX/MIN/IDM
-sweeps and working-FVG touches on H1 against *closed* D/W/M snapshots.
-Flow direction and ranges remain governed by Rules 2/3 until this capture
-stream and Rule 1's FVG chronology are verified against Pine v2.09.
+Sessions and initial history still require comparison with the user's Pine.
 """
 from __future__ import annotations
 
@@ -12,26 +9,21 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING
 
-from .market_data import Candle
+from .market_data import Candle, candle_close_time
 
 if TYPE_CHECKING:
     from .engine import Analysis
 
 SOURCES = ("MN1", "W1", "D1")  # Most distant -> closest (tie goes to closest).
+HIGHER_SOURCES = {"H1": SOURCES+("H4",), "H4": SOURCES, "D1": ("MN1", "W1"),
+                  "W1": ("MN1",), "MN1": ()}
 
 
 def period_end(candle: Candle, tf: str) -> datetime:
     """Calendar source-bar close, not a guessed close from the next trade."""
-    if tf == "MN1":
-        t = candle.time
-        return t.replace(year=t.year + (t.month == 12), month=t.month % 12 + 1,
-                         day=1, hour=0, minute=0, second=0, microsecond=0)
-    if tf == "W1":
-        start = candle.time.replace(hour=0, minute=0, second=0, microsecond=0)
-        return start - timedelta(days=start.weekday()) + timedelta(days=7)
-    if tf == "D1":
-        return candle.time.replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1)
-    raise ValueError("Unknown higher timeframe")
+    if tf not in (*SOURCES,'H4'):
+        raise ValueError("Unknown higher timeframe")
+    return candle_close_time(candle, tf)
 
 
 @dataclass(slots=True, frozen=True)
@@ -44,6 +36,8 @@ class Capture:
     from_fvg: bool
     zone_top: float | None = None
     zone_bottom: float | None = None
+    detail: str = ''
+    audit: str = ''
 
 
 @dataclass(slots=True)
@@ -64,6 +58,9 @@ class CaptureState:
     cancelled: tuple[Capture, ...] = ()
     restored: tuple[Capture, ...] = ()
     selection_reason: str = ""
+    consumer_tf: str = "H1"
+    confirmed: bool = True
+    audit_text: str = ''
 
 
 @dataclass(slots=True)
@@ -88,7 +85,7 @@ def select_pine_capture(source_active: dict[str, Capture | None]) -> Capture | N
     history retains it for restoration after a later FVG cancellation.
     """
     chosen = None
-    for tf in SOURCES:
+    for tf in (*SOURCES,'H4'):
         candidate = source_active.get(tf)
         if candidate is not None and (chosen is None or
                                       candidate.captured_at >= chosen.captured_at):
@@ -97,8 +94,8 @@ def select_pine_capture(source_active: dict[str, Capture | None]) -> Capture | N
 
 
 def audit_higher_captures(h1: "Analysis", sources: dict[str, "Analysis"],
-                          *, asof: datetime | None = None) -> list[CaptureState]:
-    """Project higher liquidity strictly after source closes; never change flows.
+                          *, asof: datetime | None = None, settings=None) -> list[CaptureState]:
+    """Project each strictly higher source after its close on the consumer TF.
 
     Matches Pine's important safeguards: strict sweeps, no ambiguous both-side
     capture, captured structural levels persist, FVG captures are rescinded on
@@ -107,12 +104,16 @@ def audit_higher_captures(h1: "Analysis", sources: dict[str, "Analysis"],
     This preliminary model is intentionally not advertised as a parity-exact
     clone of request.security() / barmerge session behavior.
     """
-    if h1.timeframe != "H1":
-        raise ValueError("Higher-liquidity audit requires H1 consumer")
-    states = {tf: _SourceState() for tf in SOURCES}
+    if settings is not None:
+        from .reference_liquidity import audit_captures
+        return audit_captures(h1,sources,asof=asof,settings=settings)
+    if h1.timeframe not in HIGHER_SOURCES:
+        raise ValueError("Higher liquidity requires H1/H4/D1/W1/MN1 consumer")
+    source_tfs = HIGHER_SOURCES[h1.timeframe]
+    states = {tf: _SourceState() for tf in source_tfs}
     bars_by_tf: dict[str, list[Candle]] = {}
     ends: dict[str, list[datetime]] = {}
-    for tf in SOURCES:
+    for tf in source_tfs:
         src = sources.get(tf)
         if src is not None and src.timeframe == tf and len(src.candles) == len(src.pairs) == len(src.flows):
             bars_by_tf[tf] = src.candles
@@ -120,10 +121,11 @@ def audit_higher_captures(h1: "Analysis", sources: dict[str, "Analysis"],
 
     result: list[CaptureState] = []
     for bar in h1.candles:
-        closed_at = bar.time + timedelta(hours=1)
+        closed_at = candle_close_time(bar, h1.timeframe)
         if asof is not None and closed_at > asof:
             result.append(CaptureState(bar.time, closed_at,
-                                       {tf: "H1_NOT_CLOSED" for tf in SOURCES}, None, 0))
+                                       {tf: f"{h1.timeframe}_NOT_CLOSED" for tf in source_tfs},
+                                       None, 0, consumer_tf=h1.timeframe, confirmed=False))
             continue
         statuses: dict[str, str] = {}
         current_new: list[Capture] = []
@@ -131,7 +133,7 @@ def audit_higher_captures(h1: "Analysis", sources: dict[str, "Analysis"],
         restored: list[Capture] = []
         conflicts: list[str] = []
         eligible = 0
-        for tf in SOURCES:
+        for tf in source_tfs:
             src = sources.get(tf)
             if tf not in bars_by_tf or not src or not src.candles:
                 statuses[tf] = "NO_DATA"
@@ -226,7 +228,7 @@ def audit_higher_captures(h1: "Analysis", sources: dict[str, "Analysis"],
 
         # Do NOT independently promote the latest long and latest short:
         # Pine chooses one active direction after reducing each source stack.
-        active = {tf: states[tf].current() for tf in SOURCES}
+        active = {tf: states[tf].current() for tf in source_tfs}
         picked = select_pine_capture(active)
         previous = result[-1].selected if result else None
         if picked == previous:
@@ -241,10 +243,10 @@ def audit_higher_captures(h1: "Analysis", sources: dict[str, "Analysis"],
             reason = "SOURCE_FVG_CANCEL_FALLBACK"
         else:
             reason = "SOURCE_PRIORITY_CHANGED"
-        histories = {tf: tuple(states[tf].captured) for tf in SOURCES}
+        histories = {tf: tuple(states[tf].captured) for tf in source_tfs}
         result.append(CaptureState(bar.time, closed_at, statuses, picked, eligible,
                                    tuple(conflicts), tuple(current_new), active, histories,
-                                   tuple(cancelled), tuple(restored), reason))
+                                   tuple(cancelled), tuple(restored), reason, h1.timeframe))
     return result
 
 
@@ -260,12 +262,14 @@ def serialize_audit(audit: list[CaptureState]) -> dict:
     # An unfinished H1 may be present in ISS. Never display it as the latest
     # *confirmed* higher-liquidity state; use the last closed H1 instead.
     last_closed = next((s for s in reversed(audit)
-                        if "H1_NOT_CLOSED" not in s.source_status.values()), None)
+                        if s.confirmed), None)
     return {
-        "status": "PRELIMINARY_DIAGNOSTIC_ONLY",
-        "note": "№1 НЕ переключает поток. Подтверждение по Pine ещё не проверено; сессии MOEX и баровые границы могут отличаться.",
+        "status": "RULE_1_CAPTURE_INPUT_PARITY_UNVERIFIED",
+        "consumer_tf": audit[0].consumer_tf if audit else None,
+        "note": "Подтверждения используются правилом №1. Сессии, история и баровые границы ещё требуют сверки с Pine.",
         "bars": len(audit),
-        "events": [{"h1_open": s.h1_open.isoformat(), "h1_closed_at": s.h1_closed_at.isoformat(),
+        "events": [{"bar_open": s.h1_open.isoformat(), "bar_closed_at": s.h1_closed_at.isoformat(),
+                    "h1_open": s.h1_open.isoformat(), "h1_closed_at": s.h1_closed_at.isoformat(),
                     "capture": serialize_capture(c)}
                    for s in audit for c in s.new_events],
         "conflicts": [{"h1_open": s.h1_open.isoformat(), "source_tf": tf}
@@ -284,8 +288,10 @@ def serialize_audit(audit: list[CaptureState]) -> dict:
             "restored": [serialize_capture(c) for c in s.restored],
             "reason": s.selection_reason,
         } for s in audit if s.selection_reason != "UNCHANGED" and
-            "H1_NOT_CLOSED" not in s.source_status.values()],
+            s.confirmed],
         "latest": (None if last_closed is None else {
+            "bar_open": last_closed.h1_open.isoformat(),
+            "bar_closed_at": last_closed.h1_closed_at.isoformat(),
             "h1_open": last_closed.h1_open.isoformat(),
             "h1_closed_at": last_closed.h1_closed_at.isoformat(),
             "source_status": last_closed.source_status,
@@ -301,3 +307,4 @@ def serialize_audit(audit: list[CaptureState]) -> dict:
             "reason": last_closed.selection_reason,
         }),
     }
+

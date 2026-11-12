@@ -1,0 +1,652 @@
+{
+  "sha256": "CC2E1422F6D865C7D4814B7FF7CD4EEA82F87EB89642E8EF5F158A47B85D057F",
+  "version": "2.11 H1 + H4",
+  "functions": {
+    "f_marketBuildRangeIndex": {
+      "parameters": [],
+      "code": "_return = array.clear(marketRangeLayers)\n_return = array.push(marketRangeLayers, MarketRangeLayer.new(marketBarHigh, marketBarLow, _binary(array.size(marketBarHigh), 1, 'Sub')))\ncount = array.size(marketBarHigh)\nlayerIndex = 0\nwhile _compare(count, 1, 'Gt'):\n    child = array.get(marketRangeLayers, layerIndex)\n    highs = array.new()\n    lows = array.new()\n    childIndex = 0\n    while _compare(childIndex, count, 'Lt'):\n        combinedHigh = array.get(child.highs, childIndex)\n        combinedLow = array.get(child.lows, childIndex)\n        if _compare(_binary(childIndex, 1, 'Add'), count, 'Lt'):\n            combinedHigh = math.max(combinedHigh, array.get(child.highs, _binary(childIndex, 1, 'Add')))\n            combinedLow = math.min(combinedLow, array.get(child.lows, _binary(childIndex, 1, 'Add')))\n        _return = array.push(highs, combinedHigh)\n        _return = array.push(lows, combinedLow)\n        childIndex += 2\n    _return = array.push(marketRangeLayers, MarketRangeLayer.new(highs, lows, int(None)))\n    count = array.size(highs)\n    layerIndex += 1\n_return = count"
+    },
+    "f_marketAppendRangeIndex": {
+      "parameters": [],
+      "code": "barCount = array.size(marketBarHigh)\nif _compare(barCount, 0, 'Gt'):\n    if _compare(array.size(marketRangeLayers), 0, 'Eq'):\n        _return = f_marketBuildRangeIndex()\n    base = array.get(marketRangeLayers, 0)\n    base.highs = marketBarHigh\n    base.lows = marketBarLow\n    base.endBar = _binary(barCount, 1, 'Sub')\n    levelCount = array.size(base.highs)\n    level = 0\n    while _compare(levelCount, 1, 'Gt'):\n        child = array.get(marketRangeLayers, level)\n        parentIndex = math.floor(_binary(_binary(levelCount, 1, 'Sub'), 2, 'Div'))\n        leftIndex = _binary(parentIndex, 2, 'Mult')\n        combinedHigh = array.get(child.highs, leftIndex)\n        combinedLow = array.get(child.lows, leftIndex)\n        if _compare(_binary(leftIndex, 1, 'Add'), levelCount, 'Lt'):\n            combinedHigh = math.max(combinedHigh, array.get(child.highs, _binary(leftIndex, 1, 'Add')))\n            combinedLow = math.min(combinedLow, array.get(child.lows, _binary(leftIndex, 1, 'Add')))\n        if _compare(_binary(level, 1, 'Add'), array.size(marketRangeLayers), 'GtE'):\n            _return = array.push(marketRangeLayers, MarketRangeLayer.new(array.new(), array.new(), int(None)))\n        parent = array.get(marketRangeLayers, _binary(level, 1, 'Add'))\n        if _compare(parentIndex, array.size(parent.highs), 'Eq'):\n            _return = array.push(parent.highs, combinedHigh)\n            _return = array.push(parent.lows, combinedLow)\n        else:\n            _return = array.set(parent.highs, parentIndex, combinedHigh)\n            _return = array.set(parent.lows, parentIndex, combinedLow)\n        levelCount = array.size(parent.highs)\n        level += 1\n_return = barCount"
+    },
+    "f_marketFirstCross": {
+      "parameters": [
+        "pointType",
+        "fromBar",
+        "endBar",
+        "level"
+      ],
+      "code": "result = None\nif not na(level) and (not na(fromBar)) and (not na(endBar)):\n    start = math.max(0, fromBar)\n    finish = math.min(endBar, _binary(array.size(marketBarHigh), 1, 'Sub'))\n    indexedEnd = -1\n    if _compare(array.size(marketRangeLayers), 0, 'Gt'):\n        baseLayer = array.get(marketRangeLayers, 0)\n        indexedEnd = math.min(finish, baseLayer.endBar)\n    searchBar = start\n    while _compare(searchBar, indexedEnd, 'LtE') and _compare(array.size(marketRangeLayers), 0, 'Gt') and na(result):\n        layerIndex = 0\n        blockSize = 1\n        while _compare(_binary(layerIndex, 1, 'Add'), array.size(marketRangeLayers), 'Lt') and _compare(_binary(searchBar, _binary(blockSize, 2, 'Mult'), 'Mod'), 0, 'Eq') and _compare(_binary(_binary(searchBar, _binary(blockSize, 2, 'Mult'), 'Add'), 1, 'Sub'), indexedEnd, 'LtE'):\n            layerIndex += 1\n            blockSize = _binary(blockSize, 2, 'Mult')\n        layer = array.get(marketRangeLayers, layerIndex)\n        extreme = array.get(layer.highs, int(_binary(searchBar, blockSize, 'Div'))) if _compare(pointType, 1, 'Eq') else array.get(layer.lows, int(_binary(searchBar, blockSize, 'Div')))\n        crossed = _compare(extreme, level, 'Gt') if _compare(pointType, 1, 'Eq') else _compare(extreme, level, 'Lt')\n        if crossed:\n            while _compare(layerIndex, 0, 'Gt'):\n                layerIndex -= 1\n                blockSize = int(_binary(blockSize, 2, 'Div'))\n                child = array.get(marketRangeLayers, layerIndex)\n                leftExtreme = array.get(child.highs, int(_binary(searchBar, blockSize, 'Div'))) if _compare(pointType, 1, 'Eq') else array.get(child.lows, int(_binary(searchBar, blockSize, 'Div')))\n                leftCrossed = _compare(leftExtreme, level, 'Gt') if _compare(pointType, 1, 'Eq') else _compare(leftExtreme, level, 'Lt')\n                if not leftCrossed:\n                    searchBar += blockSize\n            result = searchBar\n        else:\n            searchBar += blockSize\n    tailBar = math.max(start, _binary(indexedEnd, 1, 'Add'))\n    while _compare(tailBar, finish, 'LtE') and na(result):\n        shadow = array.get(marketBarHigh, tailBar) if _compare(pointType, 1, 'Eq') else array.get(marketBarLow, tailBar)\n        crossed = _compare(shadow, level, 'Gt') if _compare(pointType, 1, 'Eq') else _compare(shadow, level, 'Lt')\n        if crossed:\n            result = tailBar\n        tailBar += 1\n_return = result"
+    },
+    "f_marketPointIdm": {
+      "parameters": [
+        "pointBar",
+        "pointType",
+        "endBar"
+      ],
+      "code": "idmValue = None\nidmBar = None\nsweepBar = None\npreviousPivotBar = None\nif not na(pointBar) and _compare(pointBar, 0, 'GtE') and _compare(pointBar, array.size(marketPreviousLowBar), 'Lt'):\n    previousPivotBar = array.get(marketPreviousLowBar, pointBar) if _compare(pointType, 1, 'Eq') else array.get(marketPreviousHighBar, pointBar)\nif not na(previousPivotBar):\n    idmBar = previousPivotBar\n    idmValue = array.get(marketPivotLow, previousPivotBar) if _compare(pointType, 1, 'Eq') else array.get(marketPivotHigh, previousPivotBar)\nif not na(idmValue):\n    sweepBar = f_marketFirstCross(-pointType, _binary(pointBar, 1, 'Add'), endBar, idmValue)\n_return = [idmValue, idmBar, sweepBar]"
+    },
+    "f_marketBuildBodyIndex": {
+      "parameters": [],
+      "code": "_return = array.clear(marketBodyHighNext)\n_return = array.clear(marketBodyLowNext)\nhighStack = array.new()\nlowStack = array.new()\nindexedEnd = _binary(array.size(marketBarHigh), 1, 'Sub')\nsourceBar = indexedEnd\nwhile _compare(sourceBar, 0, 'GtE'):\n    sourceHigh = array.get(marketBarHigh, sourceBar)\n    sourceLow = array.get(marketBarLow, sourceBar)\n    while _compare(array.size(highStack), 0, 'Gt') and _compare(array.get(marketBarHigh, array.last(highStack)), sourceHigh, 'LtE'):\n        _return = array.remove(highStack, _binary(array.size(highStack), 1, 'Sub'))\n    while _compare(array.size(lowStack), 0, 'Gt') and _compare(array.get(marketBarLow, array.last(lowStack)), sourceLow, 'GtE'):\n        _return = array.remove(lowStack, _binary(array.size(lowStack), 1, 'Sub'))\n    highBreak = None\n    lowBreak = None\n    if _compare(array.size(highStack), 0, 'Gt'):\n        nextHigh = array.last(highStack)\n        highBreak = nextHigh if _compare(array.get(marketBarClose, nextHigh), sourceHigh, 'Gt') else array.get(marketBodyHighNext, _binary(indexedEnd, nextHigh, 'Sub'))\n    if _compare(array.size(lowStack), 0, 'Gt'):\n        nextLow = array.last(lowStack)\n        lowBreak = nextLow if _compare(array.get(marketBarClose, nextLow), sourceLow, 'Lt') else array.get(marketBodyLowNext, _binary(indexedEnd, nextLow, 'Sub'))\n    _return = array.push(marketBodyHighNext, highBreak)\n    _return = array.push(marketBodyLowNext, lowBreak)\n    _return = array.push(highStack, sourceBar)\n    _return = array.push(lowStack, sourceBar)\n    sourceBar -= 1\n_return = indexedEnd"
+    },
+    "f_marketBodyBreakAfterIdm": {
+      "parameters": [
+        "pointType",
+        "pointValue",
+        "idmSweepBar",
+        "endBar"
+      ],
+      "code": "breakBar = None\nsearchBar = _binary(idmSweepBar, 1, 'Add')\ntriggerValue = pointValue\nindexedEnd = _binary(array.size(marketBodyHighNext), 1, 'Sub')\nbodyIndexReady = _compare(indexedEnd, endBar, 'GtE') and _compare(array.size(marketBodyLowNext), _binary(indexedEnd, 1, 'Add'), 'Eq')\nif bodyIndexReady:\n    firstCross = f_marketFirstCross(pointType, searchBar, endBar, pointValue)\n    if not na(firstCross):\n        firstClose = array.get(marketBarClose, firstCross)\n        bodyBreak = _compare(firstClose, pointValue, 'Gt') if _compare(pointType, 1, 'Eq') else _compare(firstClose, pointValue, 'Lt')\n        indexedBreak = firstCross if bodyBreak else array.get(marketBodyHighNext if _compare(pointType, 1, 'Eq') else marketBodyLowNext, _binary(indexedEnd, firstCross, 'Sub'))\n        if not na(indexedBreak) and _compare(indexedBreak, endBar, 'LtE'):\n            breakBar = indexedBreak\nelse:\n    while _compare(searchBar, endBar, 'LtE') and na(breakBar):\n        testedClose = array.get(marketBarClose, searchBar)\n        bodyBreak = _compare(testedClose, triggerValue, 'Gt') if _compare(pointType, 1, 'Eq') else _compare(testedClose, triggerValue, 'Lt')\n        if bodyBreak:\n            breakBar = searchBar\n        else:\n            testedShadow = array.get(marketBarHigh, searchBar) if _compare(pointType, 1, 'Eq') else array.get(marketBarLow, searchBar)\n            shadowBreak = _compare(testedShadow, triggerValue, 'Gt') if _compare(pointType, 1, 'Eq') else _compare(testedShadow, triggerValue, 'Lt')\n            if shadowBreak:\n                triggerValue = testedShadow\n        searchBar += 1\n_return = breakBar"
+    },
+    "f_marketBuildBosSteps": {
+      "parameters": [
+        "pointType",
+        "pointValue",
+        "idmSweepBar",
+        "breakBar",
+        "targetBars",
+        "targetValues"
+      ],
+      "code": "_return = array.clear(targetBars)\n_return = array.clear(targetValues)\ntriggerValue = pointValue\nsearchBar = _binary(idmSweepBar, 1, 'Add')\ndenseCrosses = 0\nuseRangeIndex = True\nwhile _compare(searchBar, breakBar, 'Lt'):\n    if useRangeIndex:\n        crossedBar = f_marketFirstCross(pointType, searchBar, _binary(breakBar, 1, 'Sub'), triggerValue)\n        if na(crossedBar):\n            break\n        denseCrosses = _binary(denseCrosses, 1, 'Add') if _compare(_binary(crossedBar, searchBar, 'Sub'), 2, 'LtE') else 0\n        if _compare(denseCrosses, 8, 'GtE'):\n            useRangeIndex = False\n        triggerValue = array.get(marketBarHigh, crossedBar) if _compare(pointType, 1, 'Eq') else array.get(marketBarLow, crossedBar)\n        _return = array.push(targetBars, crossedBar)\n        _return = array.push(targetValues, triggerValue)\n        searchBar = _binary(crossedBar, 1, 'Add')\n    else:\n        testedShadow = array.get(marketBarHigh, searchBar) if _compare(pointType, 1, 'Eq') else array.get(marketBarLow, searchBar)\n        shadowBreak = _compare(testedShadow, triggerValue, 'Gt') if _compare(pointType, 1, 'Eq') else _compare(testedShadow, triggerValue, 'Lt')\n        if shadowBreak:\n            triggerValue = testedShadow\n            _return = array.push(targetBars, searchBar)\n            _return = array.push(targetValues, triggerValue)\n        searchBar += 1\n_return = triggerValue"
+    },
+    "f_marketIsStructuralRecord": {
+      "parameters": [
+        "pointType",
+        "pointBar"
+      ],
+      "code": "_return = array.get(marketRecordHigh, pointBar) if _compare(pointType, 1, 'Eq') else array.get(marketRecordLow, pointBar)"
+    },
+    "f_marketPreviousKeyRecord": {
+      "parameters": [
+        "pointType",
+        "beforeBar",
+        "breakerValue",
+        "endBar"
+      ],
+      "code": "resultValue = None\nresultBar = None\nresultIdm = None\nresultIdmBar = None\nresultSweepBar = None\nresultBreakBar = None\nrecordBars = marketHighRecordBars if _compare(pointType, 1, 'Eq') else marketLowRecordBars\nrecordCursor = _binary(array.size(recordBars), 1, 'Sub')\nwhile _compare(recordCursor, 0, 'GtE') and _compare(array.get(recordBars, recordCursor), beforeBar, 'GtE'):\n    recordCursor -= 1\nwhile _compare(recordCursor, 0, 'GtE') and na(resultBar):\n    searchBar = array.get(recordBars, recordCursor)\n    testedPivot = array.get(marketPivotHigh, searchBar) if _compare(pointType, 1, 'Eq') else array.get(marketPivotLow, searchBar)\n    isActuallyBroken = _compare(testedPivot, breakerValue, 'Lt') if _compare(pointType, 1, 'Eq') else _compare(testedPivot, breakerValue, 'Gt')\n    if isActuallyBroken:\n        [testedIdm, testedIdmBar, testedSweepBar] = f_marketPointIdm(searchBar, pointType, endBar)\n        testedBreakBar = f_marketBodyBreakAfterIdm(pointType, testedPivot, testedSweepBar, endBar) if not na(testedIdm) and (not na(testedSweepBar)) else None\n        if not na(testedBreakBar):\n            resultValue = testedPivot\n            resultBar = searchBar\n            resultIdm = testedIdm\n            resultIdmBar = testedIdmBar\n            resultSweepBar = testedSweepBar\n            resultBreakBar = testedBreakBar\n    recordCursor -= 1\n_return = [resultValue, resultBar, resultIdm, resultIdmBar, resultSweepBar, resultBreakBar]"
+    },
+    "f_marketInitialSide": {
+      "parameters": [
+        "pointType",
+        "extremeValue",
+        "extremeBar"
+      ],
+      "code": "previousValue = None\npreviousBar = None\npreviousIdm = None\npreviousIdmBar = None\npreviousSweepBar = None\npreviousBreakBar = None\n[foundValue, foundBar, foundIdm, foundIdmBar, foundSweepBar, foundBreakBar] = f_marketPreviousKeyRecord(pointType, extremeBar, extremeValue, extremeBar)\npreviousValue = foundValue\npreviousBar = foundBar\npreviousIdm = foundIdm\npreviousIdmBar = foundIdmBar\npreviousSweepBar = foundSweepBar\npreviousBreakBar = foundBreakBar\nsideReady = not na(previousBar) and (not na(previousBreakBar))\n_return = [sideReady, previousValue, previousBar, previousIdm, previousIdmBar, previousSweepBar, previousBreakBar]"
+    },
+    "f_marketRangePoint": {
+      "parameters": [
+        "fromBar",
+        "toBar",
+        "pointType"
+      ],
+      "code": "pointValue = None\npointBar = None\nrangeStart = math.max(0, math.min(fromBar, toBar))\nrangeEnd = math.min(_binary(array.size(marketBarHigh), 1, 'Sub'), math.max(fromBar, toBar))\nrangeBar = rangeStart\nwhile _compare(rangeBar, rangeEnd, 'LtE'):\n    testedValue = array.get(marketBarHigh, rangeBar) if _compare(pointType, 1, 'Eq') else array.get(marketBarLow, rangeBar)\n    replacesPoint = na(pointValue) or (_compare(pointType, 1, 'Eq') and _compare(testedValue, pointValue, 'GtE')) or (_compare(pointType, -1, 'Eq') and _compare(testedValue, pointValue, 'LtE'))\n    if replacesPoint:\n        pointValue = testedValue\n        pointBar = rangeBar\n    rangeBar += 1\n_return = [pointValue, pointBar]"
+    },
+    "f_marketChochForKey": {
+      "parameters": [
+        "bosBar",
+        "extremeBar",
+        "direction",
+        "endBar"
+      ],
+      "code": "[pointValue, pointBar] = f_marketRangePoint(bosBar, extremeBar, -direction)\n[idmValue, idmBar, sweepBar] = f_marketPointIdm(pointBar, -direction, endBar)\n_return = [pointValue, pointBar, idmValue, idmBar, sweepBar]"
+    },
+    "f_marketFindNextKey": {
+      "parameters": [
+        "pointType",
+        "afterBar",
+        "endBar"
+      ],
+      "code": "lastOppositePivot = None\nlastOppositePivotBar = None\nseedBar = None\nif not na(afterBar) and _compare(afterBar, 0, 'GtE') and _compare(afterBar, array.size(marketPreviousLowBar), 'Lt'):\n    seedBar = array.get(marketPreviousLowBar, afterBar) if _compare(pointType, 1, 'Eq') else array.get(marketPreviousHighBar, afterBar)\nif not na(seedBar):\n    lastOppositePivot = array.get(marketPivotLow, seedBar) if _compare(pointType, 1, 'Eq') else array.get(marketPivotHigh, seedBar)\n    lastOppositePivotBar = seedBar\ncandidateValue = None\ncandidateBar = None\ncandidateIdm = None\ncandidateIdmBar = None\ncandidateSweepBar = None\nsearchBar = afterBar\nwhile _compare(searchBar, endBar, 'LtE') and na(candidateSweepBar):\n    oppositePivot = array.get(marketPivotLow, searchBar) if _compare(pointType, 1, 'Eq') else array.get(marketPivotHigh, searchBar)\n    sameSideValue = array.get(marketBarHigh, searchBar) if _compare(pointType, 1, 'Eq') else array.get(marketBarLow, searchBar)\n    replacesCandidate = not na(lastOppositePivot) and (not na(lastOppositePivotBar)) and _compare(lastOppositePivotBar, searchBar, 'Lt') and (na(candidateValue) or (_compare(pointType, 1, 'Eq') and _compare(sameSideValue, candidateValue, 'Gt')) or (_compare(pointType, -1, 'Eq') and _compare(sameSideValue, candidateValue, 'Lt')))\n    if replacesCandidate:\n        candidateValue = sameSideValue\n        candidateBar = searchBar\n        candidateIdm = lastOppositePivot\n        candidateIdmBar = lastOppositePivotBar\n    if not na(candidateValue) and _compare(searchBar, candidateBar, 'Gt'):\n        removesIdm = _compare(array.get(marketBarLow, searchBar), candidateIdm, 'Lt') if _compare(pointType, 1, 'Eq') else _compare(array.get(marketBarHigh, searchBar), candidateIdm, 'Gt')\n        if removesIdm:\n            candidateSweepBar = searchBar\n    if not na(oppositePivot):\n        lastOppositePivot = oppositePivot\n        lastOppositePivotBar = searchBar\n    searchBar += 1\n_return = [candidateValue, candidateBar, candidateIdm, candidateIdmBar, candidateSweepBar]"
+    },
+    "f_marketTime": {
+      "parameters": [
+        "targetBar"
+      ],
+      "code": "_return = array.get(marketBarTime, targetBar) if not na(targetBar) and _compare(targetBar, 0, 'GtE') and _compare(targetBar, array.size(marketBarTime), 'Lt') else time"
+    },
+    "f_marketCopySteps": {
+      "parameters": [
+        "sourceBars",
+        "sourceValues",
+        "targetBars",
+        "targetValues"
+      ],
+      "code": "_return = array.clear(targetBars)\n_return = array.clear(targetValues)\nstepIndex = 0\nwhile _compare(stepIndex, array.size(sourceBars), 'Lt'):\n    _return = array.push(targetBars, array.get(sourceBars, stepIndex))\n    _return = array.push(targetValues, array.get(sourceValues, stepIndex))\n    stepIndex += 1"
+    },
+    "f_mtfFlow": {
+      "parameters": [],
+      "code": "if not _has('direction'):\n    direction = 0\nif not _has('outsideOrigin'):\n    outsideOrigin = 0\nif not _has('outsideBasePivotTime'):\n    outsideBasePivotTime = None\nif not _has('outsideBasePivotBar'):\n    outsideBasePivotBar = None\nif not _has('outsideBasePivotPrice'):\n    outsideBasePivotPrice = None\nif not _has('legExtreme'):\n    legExtreme = None\nif not _has('legExtremeBar'):\n    legExtremeBar = None\nif not _has('legExtremeTime'):\n    legExtremeTime = None\nif not _has('motherHigh'):\n    motherHigh = None\nif not _has('motherLow'):\n    motherLow = None\nif not _has('lastPivotPrice'):\n    lastPivotPrice = None\nif not _has('lastPivotBar'):\n    lastPivotBar = None\nif not _has('lastPivotTime'):\n    lastPivotTime = None\nif not _has('initialHigh'):\n    initialHigh = None\nif not _has('initialHighBar'):\n    initialHighBar = None\nif not _has('initialHighTime'):\n    initialHighTime = None\nif not _has('initialLow'):\n    initialLow = None\nif not _has('initialLowBar'):\n    initialLowBar = None\nif not _has('initialLowTime'):\n    initialLowTime = None\nif barstate.isfirst:\n    initialHigh = high\n    initialHighBar = bar_index\n    initialHighTime = time\n    initialLow = low\n    initialLowBar = bar_index\n    initialLowTime = time\nif not barstate.isfirst:\n    if _compare(direction, 0, 'Eq'):\n        brokeInitialHigh = _compare(high, initialHigh, 'Gt')\n        brokeInitialLow = _compare(low, initialLow, 'Lt')\n        chosenDirection = 0\n        if brokeInitialHigh and (not brokeInitialLow):\n            chosenDirection = 1\n        elif brokeInitialLow and (not brokeInitialHigh):\n            chosenDirection = -1\n        elif brokeInitialHigh and brokeInitialLow:\n            upExpansion = _binary(high, initialHigh, 'Sub')\n            downExpansion = _binary(initialLow, low, 'Sub')\n            assumedLong = _compare(upExpansion, downExpansion, 'GtE')\n            outsideBasePivotTime = initialLowTime if assumedLong else initialHighTime\n            outsideBasePivotBar = initialLowBar if assumedLong else initialHighBar\n            outsideBasePivotPrice = initialLow if assumedLong else initialHigh\n            chosenDirection = -1 if assumedLong else 1\n            direction = chosenDirection\n            outsideOrigin = 1 if assumedLong else -1\n            lastPivotPrice = high if assumedLong else low\n            lastPivotBar = bar_index\n            lastPivotTime = time\n            legExtreme = low if assumedLong else high\n            legExtremeBar = bar_index\n            legExtremeTime = time\n            motherHigh = high\n            motherLow = low\n        if _compare(chosenDirection, 1, 'Eq') and (not brokeInitialLow):\n            direction = 1\n            lastPivotPrice = initialLow\n            lastPivotBar = initialLowBar\n            lastPivotTime = initialLowTime\n            legExtreme = high\n            legExtremeBar = bar_index\n            legExtremeTime = time\n            motherHigh = high\n            motherLow = low\n        elif _compare(chosenDirection, -1, 'Eq') and (not brokeInitialHigh):\n            direction = -1\n            lastPivotPrice = initialHigh\n            lastPivotBar = initialHighBar\n            lastPivotTime = initialHighTime\n            legExtreme = low\n            legExtremeBar = bar_index\n            legExtremeTime = time\n            motherHigh = high\n            motherLow = low\n    else:\n        brokeMotherHigh = _compare(high, motherHigh, 'Gt')\n        brokeMotherLow = _compare(low, motherLow, 'Lt')\n        if brokeMotherHigh and brokeMotherLow:\n            continuingOutsideChain = _compare(outsideOrigin, 0, 'NotEq')\n            pathDirection = outsideOrigin if continuingOutsideChain else direction\n            if not continuingOutsideChain:\n                outsideOrigin = direction\n                outsideBasePivotTime = lastPivotTime\n                outsideBasePivotBar = lastPivotBar\n                outsideBasePivotPrice = lastPivotPrice\n            if _compare(pathDirection, 1, 'Eq'):\n                lastPivotPrice = high\n                lastPivotBar = bar_index\n                lastPivotTime = time\n                direction = -1\n                legExtreme = low\n                legExtremeBar = bar_index\n                legExtremeTime = time\n            else:\n                lastPivotPrice = low\n                lastPivotBar = bar_index\n                lastPivotTime = time\n                direction = 1\n                legExtreme = high\n                legExtremeBar = bar_index\n                legExtremeTime = time\n            motherHigh = high\n            motherLow = low\n        elif _compare(direction, 1, 'Eq'):\n            if brokeMotherLow:\n                turnPrice = legExtreme\n                turnBar = legExtremeBar\n                turnTime = legExtremeTime\n                lastPivotPrice = turnPrice\n                lastPivotBar = turnBar\n                lastPivotTime = turnTime\n                direction = -1\n                legExtreme = low\n                legExtremeBar = bar_index\n                legExtremeTime = time\n                motherHigh = high\n                motherLow = low\n                outsideOrigin = 0\n                outsideBasePivotTime = None\n                outsideBasePivotBar = None\n                outsideBasePivotPrice = None\n            elif brokeMotherHigh:\n                legExtreme = high\n                legExtremeBar = bar_index\n                legExtremeTime = time\n                motherHigh = high\n                motherLow = low\n                outsideOrigin = 0\n                outsideBasePivotTime = None\n                outsideBasePivotBar = None\n                outsideBasePivotPrice = None\n        elif _compare(direction, -1, 'Eq'):\n            if brokeMotherHigh:\n                turnPrice = legExtreme\n                turnBar = legExtremeBar\n                turnTime = legExtremeTime\n                lastPivotPrice = turnPrice\n                lastPivotBar = turnBar\n                lastPivotTime = turnTime\n                direction = 1\n                legExtreme = high\n                legExtremeBar = bar_index\n                legExtremeTime = time\n                motherHigh = high\n                motherLow = low\n                outsideOrigin = 0\n                outsideBasePivotTime = None\n                outsideBasePivotBar = None\n                outsideBasePivotPrice = None\n            elif brokeMotherLow:\n                legExtreme = low\n                legExtremeBar = bar_index\n                legExtremeTime = time\n                motherHigh = high\n                motherLow = low\n                outsideOrigin = 0\n                outsideBasePivotTime = None\n                outsideBasePivotBar = None\n                outsideBasePivotPrice = None\n_return = [direction, lastPivotTime, lastPivotPrice, legExtreme, outsideOrigin, outsideBasePivotTime, outsideBasePivotPrice, lastPivotBar, legExtremeBar, outsideBasePivotBar, legExtremeTime]"
+    },
+    "f_orderMovement": {
+      "parameters": [
+        "rawDir",
+        "rawStart",
+        "rawBase",
+        "rawTip",
+        "rawStartBar",
+        "rawTipBar",
+        "rawTipTime"
+      ],
+      "code": "if not _has('moveDir'):\n    moveDir = 0\nif not _has('moveStart'):\n    moveStart = None\nif not _has('moveBase'):\n    moveBase = None\nif not _has('moveTip'):\n    moveTip = None\nif not _has('moveTipTime'):\n    moveTipTime = None\nif _compare(moveDir, 0, 'Eq') and _compare(rawDir, 0, 'NotEq'):\n    if not na(rawStartBar) and (not na(rawTipBar)) and _compare(_binary(_binary(rawTipBar, rawStartBar, 'Sub'), 1, 'Add'), 2, 'GtE'):\n        moveDir = rawDir\n        moveStart = rawStart\n        moveBase = rawBase\n        moveTip = rawTip\n        moveTipTime = rawTipTime\nelif _compare(moveDir, 0, 'NotEq') and _compare(rawDir, moveDir, 'Eq'):\n    if _compare(rawTip, moveTip, 'Gt') if _compare(moveDir, 1, 'Eq') else _compare(rawTip, moveTip, 'Lt'):\n        moveTipTime = rawTipTime\n    moveTip = math.max(moveTip, rawTip) if _compare(moveDir, 1, 'Eq') else math.min(moveTip, rawTip)\nelif _compare(rawDir, 0, 'NotEq'):\n    if not na(rawStartBar) and (not na(rawTipBar)) and _compare(_binary(_binary(rawTipBar, rawStartBar, 'Sub'), 1, 'Add'), 2, 'GtE'):\n        moveDir = rawDir\n        moveStart = rawStart\n        moveBase = rawBase\n        moveTip = rawTip\n        moveTipTime = rawTipTime\n_return = [moveDir, moveStart, moveBase, moveTip, moveTipTime]"
+    },
+    "f_fvgUpdateActive": {
+      "parameters": [
+        "zones",
+        "activeIndices"
+      ],
+      "code": "cursor = _binary(array.size(activeIndices), 1, 'Sub')\nwhile _compare(cursor, 0, 'GtE'):\n    zoneIndex = array.get(activeIndices, cursor)\n    zone = array.get(zones, zoneIndex)\n    zone.rightTime = time_close\n    if _compare(close, zone.bottom, 'LtE') if _compare(zone.side, 1, 'Eq') else _compare(close, zone.top, 'GtE'):\n        zone.active = False\n        _return = array.remove(activeIndices, cursor)\n    cursor -= 1"
+    },
+    "f_fvgAppendActive": {
+      "parameters": [
+        "zones",
+        "activeIndices",
+        "zone"
+      ],
+      "code": "if _compare(array.size(zones), fvgMaxZones, 'GtE'):\n    _return = array.shift(zones)\n    cursor = _binary(array.size(activeIndices), 1, 'Sub')\n    while _compare(cursor, 0, 'GtE'):\n        oldIndex = array.get(activeIndices, cursor)\n        if _compare(oldIndex, 0, 'Eq'):\n            _return = array.remove(activeIndices, cursor)\n        else:\n            _return = array.set(activeIndices, cursor, _binary(oldIndex, 1, 'Sub'))\n        cursor -= 1\n_return = array.push(zones, zone)\n_return = array.push(activeIndices, _binary(array.size(zones), 1, 'Sub'))"
+    },
+    "f_updateFlowFvg": {
+      "parameters": [
+        "zone"
+      ],
+      "code": "if not na(zone) and na(zone.brokenAt):\n    midpoint = _binary(_binary(zone.top, zone.bottom, 'Add'), 2.0, 'Div')\n    if _compare(close, midpoint, 'LtE') if _compare(zone.side, 1, 'Eq') else _compare(close, midpoint, 'GtE'):\n        zone.balanced = True\n    if _compare(close, zone.bottom, 'LtE') if _compare(zone.side, 1, 'Eq') else _compare(close, zone.top, 'GtE'):\n        zone.brokenAt = time\n_return = zone"
+    },
+    "f_pickSavedFlowFvg": {
+      "parameters": [
+        "currentZone",
+        "candidate"
+      ],
+      "code": "result = currentZone\ncloser = na(currentZone)\nif not closer:\n    closer = _compare(candidate.top, currentZone.top, 'Gt') if _compare(candidate.side, 1, 'Eq') else _compare(candidate.bottom, currentZone.bottom, 'Lt')\nif closer:\n    result = candidate\n_return = result"
+    },
+    "f_updateRuleOneFvgs": {
+      "parameters": [
+        "candidates",
+        "direction",
+        "start",
+        "impulse"
+      ],
+      "code": "index = 0\nwhile _compare(index, array.size(candidates), 'Lt'):\n    candidate = array.get(candidates, index)\n    candidate.zone = f_updateFlowFvg(candidate.zone)\n    invalid = not na(candidate.zone.brokenAt) or _compare(candidate.zone.side, -direction, 'NotEq') or _compare(candidate.originTime, start, 'Lt') or na(impulse) or _compare(candidate.zone.impulseTime, impulse, 'LtE')\n    if invalid:\n        _return = array.remove(candidates, index)\n    else:\n        if _compare(low, candidate.lo, 'Lt'):\n            candidate.lo = low\n            candidate.loTime = time\n        if _compare(high, candidate.hi, 'Gt'):\n            candidate.hi = high\n            candidate.hiTime = time\n        index += 1\n_return = array.size(candidates)"
+    },
+    "f_pickRuleOneFvg": {
+      "parameters": [
+        "candidates",
+        "required",
+        "captureTime"
+      ],
+      "code": "latest = None\neligible = None\nfor candidate in candidates:\n    if na(latest) or _compare(candidate.formedAt, latest.formedAt, 'GtE'):\n        latest = candidate\n    afterCapture = not required or (not na(captureTime) and _compare(candidate.formedAt, captureTime, 'Gt'))\n    if afterCapture and (na(eligible) or _compare(candidate.formedAt, eligible.formedAt, 'GtE')):\n        eligible = candidate\nresult = latest if na(eligible) else eligible\n_return = result"
+    },
+    "f_ruleOneWorkingZone": {
+      "parameters": [
+        "candidates",
+        "selected"
+      ],
+      "code": "result = None\nif not na(selected):\n    for candidate in candidates:\n        if _compare(candidate.originTime, selected.originTime, 'Eq'):\n            result = f_pickSavedFlowFvg(result, candidate.zone)\n_return = result"
+    },
+    "f_mtfCopy": {
+      "parameters": [
+        "zones",
+        "dir",
+        "lo",
+        "hi",
+        "start",
+        "closedAt",
+        "sourceOpen",
+        "prevStart",
+        "prevEnd",
+        "prevLo",
+        "prevHi",
+        "firstBroken",
+        "firstTop",
+        "firstBottom",
+        "workingLeftTime",
+        "workingImpulseTime",
+        "diagnostic"
+      ],
+      "code": "copied = array.new()\nfor zone in zones:\n    _return = array.push(copied, MtfFvg.new(zone.leftTime, zone.impulseTime, zone.top, zone.bottom, zone.side, zone.active, zone.rightTime))\n_return = MtfSnapshot.new(copied, dir, lo, hi, start, closedAt, sourceOpen, prevStart, prevEnd, prevLo, prevHi, firstBroken, firstTop, firstBottom, diagnostic, workingLeftTime, workingImpulseTime)"
+    },
+    "f_legIdm": {
+      "parameters": [
+        "rawDir",
+        "pivotTime",
+        "pivotPrice",
+        "outsidePath",
+        "outsideStart",
+        "outsideBase"
+      ],
+      "code": "if not _has('pairDirection'):\n    pairDirection = 0\nif not _has('pairHigh'):\n    pairHigh = None\nif not _has('pairLow'):\n    pairLow = None\nif not _has('pairHighKey'):\n    pairHighKey = None\nif not _has('pairLowKey'):\n    pairLowKey = None\nif not _has('candidateHigh'):\n    candidateHigh = None\nif not _has('candidateLow'):\n    candidateLow = None\nif not _has('candidateHighKey'):\n    candidateHighKey = None\nif not _has('candidateLowKey'):\n    candidateLowKey = None\nif not _has('seenPivot'):\n    seenPivot = None\nif not _has('seenDir'):\n    seenDir = 0\ncurrentOutside = _compare(outsidePath, 0, 'NotEq') and _compare(pivotTime, time, 'Eq') and (not na(outsideBase)) and (not na(outsideStart))\nnewPivot = not na(pivotTime) and (na(seenPivot) or _compare(pivotTime, seenPivot, 'NotEq') or _compare(rawDir, seenDir, 'NotEq'))\nif _compare(pairDirection, 0, 'Eq') and _compare(rawDir, 0, 'NotEq') and (not na(pivotPrice)):\n    pairDirection = rawDir\n    pairHigh = pivotPrice if _compare(rawDir, -1, 'Eq') else high\n    pairLow = pivotPrice if _compare(rawDir, 1, 'Eq') else low\n    pairHighKey = pivotTime if _compare(rawDir, -1, 'Eq') else time\n    pairLowKey = pivotTime if _compare(rawDir, 1, 'Eq') else time\n    candidateHigh = pairHigh\n    candidateLow = pairLow\n    candidateHighKey = pairHighKey\n    candidateLowKey = pairLowKey\nelif _compare(pairDirection, 0, 'NotEq'):\n    if currentOutside:\n        if _compare(outsidePath, 1, 'Eq'):\n            if _compare(high, pairHigh, 'Gt'):\n                pairHigh = high\n                pairHighKey = time\n                pairLow = outsideBase\n                pairLowKey = outsideStart\n                pairDirection = 1\n                candidateLow = pairLow\n                candidateLowKey = pairLowKey\n            candidateHigh = high\n            candidateHighKey = time\n            if _compare(low, pairLow, 'Lt'):\n                pairLow = low\n                pairLowKey = time\n                pairHigh = candidateHigh\n                pairHighKey = candidateHighKey\n                pairDirection = -1\n                candidateLow = pairLow\n                candidateLowKey = pairLowKey\n        else:\n            if _compare(low, pairLow, 'Lt'):\n                pairLow = low\n                pairLowKey = time\n                pairHigh = outsideBase\n                pairHighKey = outsideStart\n                pairDirection = -1\n                candidateHigh = pairHigh\n                candidateHighKey = pairHighKey\n            candidateLow = low\n            candidateLowKey = time\n            if _compare(high, pairHigh, 'Gt'):\n                pairHigh = high\n                pairHighKey = time\n                pairLow = candidateLow\n                pairLowKey = candidateLowKey\n                pairDirection = 1\n                candidateHigh = pairHigh\n                candidateHighKey = pairHighKey\n    else:\n        if newPivot:\n            if _compare(rawDir, -1, 'Eq') and (na(candidateHighKey) or _compare(pivotTime, candidateHighKey, 'GtE')):\n                candidateHigh = pivotPrice\n                candidateHighKey = pivotTime\n            elif _compare(rawDir, 1, 'Eq') and (na(candidateLowKey) or _compare(pivotTime, candidateLowKey, 'GtE')):\n                candidateLow = pivotPrice\n                candidateLowKey = pivotTime\n        if _compare(high, pairHigh, 'Gt'):\n            pairHigh = high\n            pairHighKey = time\n            pairLow = candidateLow\n            pairLowKey = candidateLowKey\n            pairDirection = 1\n            candidateHigh = pairHigh\n            candidateHighKey = pairHighKey\n        elif _compare(low, pairLow, 'Lt'):\n            pairLow = low\n            pairLowKey = time\n            pairHigh = candidateHigh\n            pairHighKey = candidateHighKey\n            pairDirection = -1\n            candidateLow = pairLow\n            candidateLowKey = pairLowKey\nif newPivot:\n    seenPivot = pivotTime\n    seenDir = rawDir\n_return = [pairHigh, pairLow, pairHighKey, pairLowKey, pairDirection]"
+    },
+    "f_flowLiquidityEvents": {
+      "parameters": [
+        "level",
+        "tf"
+      ],
+      "code": "if not _has('detail'):\n    detail = ''\nif not _has('lastRegistered'):\n    lastRegistered = 'не зарегистрировано'\nif not _has('lastCancellation'):\n    lastCancellation = 'не было'\nif not _has('eventSide'):\n    eventSide = 0\nif not _has('eventAt'):\n    eventAt = None\nif not _has('captureHistory'):\n    captureHistory = array.new()\nif not _has('checkedSourceClose'):\n    checkedSourceClose = None\nif not _has('trackedHighKey'):\n    trackedHighKey = None\nif not _has('trackedLowKey'):\n    trackedLowKey = None\nif not _has('highSwept'):\n    highSwept = False\nif not _has('lowSwept'):\n    lowSwept = False\nif not _has('wasTouched'):\n    wasTouched = False\nif not _has('touchedTop'):\n    touchedTop = None\nif not _has('touchedBottom'):\n    touchedBottom = None\nif not _has('touchedSide'):\n    touchedSide = 0\nif not na(level):\n    closingSourceAvailable = not na(time_close) and (not na(level.closingSourceClosedAt)) and _compare(level.closingSourceClosedAt, time_close, 'LtE')\n    rejectionClosedAt = level.closingSourceClosedAt if closingSourceAvailable else level.sourceClosedAt\n    rejectionClose = level.closingSourceClose if closingSourceAvailable else level.sourceClose\n    if not na(rejectionClosedAt) and (na(checkedSourceClose) or _compare(rejectionClosedAt, checkedSourceClose, 'Gt')):\n        checkedSourceClose = rejectionClosedAt\n        historyIndex = _binary(array.size(captureHistory), 1, 'Sub')\n        while _compare(historyIndex, 0, 'GtE'):\n            saved = array.get(captureHistory, historyIndex)\n            rejected = saved.fromFvg and _compare(rejectionClosedAt, saved.capturedAt, 'Gt') and (_compare(rejectionClose, saved.bottom, 'LtE') if _compare(saved.side, 1, 'Eq') else _compare(rejectionClose, saved.top, 'GtE'))\n            if rejected:\n                lastCancellation = _binary(_binary(_binary(_binary(saved.detail, ' отменено закрытием ', 'Add'), tf, 'Add'), ' от ', 'Add'), str.format_time(rejectionClosedAt, 'yyyy-MM-dd HH:mm', 'Europe/Moscow'), 'Add')\n                _return = array.remove(captureHistory, historyIndex)\n            historyIndex -= 1\n        eventSide = 0\n        detail = ''\n        eventAt = None\n        if _compare(array.size(captureHistory), 0, 'Gt'):\n            restored = array.last(captureHistory)\n            eventSide = restored.side\n            detail = restored.detail\n            eventAt = restored.capturedAt\n    if not na(level.idmHighKey) and (na(trackedHighKey) or _compare(trackedHighKey, level.idmHighKey, 'NotEq')):\n        trackedHighKey = level.idmHighKey\n        highSwept = False\n    if not na(level.idmLowKey) and (na(trackedLowKey) or _compare(trackedLowKey, level.idmLowKey, 'NotEq')):\n        trackedLowKey = level.idmLowKey\n        lowSwept = False\n    sweptHigh = not highSwept and (not na(level.structureHigh)) and _compare(high, level.structureHigh, 'Gt')\n    sweptLow = not lowSwept and (not na(level.structureLow)) and _compare(low, level.structureLow, 'Lt')\n    if sweptHigh:\n        highSwept = True\n    if sweptLow:\n        lowSwept = True\n    insideZone = _compare(high, level.bottom, 'Gt') and _compare(low, level.top, 'Lt')\n    enteredOneTick = _compare(math.round_to_mintick(low), math.round_to_mintick(_binary(level.top, syminfo.mintick, 'Sub')), 'LtE') if _compare(level.side, 1, 'Eq') else _compare(math.round_to_mintick(high), math.round_to_mintick(_binary(level.bottom, syminfo.mintick, 'Add')), 'GtE')\n    touched = level.working and _compare(level.side, 0, 'NotEq') and insideZone and enteredOneTick\n    closingZoneRejected = closingSourceAvailable and (_compare(rejectionClose, level.bottom, 'LtE') if _compare(level.side, 1, 'Eq') else _compare(rejectionClose, level.top, 'GtE'))\n    newTouch = touched and (not level.balanced) and (not closingZoneRejected) and (not wasTouched or _compare(touchedTop, level.top, 'NotEq') or _compare(touchedBottom, level.bottom, 'NotEq') or _compare(touchedSide, level.side, 'NotEq'))\n    longSignal = sweptLow or (newTouch and _compare(level.side, 1, 'Eq'))\n    shortSignal = sweptHigh or (newTouch and _compare(level.side, -1, 'Eq'))\n    if longSignal and shortSignal:\n        lastCancellation = _binary(_binary(_binary(_binary(_binary(_binary(_binary(_binary(_binary('Конфликт ', str.format_time(time, 'yyyy-MM-dd HH:mm', 'Europe/Moscow'), 'Add'), ': оба направления на одной свече; MIN=', 'Add'), str.tostring(sweptLow), 'Add'), ', MAX=', 'Add'), str.tostring(sweptHigh), 'Add'), ', заход FVG=', 'Add'), str.tostring(newTouch), 'Add'), '; прежнее: ', 'Add'), detail, 'Add')\n        _return = array.clear(captureHistory)\n        eventSide = 0\n        detail = ''\n        eventAt = None\n    elif longSignal or shortSignal:\n        if _compare(eventSide, 0, 'NotEq'):\n            lastCancellation = _binary(_binary(detail, ' заменено новым захватом ', 'Add'), str.format_time(time, 'yyyy-MM-dd HH:mm', 'Europe/Moscow'), 'Add')\n        eventSide = 1 if longSignal else -1\n        eventAt = time\n        sweep = sweptLow if longSignal else sweptHigh\n        sweptName = (' MIN ' if _compare(level.structureDirection, -1, 'Eq') else ' IDM ') if longSignal else ' MAX ' if _compare(level.structureDirection, 1, 'Eq') else ' IDM '\n        reason = _binary(sweptName, str.tostring(level.structureLow if longSignal else level.structureHigh, format.mintick), 'Add') if sweep else _binary(_binary(_binary(_binary(_binary(_binary(' FVG ', 'ЛОНГ' if longSignal else 'ШОРТ', 'Add'), ' [', 'Add'), str.tostring(level.bottom, format.mintick), 'Add'), '; ', 'Add'), str.tostring(level.top, format.mintick), 'Add'), ']', 'Add')\n        detail = _binary(_binary(_binary(_binary(tf, reason, 'Add'), ' от ', 'Add'), str.format_time(time, 'yyyy-MM-dd HH:mm', 'Europe/Moscow'), 'Add'), '; ', 'Add')\n        lastRegistered = detail\n        if sweep:\n            _return = array.clear(captureHistory)\n        _return = array.push(captureHistory, LiquidityCapture.new(eventSide, eventAt, detail, not sweep, level.top, level.bottom))\n    wasTouched = touched\n    touchedTop = level.top\n    touchedBottom = level.bottom\n    touchedSide = level.side\naudit = ''\nif flowDiagnosticEnabled:\n    audit = _binary(_binary(_binary(_binary(_binary(_binary(_binary('\\n', tf, 'Add'), ' последнее событие: ', 'Add'), lastRegistered, 'Add'), '\\n', 'Add'), tf, 'Add'), ' последняя отмена: ', 'Add'), lastCancellation, 'Add')\n    audit += _binary(_binary(_binary('\\n', tf, 'Add'), ' рабочая пара: ', 'Add'), 'нет данных' if na(level) else _binary(_binary(_binary('MAX ', str.tostring(level.structureHigh, format.mintick), 'Add'), ' | IDM ', 'Add'), str.tostring(level.structureLow, format.mintick), 'Add') if _compare(level.structureDirection, 1, 'Eq') else _binary(_binary(_binary('MIN ', str.tostring(level.structureLow, format.mintick), 'Add'), ' | IDM ', 'Add'), str.tostring(level.structureHigh, format.mintick), 'Add'), 'Add')\n_return = [detail if _compare(eventSide, 1, 'Eq') else '', detail if _compare(eventSide, -1, 'Eq') else '', audit, eventAt if _compare(eventSide, 1, 'Eq') else int(None), eventAt if _compare(eventSide, -1, 'Eq') else int(None)]"
+    },
+    "f_newerCapture": {
+      "parameters": [
+        "candidateLong",
+        "candidateShort",
+        "selectedLong",
+        "selectedShort"
+      ],
+      "code": "candidateTime = candidateShort if na(candidateLong) else candidateLong\nselectedTime = selectedShort if na(selectedLong) else selectedLong\n_return = not na(candidateTime) and (na(selectedTime) or _compare(candidateTime, selectedTime, 'GtE'))"
+    },
+    "f_ruleOneState": {
+      "parameters": [
+        "direction",
+        "broken",
+        "candidate",
+        "required",
+        "longTime",
+        "shortTime",
+        "brokenAt",
+        "fvgAt"
+      ],
+      "code": "eventTime = longTime if _compare(direction, -1, 'Eq') else shortTime\norderedBreak = broken and (not required or (not na(eventTime) and (not na(brokenAt)) and _compare(brokenAt, eventTime, 'GtE')))\norderedFvg = not na(candidate) and (not required or (not na(eventTime) and (not na(fvgAt)) and _compare(fvgAt, eventTime, 'Gt')))\nresult = _binary('\\nСЕЙЧАС №1: ', 'инициализация структуры' if _compare(direction, 0, 'Eq') else 'ожидание лонга' if _compare(direction, -1, 'Eq') else 'ожидание шорта', 'Add')\nresult += _binary(_binary('\\nФАКТ: первый FVG пробит: ', 'да' if broken else 'нет', 'Add'), '' if na(brokenAt) else _binary(' от ', str.format_time(brokenAt, 'yyyy-MM-dd HH:mm', 'Europe/Moscow'), 'Add'), 'Add')\nresult += _binary(_binary('\\nФАКТ: встречный FVG: ', 'да' if not na(candidate) else 'нет', 'Add'), '' if na(fvgAt) else _binary(' от ', str.format_time(fvgAt, 'yyyy-MM-dd HH:mm', 'Europe/Moscow'), 'Add'), 'Add')\nresult += _binary(_binary(_binary('\\nПОСЛЕ подтверждения: пробой=', 'да' if orderedBreak else 'нет', 'Add'), '; встречный FVG=', 'Add'), 'да' if orderedFvg else 'нет', 'Add')\nresult += _binary('\\nСтаршее подтверждение: ', 'не требуется' if not required else 'нет' if na(eventTime) else str.format_time(eventTime, 'yyyy-MM-dd HH:mm', 'Europe/Moscow'), 'Add')\n_return = result"
+    },
+    "f_flowSnapshot": {
+      "parameters": [
+        "requireLiquidity",
+        "longEvent",
+        "shortEvent",
+        "higherAudit",
+        "longCaptureTime",
+        "shortCaptureTime",
+        "exportLevel"
+      ],
+      "code": "[rawDir, rawStart, rawBase, rawTip, rawOutsideDir, rawOutsideStart, rawOutsideBase, rawStartBar, rawTipBar, rawOutsideStartBar, rawTipTime] = f_mtfFlow()\n[legDir, legStart, legBase, legTip, legTipTime] = f_orderMovement(rawDir, rawStart, rawBase, rawTip, rawStartBar, rawTipBar, rawTipTime)\nif not _has('zones'):\n    zones = array.new()\nif not _has('activeZoneIndices'):\n    activeZoneIndices = array.new()\nif not _has('pendingFvgs'):\n    pendingFvgs = array.new()\nif not _has('ruleOneCandidates'):\n    ruleOneCandidates = array.new()\nif not _has('flowDir'):\n    flowDir = 0\nif not _has('flowLo'):\n    flowLo = None\nif not _has('flowHi'):\n    flowHi = None\nif not _has('flowStart'):\n    flowStart = None\nif not _has('flowSeedImpulse'):\n    flowSeedImpulse = None\nif not _has('flowOriginLocked'):\n    flowOriginLocked = False\nif not _has('flowHasFvg'):\n    flowHasFvg = False\nif not _has('structuralReverseLo'):\n    structuralReverseLo = None\nif not _has('structuralReverseHi'):\n    structuralReverseHi = None\nif not _has('structuralReverseLoTime'):\n    structuralReverseLoTime = None\nif not _has('structuralReverseHiTime'):\n    structuralReverseHiTime = None\nif not _has('flowLoTime'):\n    flowLoTime = None\nif not _has('flowHiTime'):\n    flowHiTime = None\nif not _has('prevStart'):\n    prevStart = None\nif not _has('prevEnd'):\n    prevEnd = None\nif not _has('prevLo'):\n    prevLo = None\nif not _has('prevHi'):\n    prevHi = None\nif not _has('firstBroken'):\n    firstBroken = False\nif not _has('firstBrokenAt'):\n    firstBrokenAt = None\nif not _has('guardTop'):\n    guardTop = None\nif not _has('guardLeftTime'):\n    guardLeftTime = None\nif not _has('guardBalanced'):\n    guardBalanced = False\nif not _has('guardBottom'):\n    guardBottom = None\nif not _has('lastLongEventTime'):\n    lastLongEventTime = None\nif not _has('lastShortEventTime'):\n    lastShortEventTime = None\nif not _has('lastLongEvent'):\n    lastLongEvent = ''\nif not _has('lastShortEvent'):\n    lastShortEvent = ''\nif not _has('liquidityAuditLong'):\n    liquidityAuditLong = 'ЛОНГ: старших событий ещё не зарегистрировано'\nif not _has('liquidityAuditShort'):\n    liquidityAuditShort = 'ШОРТ: старших событий ещё не зарегистрировано'\npreviousLongCaptureTime = lastLongEventTime\npreviousShortCaptureTime = lastShortEventTime\npreviousLiquidityAuditLong = liquidityAuditLong\npreviousLiquidityAuditShort = liquidityAuditShort\nif _compare(longEvent, '', 'NotEq') and _compare(longEvent, lastLongEvent, 'NotEq'):\n    lastLongEvent = longEvent\n    liquidityAuditLong = _binary(_binary(_binary('ЛОНГ получено ', str.format_time(time, 'yyyy-MM-dd HH:mm', 'Europe/Moscow'), 'Add'), ': ', 'Add'), longEvent, 'Add')\nif _compare(longEvent, '', 'Eq'):\n    lastLongEvent = ''\n    liquidityAuditLong = 'ЛОНГ: действующего старшего подтверждения нет'\nif _compare(shortEvent, '', 'NotEq') and _compare(shortEvent, lastShortEvent, 'NotEq'):\n    lastShortEvent = shortEvent\n    liquidityAuditShort = _binary(_binary(_binary('ШОРТ получено ', str.format_time(time, 'yyyy-MM-dd HH:mm', 'Europe/Moscow'), 'Add'), ': ', 'Add'), shortEvent, 'Add')\nif _compare(shortEvent, '', 'Eq'):\n    lastShortEvent = ''\n    liquidityAuditShort = 'ШОРТ: действующего старшего подтверждения нет'\nlastLongEventTime = None if _compare(longEvent, '', 'Eq') else longCaptureTime\nlastShortEventTime = None if _compare(shortEvent, '', 'Eq') else shortCaptureTime\nif not _has('flowDiagnostic'):\n    flowDiagnostic = 'ИНИЦИАЛИЗАЦИЯ | ожидание структурного плеча'\nif not _has('flowExtensionText'):\n    flowExtensionText = ''\nif not _has('fvgBindingAudit'):\n    fvgBindingAudit = ''\nif not _has('continuationZone'):\n    continuationZone = None\nif not _has('reversalZone'):\n    reversalZone = None\nif not _has('ruleOneZone'):\n    ruleOneZone = None\ncontinuationZone = f_updateFlowFvg(continuationZone)\nreversalZone = f_updateFlowFvg(reversalZone)\nif not _has('continuationStart'):\n    continuationStart = None\nif not _has('continuationImpulse'):\n    continuationImpulse = None\nif not _has('continuationLo'):\n    continuationLo = None\nif not _has('continuationHi'):\n    continuationHi = None\nif not _has('continuationLoTime'):\n    continuationLoTime = None\nif not _has('continuationHiTime'):\n    continuationHiTime = None\nif not _has('reversalStart'):\n    reversalStart = None\nif not _has('reversalImpulse'):\n    reversalImpulse = None\nif not _has('guardImpulse'):\n    guardImpulse = None\nif not _has('ruleOneStart'):\n    ruleOneStart = None\nif not _has('ruleOneImpulse'):\n    ruleOneImpulse = None\nif not _has('ruleOneFvgAt'):\n    ruleOneFvgAt = None\nif not _has('ruleOneLo'):\n    ruleOneLo = None\nif not _has('ruleOneHi'):\n    ruleOneHi = None\nif not _has('ruleOneLoTime'):\n    ruleOneLoTime = None\nif not _has('ruleOneHiTime'):\n    ruleOneHiTime = None\nif not _has('reversalLo'):\n    reversalLo = None\nif not _has('reversalHi'):\n    reversalHi = None\nif not _has('reversalLoTime'):\n    reversalLoTime = None\nif not _has('reversalHiTime'):\n    reversalHiTime = None\nif not _has('extensionTime'):\n    extensionTime = None\nif not _has('extensionBoundary'):\n    extensionBoundary = None\nif not _has('extensionPrice'):\n    extensionPrice = None\nif not _has('extensionLegStart'):\n    extensionLegStart = None\nexportNow = barstate.islast or barstate.islastconfirmedhistory\nprevious = None\nif exportNow:\n    previous = f_mtfCopy(zones, flowDir, flowLo, flowHi, flowStart, _past('time_close', 1), _past('time', 1), prevStart, prevEnd, prevLo, prevHi, firstBroken, guardTop, guardBottom, guardLeftTime, guardImpulse, _binary(_binary(_binary(_binary(_binary(_binary(_binary(_binary(flowDiagnostic, f_ruleOneState(flowDir, firstBroken, ruleOneStart, requireLiquidity, previousLongCaptureTime, previousShortCaptureTime, firstBrokenAt, ruleOneFvgAt), 'Add'), '\\n', 'Add'), previousLiquidityAuditLong, 'Add'), '\\n', 'Add'), previousLiquidityAuditShort, 'Add'), _past('higherAudit', 1), 'Add'), '' if _compare(flowExtensionText, '', 'Eq') else _binary('\\n', flowExtensionText, 'Add'), 'Add'), fvgBindingAudit, 'Add'))\nif _compare(flowDir, 0, 'Eq') and _compare(legDir, 0, 'NotEq') and (not na(legStart)) and (not na(legBase)) and (not na(legTip)):\n    flowDir = legDir\n    flowStart = legStart\n    flowLo = math.min(legBase, math.min(legTip, low))\n    flowHi = math.max(legBase, math.max(legTip, high))\n    flowLoTime = legStart if _compare(legBase, legTip, 'LtE') and _compare(legBase, low, 'LtE') else legTipTime if _compare(legTip, low, 'LtE') else time\n    flowHiTime = legStart if _compare(legBase, legTip, 'GtE') and _compare(legBase, high, 'GtE') else legTipTime if _compare(legTip, high, 'GtE') else time\n    flowOriginLocked = True\n    flowHasFvg = False\n    structuralReverseLo = low\n    structuralReverseHi = high\n    structuralReverseLoTime = time\n    structuralReverseHiTime = time\n    flowDiagnostic = _binary(_binary(_binary(_binary('СТАРТ ПО СТРУКТУРНОЙ ЛОМАНОЙ\\n', 'ЛОНГ' if _compare(flowDir, 1, 'Eq') else 'ШОРТ', 'Add'), ' | начало ', 'Add'), str.format_time(flowStart, 'yyyy-MM-dd HH:mm', 'Europe/Moscow'), 'Add'), ' МСК', 'Add')\nif _compare(flowDir, 0, 'NotEq') and (not firstBroken) and (not na(guardTop)):\n    firstBroken = _compare(close, guardBottom, 'LtE') if _compare(flowDir, 1, 'Eq') else _compare(close, guardTop, 'GtE')\n    if firstBroken:\n        firstBrokenAt = time\nboundaryBroken = _compare(close, flowLo, 'Lt') if _compare(flowDir, 1, 'Eq') else _compare(close, flowHi, 'Gt') if _compare(flowDir, -1, 'Eq') else False\nbeforeBarStart = flowStart\nbeforeBarEnd = _past('time_close', 1)\nbeforeBarLo = flowLo\nbeforeBarHi = flowHi\nextendingLegStart = legStart if _compare(legDir, flowDir, 'Eq') else None\nif _compare(flowDir, 1, 'Eq') and _compare(high, flowHi, 'Gt'):\n    if na(extensionLegStart) or _compare(extensionLegStart, extendingLegStart, 'NotEq'):\n        extensionLegStart = extendingLegStart\n        extensionTime = time\n        extensionBoundary = flowHi\n        extensionPrice = high\n    flowHi = high\n    flowHiTime = time\n    structuralReverseLo = low\n    structuralReverseHi = high\n    structuralReverseLoTime = time\n    structuralReverseHiTime = time\n    flowExtensionText = _binary(_binary(_binary(_binary('Расширение: ', str.tostring(flowHi, format.mintick), 'Add'), ' | ', 'Add'), str.format_time(time, 'dd.MM HH:mm', 'Europe/Moscow'), 'Add'), ' МСК', 'Add')\nelif _compare(flowDir, -1, 'Eq') and _compare(low, flowLo, 'Lt'):\n    if na(extensionLegStart) or _compare(extensionLegStart, extendingLegStart, 'NotEq'):\n        extensionLegStart = extendingLegStart\n        extensionTime = time\n        extensionBoundary = flowLo\n        extensionPrice = low\n    flowLo = low\n    flowLoTime = time\n    structuralReverseLo = low\n    structuralReverseHi = high\n    structuralReverseLoTime = time\n    structuralReverseHiTime = time\n    flowExtensionText = _binary(_binary(_binary(_binary('Расширение: ', str.tostring(flowLo, format.mintick), 'Add'), ' | ', 'Add'), str.format_time(time, 'dd.MM HH:mm', 'Europe/Moscow'), 'Add'), ' МСК', 'Add')\nif _compare(flowDir, 0, 'NotEq'):\n    if na(structuralReverseLo) or _compare(low, structuralReverseLo, 'Lt'):\n        structuralReverseLoTime = time\n    if na(structuralReverseHi) or _compare(high, structuralReverseHi, 'Gt'):\n        structuralReverseHiTime = time\n    structuralReverseLo = low if na(structuralReverseLo) else math.min(structuralReverseLo, low)\n    structuralReverseHi = high if na(structuralReverseHi) else math.max(structuralReverseHi, high)\ncontinuationMovementAlive = _compare(close, continuationLo, 'GtE') if _compare(flowDir, 1, 'Eq') else _compare(close, continuationHi, 'LtE') if _compare(flowDir, -1, 'Eq') else False\nif not na(continuationStart):\n    if continuationMovementAlive:\n        if _compare(flowDir, 1, 'Eq'):\n            if _compare(high, continuationHi, 'Gt'):\n                continuationHiTime = time\n            continuationHi = math.max(continuationHi, high)\n        else:\n            if _compare(low, continuationLo, 'Lt'):\n                continuationLoTime = time\n            continuationLo = math.min(continuationLo, low)\n    else:\n        continuationZone = None\n        continuationStart = None\n        continuationImpulse = None\n        continuationLo = None\n        continuationHi = None\n        continuationLoTime = None\n        continuationHiTime = None\nreversalMovementAlive = _compare(close, reversalHi, 'LtE') if _compare(flowDir, 1, 'Eq') else _compare(close, reversalLo, 'GtE') if _compare(flowDir, -1, 'Eq') else False\nif not na(reversalStart):\n    if reversalMovementAlive:\n        if _compare(flowDir, 1, 'Eq'):\n            if _compare(low, reversalLo, 'Lt'):\n                reversalLoTime = time\n            reversalLo = math.min(reversalLo, low)\n        else:\n            if _compare(high, reversalHi, 'Gt'):\n                reversalHiTime = time\n            reversalHi = math.max(reversalHi, high)\n    else:\n        reversalZone = None\n        reversalStart = None\n        reversalImpulse = None\n        reversalLo = None\n        reversalHi = None\n        reversalLoTime = None\n        reversalHiTime = None\nif not _has('motherHi'):\n    motherHi = None\nif not _has('motherLo'):\n    motherLo = None\ninside = not na(motherHi) and _compare(high, motherHi, 'LtE') and _compare(low, motherLo, 'GtE')\nif not inside:\n    motherHi = high\n    motherLo = low\nif _compare(flowDir, 0, 'NotEq') and (not na(guardTop)) and (not guardBalanced):\n    guardMidpoint = _binary(_binary(guardTop, guardBottom, 'Add'), 2.0, 'Div')\n    if _compare(close, guardMidpoint, 'LtE') if _compare(flowDir, 1, 'Eq') else _compare(close, guardMidpoint, 'GtE'):\n        guardBalanced = True\n_return = f_fvgUpdateActive(zones, activeZoneIndices)\nallowInside = _compare(timeframe.in_seconds(), timeframe.in_seconds('60'), 'Gt')\nallowed = allowInside or (not inside and (not _past('inside', 1)) and (not _past('inside', 2)))\nadjacentGap = _compare(low, _past('high', 1), 'Gt') or _compare(high, _past('low', 1), 'Lt') or _compare(_past('low', 1), _past('high', 2), 'Gt') or _compare(_past('high', 1), _past('low', 2), 'Lt')\ngapAllowed = not fvgExcludeGaps or not adjacentGap\nbull = not na(_past('high', 2)) and _compare(low, _past('high', 2), 'Gt') and gapAllowed\nbear = not na(_past('low', 2)) and _compare(high, _past('low', 2), 'Lt') and gapAllowed\ninitialZone = None\nchangeRule = 0\nnewDir = 0\nnewStart = None\nnewLo = None\nnewHi = None\nnewLoTime = None\nnewHiTime = None\nif allowed and (bull or bear):\n    side = 1 if bull else -1\n    top = low if bull else _past('low', 2)\n    bottom = _past('high', 2) if bull else high\n    normalLeg = _compare(_past('legDir', 1), side, 'Eq') and (not na(_past('legStart', 1))) and (not na(_past('legBase', 1)))\n    currentLeg = _compare(legDir, side, 'Eq') and (not na(legStart)) and (not na(legBase)) and _compare(legStart, _past('time', 1), 'LtE')\n    outsideImpulse = _compare(_past('rawOutsideDir', 1), 0, 'NotEq')\n    outsideFirst = outsideImpulse and _compare(_past('rawOutsideDir', 1), side, 'Eq')\n    rawImpulse = _compare(_past('rawDir', 1), side, 'Eq')\n    originTime = _past('rawOutsideStart', 1) if outsideFirst else _past('rawStart', 1) if outsideImpulse and rawImpulse else _past('legStart', 1) if normalLeg else legStart if currentLeg else _past('rawStart', 1) if rawImpulse else (_past('time', 2) if _compare(_past('low', 2), _past('low', 1), 'LtE') else _past('time', 1)) if _compare(side, 1, 'Eq') else _past('time', 2) if _compare(_past('high', 2), _past('high', 1), 'GtE') else _past('time', 1)\n    originPrice = _past('rawOutsideBase', 1) if outsideFirst else _past('rawBase', 1) if outsideImpulse and rawImpulse else _past('legBase', 1) if normalLeg else legBase if currentLeg else _past('rawBase', 1) if rawImpulse else math.min(_past('low', 2), _past('low', 1)) if _compare(side, 1, 'Eq') else math.max(_past('high', 2), _past('high', 1))\n    originBar = _past('rawOutsideStartBar', 1) if outsideFirst else _past('rawStartBar', 1) if rawImpulse and _compare(_past('rawStart', 1), originTime, 'Eq') else rawStartBar if _compare(rawDir, side, 'Eq') and _compare(rawStart, originTime, 'Eq') else None\n    impulseTipBar = _past('rawStartBar', 1) if outsideFirst else _past('rawTipBar', 1) if rawImpulse else rawTipBar if _compare(rawDir, side, 'Eq') else None\n    distinctEnds = not na(originBar) and (not na(impulseTipBar)) and _compare(impulseTipBar, originBar, 'Gt')\n    legReady = distinctEnds if outsideImpulse else normalLeg or currentLeg\n    impulseTip = _past('rawBase', 1) if outsideFirst else _past('legTip', 1) if normalLeg else legTip if currentLeg else _past('high', 1) if _compare(side, 1, 'Eq') else _past('low', 1)\n    impulseTipTime = _past('rawStart', 1) if outsideFirst else _past('legTipTime', 1) if normalLeg else legTipTime if currentLeg else _past('time', 1)\n    _return = f_fvgAppendActive(zones, activeZoneIndices, MtfFvg.new(_past('time', 2), _past('time', 1), top, bottom, side, True, time_close))\n    baseLo = math.min(originPrice, math.min(impulseTip, low))\n    baseHi = math.max(originPrice, math.max(impulseTip, high))\n    baseLoTime = originTime if _compare(originPrice, impulseTip, 'LtE') and _compare(originPrice, low, 'LtE') else impulseTipTime if _compare(impulseTip, low, 'LtE') else time\n    baseHiTime = originTime if _compare(originPrice, impulseTip, 'GtE') and _compare(originPrice, high, 'GtE') else impulseTipTime if _compare(impulseTip, high, 'GtE') else time\n    detectedZone = FlowFvg.new(top, bottom, side, _past('time', 1), False, int(None), _past('time', 2))\n    _return = array.push(pendingFvgs, PendingFlowFvg.new(detectedZone, time, originTime, originBar, originPrice, baseLo, baseHi, legReady, _past('rawOutsideStart', 1) if outsideImpulse else int(None), outsideFirst, _compare(flowDir, 0, 'Eq') or (_compare(side, flowDir, 'Eq') and (not flowHasFvg)), baseLoTime, baseHiTime))\n    refinesOrigin = _compare(side, flowDir, 'Eq') and (not na(flowSeedImpulse)) and _compare(originTime, flowStart, 'Gt') and _compare(originTime, flowSeedImpulse, 'LtE')\n    if refinesOrigin and (not flowOriginLocked):\n        flowStart = originTime\n        if _compare(baseLo, flowLo, 'Lt'):\n            flowLo = baseLo\n            flowLoTime = baseLoTime\n        if _compare(baseHi, flowHi, 'Gt'):\n            flowHi = baseHi\n            flowHiTime = baseHiTime\npendingIndex = 0\nwhile _compare(pendingIndex, array.size(pendingFvgs), 'Lt'):\n    saved = array.get(pendingFvgs, pendingIndex)\n    if _compare(time, saved.formedAt, 'Gt'):\n        saved.zone = f_updateFlowFvg(saved.zone)\n        if _compare(low, saved.rangeLo, 'Lt'):\n            saved.rangeLoTime = time\n        if _compare(high, saved.rangeHi, 'Gt'):\n            saved.rangeHiTime = time\n        saved.rangeLo = math.min(saved.rangeLo, low)\n        saved.rangeHi = math.max(saved.rangeHi, high)\n    sameChain = not na(saved.chainKey) and _compare(rawOutsideDir, 0, 'NotEq') and _compare(rawOutsideStart, saved.chainKey, 'Eq')\n    if not saved.ready and sameChain:\n        if saved.outsideFirst:\n            saved.ready = not na(rawOutsideStartBar) and _compare(rawStartBar, rawOutsideStartBar, 'Gt')\n        elif _compare(rawDir, saved.zone.side, 'Eq'):\n            saved.originTime = rawStart\n            saved.originBar = rawStartBar\n            saved.originPrice = rawBase\n            saved.ready = _compare(rawTipBar, rawStartBar, 'Gt')\n    sameRawLeg = _compare(rawDir, saved.zone.side, 'Eq') and _compare(rawStart, saved.originTime, 'Eq')\n    if not saved.ready and sameRawLeg:\n        saved.originBar = rawStartBar\n        saved.originPrice = rawBase\n        saved.ready = not na(saved.originBar) and _compare(rawTipBar, saved.originBar, 'Gt')\n    if not saved.ready and na(saved.originBar) and na(saved.chainKey):\n        if _compare(rawDir, saved.zone.side, 'Eq') and (not na(rawStart)) and (not na(rawStartBar)) and (not na(rawTipBar)) and (not na(rawTipTime)) and _compare(rawStart, saved.zone.impulseTime, 'LtE') and _compare(rawTipTime, saved.zone.impulseTime, 'GtE') and _compare(rawTipBar, rawStartBar, 'Gt'):\n            saved.originTime = rawStart\n            saved.originBar = rawStartBar\n            saved.originPrice = rawBase\n            saved.ready = True\n    stale = not na(flowStart) and _compare(saved.zone.impulseTime, flowStart, 'Lt') or _compare(saved.originTime, saved.zone.impulseTime, 'Gt')\n    dead = not na(saved.zone.brokenAt)\n    if saved.ready and (not stale) and (not dead):\n        side = saved.zone.side\n        top = saved.zone.top\n        bottom = saved.zone.bottom\n        originTime = saved.originTime\n        baseLo = math.min(saved.originPrice, saved.rangeLo)\n        baseHi = math.max(saved.originPrice, saved.rangeHi)\n        baseLoTime = originTime if _compare(saved.originPrice, saved.rangeLo, 'Lt') else saved.rangeLoTime\n        baseHiTime = originTime if _compare(saved.originPrice, saved.rangeHi, 'Gt') else saved.rangeHiTime\n        if _compare(flowDir, 0, 'Eq') and _compare(newDir, 0, 'Eq'):\n            initialZone = saved.zone\n            changeRule = 4\n            newDir = side\n            newStart = originTime\n            newLo = baseLo\n            newHi = baseHi\n            newLoTime = baseLoTime\n            newHiTime = baseHiTime\n        if _compare(flowDir, 0, 'NotEq') and _compare(side, flowDir, 'Eq') and _compare(saved.zone.impulseTime, flowStart, 'GtE'):\n            closer = na(guardTop) or (_compare(top, guardTop, 'Gt') if _compare(side, 1, 'Eq') else _compare(bottom, guardBottom, 'Lt'))\n            if closer:\n                flowHasFvg = True\n                guardBalanced = saved.zone.balanced\n                guardTop = top\n                guardLeftTime = saved.zone.leftTime\n                guardBottom = bottom\n                guardImpulse = saved.zone.impulseTime\n                firstBroken = not na(saved.zone.brokenAt)\n                firstBrokenAt = saved.zone.brokenAt\n                ruleOneZone = None\n                ruleOneStart = None\n                ruleOneFvgAt = None\n                _return = array.clear(ruleOneCandidates)\n        refinesOrigin = _compare(side, flowDir, 'Eq') and (not na(flowSeedImpulse)) and _compare(originTime, flowStart, 'Gt') and _compare(originTime, flowSeedImpulse, 'LtE')\n        if _compare(flowDir, 0, 'NotEq') and _compare(side, flowDir, 'Eq') and _compare(originTime, flowStart, 'Gt') and (not refinesOrigin) and (not saved.firstAttachment):\n            if na(continuationStart) or _compare(originTime, continuationStart, 'Gt'):\n                continuationImpulse = saved.zone.impulseTime\n                continuationStart = originTime\n                continuationLo = baseLo\n                continuationHi = baseHi\n                continuationLoTime = baseLoTime\n                continuationHiTime = baseHiTime\n                continuationZone = None\n            if _compare(originTime, continuationStart, 'Eq'):\n                continuationZone = f_pickSavedFlowFvg(continuationZone, saved.zone)\n        if _compare(flowDir, 0, 'NotEq') and _compare(side, -flowDir, 'Eq') and _compare(originTime, flowStart, 'GtE'):\n            if na(reversalStart) or _compare(originTime, reversalStart, 'Gt'):\n                reversalStart = originTime\n                reversalImpulse = saved.zone.impulseTime\n                reversalLo = baseLo\n                reversalHi = baseHi\n                reversalLoTime = baseLoTime\n                reversalHiTime = baseHiTime\n                reversalZone = None\n            if _compare(originTime, reversalStart, 'Eq'):\n                reversalZone = f_pickSavedFlowFvg(reversalZone, saved.zone)\n        if _compare(flowDir, 0, 'NotEq') and _compare(side, -flowDir, 'Eq') and _compare(originTime, flowStart, 'GtE') and (not na(guardImpulse)) and _compare(saved.zone.impulseTime, guardImpulse, 'Gt'):\n            _return = array.push(ruleOneCandidates, RuleOneFvg.new(saved.zone, saved.formedAt, originTime, baseLo, baseHi, baseLoTime, baseHiTime))\n    if flowDiagnosticEnabled:\n        bindingState = 'отменён: зона пробита' if dead else 'не относится к текущему потоку' if stale else 'плечо принято' if saved.ready else 'ожидание уточнения плеча (начало и экстремум на разных свечах)'\n        fvgBindingAudit = _binary(_binary(_binary(_binary(_binary(_binary(_binary(_binary(_binary('\\nПривязка FVG ', 'ЛОНГ' if _compare(saved.zone.side, 1, 'Eq') else 'ШОРТ', 'Add'), ' [', 'Add'), str.tostring(saved.zone.bottom, format.mintick), 'Add'), '; ', 'Add'), str.tostring(saved.zone.top, format.mintick), 'Add'), '] от ', 'Add'), str.format_time(saved.formedAt, 'yyyy-MM-dd HH:mm', 'Europe/Moscow'), 'Add'), ': ', 'Add'), bindingState, 'Add')\n        if saved.ready and _compare(saved.zone.side, -flowDir, 'Eq') and (not na(guardImpulse)) and _compare(saved.zone.impulseTime, guardImpulse, 'LtE'):\n            fvgBindingAudit += '; встречный FVG не новее рабочего'\n    detached = not sameChain and (not sameRawLeg) and _compare(rawStart, saved.zone.impulseTime, 'Gt')\n    if flowDiagnosticEnabled and detached and (not saved.ready) and (not stale) and (not dead):\n        fvgBindingAudit += '; движение завершилось без подходящего плеча'\n    if saved.ready or stale or dead or detached:\n        _return = array.remove(pendingFvgs, pendingIndex)\n    else:\n        pendingIndex += 1\n_return = f_updateRuleOneFvgs(ruleOneCandidates, flowDir, flowStart, guardImpulse)\nruleOneCaptureTime = lastShortEventTime if _compare(flowDir, 1, 'Eq') else lastLongEventTime\nchosenRuleOne = f_pickRuleOneFvg(ruleOneCandidates, requireLiquidity, ruleOneCaptureTime)\nruleOneZone = f_ruleOneWorkingZone(ruleOneCandidates, chosenRuleOne)\nruleOneStart = None if na(chosenRuleOne) else chosenRuleOne.originTime\nruleOneImpulse = None if na(ruleOneZone) else ruleOneZone.impulseTime\nruleOneFvgAt = None if na(chosenRuleOne) else chosenRuleOne.formedAt\nruleOneLo = None if na(chosenRuleOne) else chosenRuleOne.lo\nruleOneHi = None if na(chosenRuleOne) else chosenRuleOne.hi\nruleOneLoTime = None if na(chosenRuleOne) else chosenRuleOne.loTime\nruleOneHiTime = None if na(chosenRuleOne) else chosenRuleOne.hiTime\nreversalEventTime = lastShortEventTime if _compare(flowDir, 1, 'Eq') else lastLongEventTime\nreversalEvent = lastShortEvent if _compare(flowDir, 1, 'Eq') else lastLongEvent\nreversalLiquidity = not requireLiquidity or (not na(reversalEventTime) and (not na(firstBrokenAt)) and _compare(firstBrokenAt, reversalEventTime, 'GtE') and (not na(ruleOneFvgAt)) and _compare(ruleOneFvgAt, reversalEventTime, 'Gt'))\nif _compare(flowDir, 0, 'NotEq') and firstBroken and (not na(ruleOneStart)) and reversalLiquidity:\n    changeRule = 1\n    newDir = -flowDir\n    newStart = ruleOneStart\n    newLo = ruleOneLo\n    newHi = ruleOneHi\n    newLoTime = ruleOneLoTime\n    newHiTime = ruleOneHiTime\ncontinuationReady = not na(continuationStart) and (not na(extensionTime)) and _compare(extensionTime, continuationStart, 'GtE')\nif _compare(newDir, 0, 'Eq') and continuationReady:\n    changeRule = 3\n    newDir = flowDir\n    newStart = continuationStart\n    newLo = continuationLo\n    newHi = continuationHi\n    newLoTime = continuationLoTime\n    newHiTime = continuationHiTime\nif boundaryBroken:\n    changeRule = 2\n    newDir = -flowDir\n    newStart = reversalStart\n    newLo = reversalLo\n    newHi = reversalHi\n    newLoTime = reversalLoTime\n    newHiTime = reversalHiTime\n    reversalHasFvg = not na(reversalStart)\n    if not reversalHasFvg:\n        newStart = flowLoTime if _compare(newDir, 1, 'Eq') else flowHiTime\n        newLo = flowLo if _compare(newDir, 1, 'Eq') else structuralReverseLo\n        newHi = flowHi if _compare(newDir, -1, 'Eq') else structuralReverseHi\n        newLoTime = flowLoTime if _compare(newDir, 1, 'Eq') else structuralReverseLoTime\n        newHiTime = flowHiTime if _compare(newDir, -1, 'Eq') else structuralReverseHiTime\nif _compare(newDir, 0, 'NotEq'):\n    selectedZone = ruleOneZone if _compare(changeRule, 1, 'Eq') else reversalZone if _compare(changeRule, 2, 'Eq') else continuationZone if _compare(changeRule, 3, 'Eq') else initialZone\n    archivedStart = beforeBarStart\n    archivedLo = beforeBarLo\n    archivedHi = beforeBarHi\n    stamp = str.format_time(time, 'yyyy-MM-dd HH:mm', 'Europe/Moscow')\n    explanation = '№1: пробой первого FVG + противоположный FVG + старшее подтверждение' if _compare(changeRule, 1, 'Eq') else 'СТАРТ ПО ПЕРВОМУ FVG' if _compare(changeRule, 4, 'Eq') else '№2: закрытие за границей потока' if _compare(changeRule, 2, 'Eq') else '№3: попутное плечо с FVG + выход тенью за границу'\n    flowDiagnostic = _binary(_binary(_binary(_binary(_binary(_binary(_binary(explanation, '\\n', 'Add'), 'ИНИЦИАЛИЗАЦИЯ' if _compare(flowDir, 0, 'Eq') else 'ЛОНГ' if _compare(flowDir, 1, 'Eq') else 'ШОРТ', 'Add'), ' → ', 'Add'), 'ЛОНГ' if _compare(newDir, 1, 'Eq') else 'ШОРТ', 'Add'), ' | свеча ', 'Add'), stamp, 'Add'), ' МСК', 'Add')\n    if _compare(changeRule, 2, 'Eq') and na(selectedZone):\n        flowDiagnostic += '\\nВстречного FVG нет: поток по структурной ломаной'\n    flowDiagnostic += _binary(_binary(_binary('\\nПрежний диапазон: ', str.tostring(archivedLo, format.mintick), 'Add'), ' — ', 'Add'), str.tostring(archivedHi, format.mintick), 'Add')\n    if _compare(changeRule, 1, 'Eq'):\n        flowDiagnostic += _binary(_binary(_binary('\\nПервый FVG: ', str.tostring(guardBottom, format.mintick), 'Add'), ' — ', 'Add'), str.tostring(guardTop, format.mintick), 'Add')\n        flowDiagnostic += _binary(_binary(_binary('\\nПодтверждение: ', reversalEvent, 'Add'), '\\nСвеча события: ', 'Add'), str.format_time(reversalEventTime, 'yyyy-MM-dd HH:mm', 'Europe/Moscow'), 'Add') if requireLiquidity else '\\nM: старшее подтверждение не требуется'\n    if _compare(changeRule, 2, 'Eq'):\n        flowDiagnostic += _binary(_binary(_binary('\\nClose: ', str.tostring(close, format.mintick), 'Add'), ' | граница: ', 'Add'), str.tostring(flowLo if _compare(flowDir, 1, 'Eq') else flowHi, format.mintick), 'Add')\n    if _compare(changeRule, 3, 'Eq'):\n        flowDiagnostic += _binary(_binary(_binary('\\nПробитая граница: ', str.tostring(extensionBoundary, format.mintick), 'Add'), ' | тень: ', 'Add'), str.tostring(extensionPrice, format.mintick), 'Add')\n        flowDiagnostic += _binary(_binary('\\nСвеча выхода: ', str.format_time(extensionTime, 'yyyy-MM-dd HH:mm', 'Europe/Moscow'), 'Add'), ' МСК', 'Add')\n        flowDiagnostic += '\\nСтаршее подтверждение не проверяется (условие №3)'\n    if _compare(flowDir, 0, 'NotEq'):\n        prevStart = archivedStart\n        prevEnd = beforeBarEnd\n        prevLo = archivedLo\n        prevHi = archivedHi\n    flowDiagnostic += _binary(_binary(_binary('\\nНачало нового потока: ', str.format_time(newStart, 'yyyy-MM-dd HH:mm', 'Europe/Moscow'), 'Add'), ' | цена: ', 'Add'), str.tostring(newLo if _compare(newDir, 1, 'Eq') else newHi, format.mintick), 'Add')\n    flowOriginLocked = _compare(newDir, flowDir, 'NotEq') or na(selectedZone)\n    flowHasFvg = not na(selectedZone)\n    structuralReverseLo = low\n    structuralReverseHi = high\n    structuralReverseLoTime = time\n    structuralReverseHiTime = time\n    flowDir = newDir\n    flowStart = newStart\n    flowSeedImpulse = continuationImpulse if _compare(changeRule, 3, 'Eq') else ruleOneImpulse if _compare(changeRule, 1, 'Eq') else reversalImpulse if _compare(changeRule, 2, 'Eq') else initialZone.impulseTime if not na(initialZone) else _past('time', 1)\n    flowLo = newLo\n    flowHi = newHi\n    flowLoTime = newLoTime\n    flowHiTime = newHiTime\n    firstBroken = False\n    firstBrokenAt = None\n    continuationStart = None\n    continuationImpulse = None\n    continuationLo = None\n    continuationHi = None\n    continuationLoTime = None\n    continuationHiTime = None\n    reversalStart = None\n    reversalImpulse = None\n    reversalLo = None\n    reversalHi = None\n    reversalLoTime = None\n    reversalHiTime = None\n    extensionTime = None\n    extensionBoundary = None\n    extensionPrice = None\n    extensionLegStart = None\n    flowExtensionText = ''\n    guardBalanced = False\n    guardTop = None\n    guardLeftTime = None\n    guardBottom = None\n    guardImpulse = None\n    ruleOneStart = None\n    ruleOneFvgAt = None\n    ruleOneLoTime = None\n    ruleOneHiTime = None\n    continuationZone = None\n    reversalZone = None\n    ruleOneZone = None\n    _return = array.clear(ruleOneCandidates)\n    if not na(selectedZone):\n        guardTop = selectedZone.top\n        guardLeftTime = selectedZone.leftTime\n        guardBottom = selectedZone.bottom\n        guardImpulse = selectedZone.impulseTime\n        guardBalanced = selectedZone.balanced\n        firstBroken = not na(selectedZone.brokenAt)\n        firstBrokenAt = selectedZone.brokenAt\ncurrent = None\nif exportNow:\n    current = f_mtfCopy(zones, flowDir, flowLo, flowHi, flowStart, time_close, time, prevStart, prevEnd, prevLo, prevHi, firstBroken, guardTop, guardBottom, guardLeftTime, guardImpulse, _binary(_binary(_binary(_binary(_binary(_binary(_binary(_binary(flowDiagnostic, f_ruleOneState(flowDir, firstBroken, ruleOneStart, requireLiquidity, lastLongEventTime, lastShortEventTime, firstBrokenAt, ruleOneFvgAt), 'Add'), '\\n', 'Add'), liquidityAuditLong, 'Add'), '\\n', 'Add'), liquidityAuditShort, 'Add'), higherAudit, 'Add'), '' if _compare(flowExtensionText, '', 'Eq') else _binary('\\n', flowExtensionText, 'Add'), 'Add'), fvgBindingAudit, 'Add'))\n[structureHigh, structureLow, structureHighKey, structureLowKey, structureDirection] = f_legIdm(rawDir, rawStart, rawBase, rawOutsideDir, rawOutsideStart, rawOutsideBase)\nlevel = None\nif exportLevel:\n    level = FlowLiquidity.new(structureHigh, structureLow, structureHighKey, structureLowKey, guardTop, guardBottom, flowDir, _compare(flowDir, 0, 'NotEq') and (not firstBroken) and (not na(guardTop)) and _compare(guardTop, flowLo, 'GtE') and _compare(guardBottom, flowHi, 'LtE'), guardBalanced, close, time_close, float(None), int(None), structureDirection)\n_return = [previous, current, level]"
+    },
+    "f_fvgSnapshot": {
+      "parameters": [],
+      "code": "if not _has('zones'):\n    zones = array.new()\nif not _has('activeZoneIndices'):\n    activeZoneIndices = array.new()\nexportNow = barstate.islast or barstate.islastconfirmedhistory\nprevious = None\nif exportNow:\n    previous = f_mtfCopy(zones, 0, float(None), float(None), int(None), _past('time_close', 1), _past('time', 1), int(None), int(None), float(None), float(None), False, float(None), float(None), int(None), int(None), '')\nif not _has('motherHi'):\n    motherHi = None\nif not _has('motherLo'):\n    motherLo = None\ninside = not na(motherHi) and _compare(high, motherHi, 'LtE') and _compare(low, motherLo, 'GtE')\nif not inside:\n    motherHi = high\n    motherLo = low\n_return = f_fvgUpdateActive(zones, activeZoneIndices)\nallowInside = _compare(timeframe.in_seconds(), timeframe.in_seconds('60'), 'Gt')\nallowed = allowInside or (not inside and (not _past('inside', 1)) and (not _past('inside', 2)))\nadjacentGap = _compare(low, _past('high', 1), 'Gt') or _compare(high, _past('low', 1), 'Lt') or _compare(_past('low', 1), _past('high', 2), 'Gt') or _compare(_past('high', 1), _past('low', 2), 'Lt')\ngapAllowed = not fvgExcludeGaps or not adjacentGap\nbull = not na(_past('high', 2)) and _compare(low, _past('high', 2), 'Gt') and gapAllowed\nbear = not na(_past('low', 2)) and _compare(high, _past('low', 2), 'Lt') and gapAllowed\nif allowed and (bull or bear):\n    side = 1 if bull else -1\n    top = low if bull else _past('low', 2)\n    bottom = _past('high', 2) if bull else high\n    _return = f_fvgAppendActive(zones, activeZoneIndices, MtfFvg.new(_past('time', 2), _past('time', 1), top, bottom, side, True, time_close))\ncurrent = None\nif exportNow:\n    current = f_mtfCopy(zones, 0, float(None), float(None), int(None), time_close, time, int(None), int(None), float(None), float(None), False, float(None), float(None), int(None), int(None), '')\n_return = [previous, current]"
+    }
+  },
+  "records": {
+    "MarketRangeLayer": [
+      [
+        "highs",
+        null
+      ],
+      [
+        "lows",
+        null
+      ],
+      [
+        "endBar",
+        null
+      ]
+    ],
+    "MarketBosState": [
+      [
+        "value",
+        null
+      ],
+      [
+        "triggerValue",
+        null
+      ],
+      [
+        "pointBar",
+        null
+      ],
+      [
+        "breakBar",
+        null
+      ],
+      [
+        "idm",
+        null
+      ],
+      [
+        "idmBar",
+        null
+      ],
+      [
+        "idmSweepBar",
+        null
+      ],
+      [
+        "stepBars",
+        null
+      ],
+      [
+        "stepValues",
+        null
+      ]
+    ],
+    "MtfFvg": [
+      [
+        "leftTime",
+        null
+      ],
+      [
+        "impulseTime",
+        null
+      ],
+      [
+        "top",
+        null
+      ],
+      [
+        "bottom",
+        null
+      ],
+      [
+        "side",
+        null
+      ],
+      [
+        "active",
+        null
+      ],
+      [
+        "rightTime",
+        null
+      ]
+    ],
+    "FlowFvg": [
+      [
+        "top",
+        null
+      ],
+      [
+        "bottom",
+        null
+      ],
+      [
+        "side",
+        null
+      ],
+      [
+        "impulseTime",
+        null
+      ],
+      [
+        "balanced",
+        "False"
+      ],
+      [
+        "brokenAt",
+        "None"
+      ],
+      [
+        "leftTime",
+        "None"
+      ]
+    ],
+    "PendingFlowFvg": [
+      [
+        "zone",
+        null
+      ],
+      [
+        "formedAt",
+        null
+      ],
+      [
+        "originTime",
+        null
+      ],
+      [
+        "originBar",
+        null
+      ],
+      [
+        "originPrice",
+        null
+      ],
+      [
+        "rangeLo",
+        null
+      ],
+      [
+        "rangeHi",
+        null
+      ],
+      [
+        "ready",
+        null
+      ],
+      [
+        "chainKey",
+        null
+      ],
+      [
+        "outsideFirst",
+        null
+      ],
+      [
+        "firstAttachment",
+        null
+      ],
+      [
+        "rangeLoTime",
+        null
+      ],
+      [
+        "rangeHiTime",
+        null
+      ]
+    ],
+    "RuleOneFvg": [
+      [
+        "zone",
+        null
+      ],
+      [
+        "formedAt",
+        null
+      ],
+      [
+        "originTime",
+        null
+      ],
+      [
+        "lo",
+        null
+      ],
+      [
+        "hi",
+        null
+      ],
+      [
+        "loTime",
+        null
+      ],
+      [
+        "hiTime",
+        null
+      ]
+    ],
+    "MtfSnapshot": [
+      [
+        "zones",
+        null
+      ],
+      [
+        "direction",
+        null
+      ],
+      [
+        "lo",
+        null
+      ],
+      [
+        "hi",
+        null
+      ],
+      [
+        "startTime",
+        null
+      ],
+      [
+        "closedAt",
+        null
+      ],
+      [
+        "sourceOpen",
+        null
+      ],
+      [
+        "prevStart",
+        null
+      ],
+      [
+        "prevEnd",
+        null
+      ],
+      [
+        "prevLo",
+        null
+      ],
+      [
+        "prevHi",
+        null
+      ],
+      [
+        "firstBroken",
+        null
+      ],
+      [
+        "firstTop",
+        null
+      ],
+      [
+        "firstBottom",
+        null
+      ],
+      [
+        "diagnostic",
+        null
+      ],
+      [
+        "workingLeftTime",
+        null
+      ],
+      [
+        "workingImpulseTime",
+        null
+      ]
+    ],
+    "LiquidityView": [
+      [
+        "side",
+        null
+      ],
+      [
+        "top",
+        null
+      ],
+      [
+        "bottom",
+        null
+      ],
+      [
+        "working",
+        null
+      ],
+      [
+        "closedAt",
+        null
+      ]
+    ],
+    "FlowLiquidity": [
+      [
+        "structureHigh",
+        null
+      ],
+      [
+        "structureLow",
+        null
+      ],
+      [
+        "idmHighKey",
+        null
+      ],
+      [
+        "idmLowKey",
+        null
+      ],
+      [
+        "top",
+        null
+      ],
+      [
+        "bottom",
+        null
+      ],
+      [
+        "side",
+        null
+      ],
+      [
+        "working",
+        null
+      ],
+      [
+        "balanced",
+        null
+      ],
+      [
+        "sourceClose",
+        null
+      ],
+      [
+        "sourceClosedAt",
+        null
+      ],
+      [
+        "closingSourceClose",
+        "None"
+      ],
+      [
+        "closingSourceClosedAt",
+        "None"
+      ],
+      [
+        "structureDirection",
+        "0"
+      ],
+      [
+        "previousView",
+        "None"
+      ],
+      [
+        "closingView",
+        "None"
+      ]
+    ],
+    "LiquidityCapture": [
+      [
+        "side",
+        null
+      ],
+      [
+        "capturedAt",
+        null
+      ],
+      [
+        "detail",
+        null
+      ],
+      [
+        "fromFvg",
+        null
+      ],
+      [
+        "top",
+        null
+      ],
+      [
+        "bottom",
+        null
+      ]
+    ]
+  },
+  "sections": {
+    "market_init": "if not _has('marketReady'):\n    marketReady = False\nif not _has('marketHasExtreme'):\n    marketHasExtreme = False\nif not _has('marketRangeOnly'):\n    marketRangeOnly = False\nif not _has('marketDirection'):\n    marketDirection = 0\nif not _has('marketStatusText'):\n    marketStatusText = 'Ожидание истории'\nif not _has('marketStartText'):\n    marketStartText = ''\nif not _has('marketChartMaximum'):\n    marketChartMaximum = None\nif not _has('marketChartMaximumBar'):\n    marketChartMaximumBar = None\nif not _has('marketChartMinimum'):\n    marketChartMinimum = None\nif not _has('marketChartMinimumBar'):\n    marketChartMinimumBar = None\nif not _has('marketBosValue'):\n    marketBosValue = None\nif not _has('marketBosTriggerValue'):\n    marketBosTriggerValue = None\nif not _has('marketBosBar'):\n    marketBosBar = None\nif not _has('marketBosBreakBar'):\n    marketBosBreakBar = None\nif not _has('marketBosIdm'):\n    marketBosIdm = None\nif not _has('marketBosIdmBar'):\n    marketBosIdmBar = None\nif not _has('marketBosIdmSweepBar'):\n    marketBosIdmSweepBar = None\nif not _has('marketPendingBos'):\n    marketPendingBos = None\nif not _has('marketChochValue'):\n    marketChochValue = None\nif not _has('marketChochTriggerValue'):\n    marketChochTriggerValue = None\nif not _has('marketChochBar'):\n    marketChochBar = None\nif not _has('marketChochIdm'):\n    marketChochIdm = None\nif not _has('marketChochIdmBar'):\n    marketChochIdmBar = None\nif not _has('marketChochIdmSweepBar'):\n    marketChochIdmSweepBar = None\nif not _has('marketChochPending'):\n    marketChochPending = False\nif not _has('marketExtremeValue'):\n    marketExtremeValue = None\nif not _has('marketExtremeTriggerValue'):\n    marketExtremeTriggerValue = None\nif not _has('marketExtremeBar'):\n    marketExtremeBar = None\nif not _has('marketExtremeIdm'):\n    marketExtremeIdm = None\nif not _has('marketExtremeIdmBar'):\n    marketExtremeIdmBar = None\nif not _has('marketExtremeIdmSweepBar'):\n    marketExtremeIdmSweepBar = None\nif not _has('marketBosStepBars'):\n    marketBosStepBars = array.new()\nif not _has('marketBosStepValues'):\n    marketBosStepValues = array.new()\nif not _has('marketChochStepBars'):\n    marketChochStepBars = array.new()\nif not _has('marketChochStepValues'):\n    marketChochStepValues = array.new()\nif not _has('marketExtremeStepBars'):\n    marketExtremeStepBars = array.new()\nif not _has('marketExtremeStepValues'):\n    marketExtremeStepValues = array.new()\nif not _has('marketReplayEndBar'):\n    marketReplayEndBar = None\nif not _has('pendingOppositePivot'):\n    pendingOppositePivot = None\nif not _has('pendingOppositePivotBar'):\n    pendingOppositePivotBar = None",
+    "market_replay": "marketReady = False\nmarketHasExtreme = False\nmarketRangeOnly = False\nmarketDirection = 0\nmarketStatusText = 'Недостаточно данных для инициализации'\nmarketStartText = ''\nmarketChartMaximum = None\nmarketChartMaximumBar = None\nmarketChartMinimum = None\nmarketChartMinimumBar = None\nmarketBosValue = None\nmarketBosTriggerValue = None\nmarketBosBar = None\nmarketBosBreakBar = None\nmarketBosIdm = None\nmarketBosIdmBar = None\nmarketBosIdmSweepBar = None\nmarketPendingBos = None\nmarketChochValue = None\nmarketChochTriggerValue = None\nmarketChochBar = None\nmarketChochIdm = None\nmarketChochIdmBar = None\nmarketChochIdmSweepBar = None\nmarketChochPending = False\nmarketExtremeValue = None\nmarketExtremeTriggerValue = None\nmarketExtremeBar = None\nmarketExtremeIdm = None\nmarketExtremeIdmBar = None\nmarketExtremeIdmSweepBar = None\npendingOppositePivot = None\npendingOppositePivotBar = None\n_return = array.clear(marketBosStepBars)\n_return = array.clear(marketBosStepValues)\n_return = array.clear(marketChochStepBars)\n_return = array.clear(marketChochStepValues)\n_return = array.clear(marketExtremeStepBars)\n_return = array.clear(marketExtremeStepValues)\nhistoryEndBar = _binary(array.size(marketBarHigh), 1 if barstate.isconfirmed else 2, 'Sub')\nbodyEndBar = historyEndBar\nmarketReplayEndBar = historyEndBar\nif _compare(array.size(marketRangeLayers), 0, 'Eq'):\n    _return = f_marketBuildRangeIndex()\n_return = f_marketBuildBodyIndex()\n_return = array.clear(marketRecordHigh)\n_return = array.clear(marketRecordLow)\n_return = array.clear(marketHighRecordBars)\n_return = array.clear(marketLowRecordBars)\n_return = array.clear(marketPreviousHighBar)\n_return = array.clear(marketPreviousLowBar)\nlatestHighPivotBar = None\nlatestLowPivotBar = None\nrunningRawHigh = None\nrunningRawLow = None\nrecordSearchBar = 0\nwhile _compare(recordSearchBar, historyEndBar, 'LtE'):\n    testedPivotHigh = array.get(marketPivotHigh, recordSearchBar)\n    testedPivotLow = array.get(marketPivotLow, recordSearchBar)\n    _return = array.push(marketPreviousHighBar, latestHighPivotBar)\n    _return = array.push(marketPreviousLowBar, latestLowPivotBar)\n    if not na(testedPivotHigh):\n        latestHighPivotBar = recordSearchBar\n    if not na(testedPivotLow):\n        latestLowPivotBar = recordSearchBar\n    isNewRecordHigh = not na(testedPivotHigh) and (na(runningRawHigh) or _compare(testedPivotHigh, runningRawHigh, 'Gt'))\n    isNewRecordLow = not na(testedPivotLow) and (na(runningRawLow) or _compare(testedPivotLow, runningRawLow, 'Lt'))\n    _return = array.push(marketRecordHigh, isNewRecordHigh)\n    _return = array.push(marketRecordLow, isNewRecordLow)\n    if isNewRecordHigh:\n        _return = array.push(marketHighRecordBars, recordSearchBar)\n    if isNewRecordLow:\n        _return = array.push(marketLowRecordBars, recordSearchBar)\n    rawHigh = array.get(marketBarHigh, recordSearchBar)\n    rawLow = array.get(marketBarLow, recordSearchBar)\n    runningRawHigh = rawHigh if na(runningRawHigh) else math.max(runningRawHigh, rawHigh)\n    runningRawLow = rawLow if na(runningRawLow) else math.min(runningRawLow, rawLow)\n    recordSearchBar += 1\nchartMaximum = None\nchartMaximumBar = None\nchartMinimum = None\nchartMinimumBar = None\nextremeSearchBar = 0\nwhile _compare(extremeSearchBar, historyEndBar, 'LtE'):\n    testedHigh = array.get(marketBarHigh, extremeSearchBar)\n    testedLow = array.get(marketBarLow, extremeSearchBar)\n    if na(chartMaximum) or _compare(testedHigh, chartMaximum, 'GtE'):\n        chartMaximum = testedHigh\n        chartMaximumBar = extremeSearchBar\n    if na(chartMinimum) or _compare(testedLow, chartMinimum, 'LtE'):\n        chartMinimum = testedLow\n        chartMinimumBar = extremeSearchBar\n    extremeSearchBar += 1\ninitializeFromHigh = _compare(chartMaximumBar, chartMinimumBar, 'Gt')\nmarketChartMaximum = chartMaximum\nmarketChartMaximumBar = chartMaximumBar\nmarketChartMinimum = chartMinimum\nmarketChartMinimumBar = chartMinimumBar\n[highSideReady, previousHighValue, previousHighBar, previousHighIdm, previousHighIdmBar, previousHighSweepBar, previousHighBreakBar] = f_marketInitialSide(1, chartMaximum, chartMaximumBar)\n[lowSideReady, previousLowValue, previousLowBar, previousLowIdm, previousLowIdmBar, previousLowSweepBar, previousLowBreakBar] = f_marketInitialSide(-1, chartMinimum, chartMinimumBar)\nuseHighSide = highSideReady if initializeFromHigh else not lowSideReady and highSideReady\nuseLowSide = not highSideReady and lowSideReady if initializeFromHigh else lowSideReady\nreplayBar = None\nif useHighSide or useLowSide:\n    marketDirection = 1 if useHighSide else -1\n    marketBosValue = previousHighValue if useHighSide else previousLowValue\n    marketBosBar = previousHighBar if useHighSide else previousLowBar\n    marketBosBreakBar = previousHighBreakBar if useHighSide else previousLowBreakBar\n    marketBosIdm = previousHighIdm if useHighSide else previousLowIdm\n    marketBosIdmBar = previousHighIdmBar if useHighSide else previousLowIdmBar\n    marketBosIdmSweepBar = previousHighSweepBar if useHighSide else previousLowSweepBar\n    marketBosTriggerValue = f_marketBuildBosSteps(marketDirection, marketBosValue, marketBosIdmSweepBar, marketBosBreakBar, marketBosStepBars, marketBosStepValues)\n    marketPendingBos = MarketBosState.new(marketBosValue, marketBosTriggerValue, marketBosBar, marketBosBreakBar, marketBosIdm, marketBosIdmBar, marketBosIdmSweepBar, array.copy(marketBosStepBars), array.copy(marketBosStepValues))\n    [priorBosValue, priorBosBar, priorBosIdm, priorBosIdmBar, priorBosSweep, priorBosBreak] = f_marketPreviousKeyRecord(marketDirection, marketPendingBos.pointBar, marketPendingBos.value, marketPendingBos.pointBar)\n    if not na(priorBosBar):\n        [initialChochValue, initialChochBar, initialChochIdm, initialChochIdmBar, initialChochSweep] = f_marketChochForKey(priorBosBar, marketPendingBos.pointBar, marketDirection, marketPendingBos.breakBar)\n        marketChochValue = initialChochValue\n        marketChochBar = initialChochBar\n        marketChochIdm = initialChochIdm\n        marketChochIdmBar = initialChochIdmBar\n        marketChochIdmSweepBar = initialChochSweep\n        marketChochTriggerValue = f_marketBuildBosSteps(-marketDirection, marketChochValue, marketChochBar, _binary(marketPendingBos.breakBar, 1, 'Add'), marketChochStepBars, marketChochStepValues)\n    marketBosValue = priorBosValue\n    marketBosBar = priorBosBar\n    marketBosBreakBar = priorBosBreak\n    marketBosIdm = priorBosIdm\n    marketBosIdmBar = priorBosIdmBar\n    marketBosIdmSweepBar = priorBosSweep\n    marketBosTriggerValue = None\n    _return = array.clear(marketBosStepBars)\n    _return = array.clear(marketBosStepValues)\n    if not na(priorBosBar):\n        marketBosTriggerValue = f_marketBuildBosSteps(marketDirection, priorBosValue, priorBosSweep, priorBosBreak, marketBosStepBars, marketBosStepValues)\n    [seedValue, seedBar, seedIdm, seedIdmBar, seedSweep] = f_marketFindNextKey(marketDirection, marketPendingBos.breakBar, marketPendingBos.breakBar)\n    marketExtremeValue = seedValue\n    marketExtremeTriggerValue = seedValue\n    marketExtremeBar = seedBar\n    marketExtremeIdm = seedIdm\n    marketExtremeIdmBar = seedIdmBar\n    marketExtremeIdmSweepBar = seedSweep\n    pendingOppositePivot = seedIdm\n    pendingOppositePivotBar = seedIdmBar\n    marketHasExtreme = False\n    marketChochPending = True\n    marketReady = True\n    marketStatusText = 'Ожидается новый ключевой MAX' if _compare(marketDirection, 1, 'Eq') else 'Ожидается новый ключевой MIN'\n    replayBar = _binary(marketPendingBos.breakBar, 1, 'Add')\n    actualStart = 'MAX' if useHighSide else 'MIN'\n    preferredStart = 'MAX' if initializeFromHigh else 'MIN'\n    marketStartText = _binary(_binary(_binary(_binary(_binary(_binary('График: MAX ', str.tostring(chartMaximum, format.mintick), 'Add'), ' | MIN ', 'Add'), str.tostring(chartMinimum, format.mintick), 'Add'), ' | старт ', 'Add'), preferredStart, 'Add'), '' if _compare(actualStart, preferredStart, 'Eq') else _binary(' → ', actualStart, 'Add'), 'Add')\nelse:\n    marketRangeOnly = True\n    marketStatusText = 'Структура пока не определена: диапазон минимума — максимума'\n    marketStartText = _binary(_binary(_binary(_binary('График: MAX ', str.tostring(chartMaximum, format.mintick), 'Add'), ' | MIN ', 'Add'), str.tostring(chartMinimum, format.mintick), 'Add'), ' | нет предыдущих ключевых экстремумов', 'Add')\nreplaySafety = 0\nwhile marketReady and _compare(replayBar, historyEndBar, 'LtE') and _compare(replaySafety, _binary(historyEndBar, 1, 'Add'), 'LtE'):\n    replayHigh = array.get(marketBarHigh, replayBar)\n    replayLow = array.get(marketBarLow, replayBar)\n    replayClose = array.get(marketBarClose, replayBar)\n    replayBodyConfirmed = _compare(replayBar, bodyEndBar, 'LtE')\n    if not marketHasExtreme:\n        oppositePivot = array.get(marketPivotLow, replayBar) if _compare(marketDirection, 1, 'Eq') else array.get(marketPivotHigh, replayBar)\n        candidatePrice = replayHigh if _compare(marketDirection, 1, 'Eq') else replayLow\n        replacesCandidate = not na(pendingOppositePivot) and (not na(pendingOppositePivotBar)) and _compare(pendingOppositePivotBar, replayBar, 'Lt') and (na(marketExtremeValue) or (_compare(candidatePrice, marketExtremeValue, 'Gt') if _compare(marketDirection, 1, 'Eq') else _compare(candidatePrice, marketExtremeValue, 'Lt')))\n        if replacesCandidate:\n            marketExtremeValue = candidatePrice\n            marketExtremeTriggerValue = candidatePrice\n            marketExtremeBar = replayBar\n            marketExtremeIdm = pendingOppositePivot\n            marketExtremeIdmBar = pendingOppositePivotBar\n            marketExtremeIdmSweepBar = None\n        removesCandidateIdm = not na(marketExtremeValue) and (not na(marketExtremeIdm)) and _compare(replayBar, marketExtremeBar, 'Gt') and (_compare(replayLow, marketExtremeIdm, 'Lt') if _compare(marketDirection, 1, 'Eq') else _compare(replayHigh, marketExtremeIdm, 'Gt'))\n        if removesCandidateIdm:\n            marketExtremeIdmSweepBar = replayBar\n            marketHasExtreme = True\n        if not na(oppositePivot):\n            pendingOppositePivot = oppositePivot\n            pendingOppositePivotBar = replayBar\n    if na(marketChochIdmSweepBar) and (not na(marketChochIdm)) and _compare(replayBar, marketChochBar, 'Gt'):\n        removesChochIdm = _compare(replayHigh, marketChochIdm, 'Gt') if _compare(marketDirection, 1, 'Eq') else _compare(replayLow, marketChochIdm, 'Lt')\n        if removesChochIdm:\n            marketChochIdmSweepBar = replayBar\n    priorChochBroken = replayBodyConfirmed and (not na(marketChochTriggerValue)) and (not na(marketChochIdmSweepBar)) and _compare(marketChochIdmSweepBar, replayBar, 'Lt') and (_compare(replayClose, marketChochTriggerValue, 'Lt') if _compare(marketDirection, 1, 'Eq') else _compare(replayClose, marketChochTriggerValue, 'Gt'))\n    if marketChochPending and marketHasExtreme and (not priorChochBroken):\n        nextBosBar = marketBosBar if na(marketPendingBos) else marketPendingBos.pointBar\n        [nextChoch, nextChochBar, nextChochIdm, nextChochIdmBar, nextChochSweep] = f_marketChochForKey(nextBosBar, marketExtremeBar, marketDirection, replayBar)\n        if not na(marketPendingBos):\n            marketBosValue = marketPendingBos.value\n            marketBosTriggerValue = marketPendingBos.triggerValue\n            marketBosBar = marketPendingBos.pointBar\n            marketBosBreakBar = marketPendingBos.breakBar\n            marketBosIdm = marketPendingBos.idm\n            marketBosIdmBar = marketPendingBos.idmBar\n            marketBosIdmSweepBar = marketPendingBos.idmSweepBar\n            _return = f_marketCopySteps(marketPendingBos.stepBars, marketPendingBos.stepValues, marketBosStepBars, marketBosStepValues)\n            marketPendingBos = None\n        if na(marketChochBar) or _compare(nextChochBar, marketChochBar, 'NotEq') or _compare(nextChoch, marketChochValue, 'NotEq'):\n            marketChochValue = nextChoch\n            marketChochTriggerValue = nextChoch\n            marketChochBar = nextChochBar\n            marketChochIdm = nextChochIdm\n            marketChochIdmBar = nextChochIdmBar\n            marketChochIdmSweepBar = nextChochSweep\n            _return = array.clear(marketChochStepBars)\n            _return = array.clear(marketChochStepValues)\n        marketChochPending = False\n    canBreakExtreme = marketHasExtreme and (na(marketExtremeIdmSweepBar) or _compare(marketExtremeIdmSweepBar, replayBar, 'Lt'))\n    if _compare(marketDirection, 1, 'Eq'):\n        if canBreakExtreme and replayBodyConfirmed and _compare(replayClose, marketExtremeTriggerValue, 'Gt'):\n            marketPendingBos = MarketBosState.new(marketExtremeValue, marketExtremeTriggerValue, marketExtremeBar, replayBar, marketExtremeIdm, marketExtremeIdmBar, marketExtremeIdmSweepBar, array.copy(marketExtremeStepBars), array.copy(marketExtremeStepValues))\n            marketChochPending = True\n            [seedValue, seedBar, seedIdm, seedIdmBar, seedSweep] = f_marketFindNextKey(1, replayBar, replayBar)\n            marketExtremeValue = seedValue\n            marketExtremeTriggerValue = seedValue\n            marketExtremeBar = seedBar\n            marketExtremeIdm = seedIdm\n            marketExtremeIdmBar = seedIdmBar\n            marketExtremeIdmSweepBar = seedSweep\n            pendingOppositePivot = seedIdm\n            pendingOppositePivotBar = seedIdmBar\n            _return = array.clear(marketExtremeStepBars)\n            _return = array.clear(marketExtremeStepValues)\n            marketHasExtreme = False\n            marketStatusText = 'Ожидается новый ключевой MAX'\n        elif replayBodyConfirmed and (not na(marketChochTriggerValue)) and _compare(replayClose, marketChochTriggerValue, 'Lt') and (not na(marketChochIdmSweepBar)) and _compare(marketChochIdmSweepBar, replayBar, 'Lt'):\n            if not marketHasExtreme:\n                marketExtremeValue = marketBosValue if na(marketPendingBos) else marketPendingBos.value\n                marketExtremeTriggerValue = marketBosTriggerValue if na(marketPendingBos) else marketPendingBos.triggerValue\n                marketExtremeBar = marketBosBar if na(marketPendingBos) else marketPendingBos.pointBar\n                marketExtremeIdm = marketBosIdm if na(marketPendingBos) else marketPendingBos.idm\n                marketExtremeIdmBar = marketBosIdmBar if na(marketPendingBos) else marketPendingBos.idmBar\n                marketExtremeIdmSweepBar = marketBosIdmSweepBar if na(marketPendingBos) else marketPendingBos.idmSweepBar\n                _return = f_marketCopySteps(marketBosStepBars if na(marketPendingBos) else marketPendingBos.stepBars, marketBosStepValues if na(marketPendingBos) else marketPendingBos.stepValues, marketExtremeStepBars, marketExtremeStepValues)\n            marketPendingBos = None\n            marketBosValue = marketChochValue\n            marketBosTriggerValue = marketChochTriggerValue\n            marketBosBar = marketChochBar\n            marketBosBreakBar = replayBar\n            marketBosIdm = marketChochIdm\n            marketBosIdmBar = marketChochIdmBar\n            marketBosIdmSweepBar = marketChochIdmSweepBar\n            _return = f_marketCopySteps(marketChochStepBars, marketChochStepValues, marketBosStepBars, marketBosStepValues)\n            marketChochValue = marketExtremeValue\n            marketChochTriggerValue = marketExtremeTriggerValue\n            marketChochBar = marketExtremeBar\n            marketChochIdm = marketExtremeIdm\n            marketChochIdmBar = marketExtremeIdmBar\n            marketChochIdmSweepBar = marketExtremeIdmSweepBar\n            _return = f_marketCopySteps(marketExtremeStepBars, marketExtremeStepValues, marketChochStepBars, marketChochStepValues)\n            marketDirection = -1\n            marketChochPending = True\n            [seedValue, seedBar, seedIdm, seedIdmBar, seedSweep] = f_marketFindNextKey(-1, replayBar, replayBar)\n            marketExtremeValue = seedValue\n            marketExtremeTriggerValue = seedValue\n            marketExtremeBar = seedBar\n            marketExtremeIdm = seedIdm\n            marketExtremeIdmBar = seedIdmBar\n            marketExtremeIdmSweepBar = seedSweep\n            pendingOppositePivot = seedIdm\n            pendingOppositePivotBar = seedIdmBar\n            _return = array.clear(marketExtremeStepBars)\n            _return = array.clear(marketExtremeStepValues)\n            marketHasExtreme = False\n            marketStatusText = 'Ожидается новый ключевой MIN'\n        else:\n            if marketHasExtreme and _compare(replayHigh, marketExtremeTriggerValue, 'Gt'):\n                marketExtremeTriggerValue = replayHigh\n                _return = array.push(marketExtremeStepBars, replayBar)\n                _return = array.push(marketExtremeStepValues, marketExtremeTriggerValue)\n            if not na(marketChochTriggerValue) and _compare(replayLow, marketChochTriggerValue, 'Lt'):\n                marketChochTriggerValue = replayLow\n                _return = array.push(marketChochStepBars, replayBar)\n                _return = array.push(marketChochStepValues, marketChochTriggerValue)\n    elif canBreakExtreme and replayBodyConfirmed and _compare(replayClose, marketExtremeTriggerValue, 'Lt'):\n        marketPendingBos = MarketBosState.new(marketExtremeValue, marketExtremeTriggerValue, marketExtremeBar, replayBar, marketExtremeIdm, marketExtremeIdmBar, marketExtremeIdmSweepBar, array.copy(marketExtremeStepBars), array.copy(marketExtremeStepValues))\n        marketChochPending = True\n        [seedValue, seedBar, seedIdm, seedIdmBar, seedSweep] = f_marketFindNextKey(-1, replayBar, replayBar)\n        marketExtremeValue = seedValue\n        marketExtremeTriggerValue = seedValue\n        marketExtremeBar = seedBar\n        marketExtremeIdm = seedIdm\n        marketExtremeIdmBar = seedIdmBar\n        marketExtremeIdmSweepBar = seedSweep\n        pendingOppositePivot = seedIdm\n        pendingOppositePivotBar = seedIdmBar\n        _return = array.clear(marketExtremeStepBars)\n        _return = array.clear(marketExtremeStepValues)\n        marketHasExtreme = False\n        marketStatusText = 'Ожидается новый ключевой MIN'\n    elif replayBodyConfirmed and (not na(marketChochTriggerValue)) and _compare(replayClose, marketChochTriggerValue, 'Gt') and (not na(marketChochIdmSweepBar)) and _compare(marketChochIdmSweepBar, replayBar, 'Lt'):\n        if not marketHasExtreme:\n            marketExtremeValue = marketBosValue if na(marketPendingBos) else marketPendingBos.value\n            marketExtremeTriggerValue = marketBosTriggerValue if na(marketPendingBos) else marketPendingBos.triggerValue\n            marketExtremeBar = marketBosBar if na(marketPendingBos) else marketPendingBos.pointBar\n            marketExtremeIdm = marketBosIdm if na(marketPendingBos) else marketPendingBos.idm\n            marketExtremeIdmBar = marketBosIdmBar if na(marketPendingBos) else marketPendingBos.idmBar\n            marketExtremeIdmSweepBar = marketBosIdmSweepBar if na(marketPendingBos) else marketPendingBos.idmSweepBar\n            _return = f_marketCopySteps(marketBosStepBars if na(marketPendingBos) else marketPendingBos.stepBars, marketBosStepValues if na(marketPendingBos) else marketPendingBos.stepValues, marketExtremeStepBars, marketExtremeStepValues)\n        marketPendingBos = None\n        marketBosValue = marketChochValue\n        marketBosTriggerValue = marketChochTriggerValue\n        marketBosBar = marketChochBar\n        marketBosBreakBar = replayBar\n        marketBosIdm = marketChochIdm\n        marketBosIdmBar = marketChochIdmBar\n        marketBosIdmSweepBar = marketChochIdmSweepBar\n        _return = f_marketCopySteps(marketChochStepBars, marketChochStepValues, marketBosStepBars, marketBosStepValues)\n        marketChochValue = marketExtremeValue\n        marketChochTriggerValue = marketExtremeTriggerValue\n        marketChochBar = marketExtremeBar\n        marketChochIdm = marketExtremeIdm\n        marketChochIdmBar = marketExtremeIdmBar\n        marketChochIdmSweepBar = marketExtremeIdmSweepBar\n        _return = f_marketCopySteps(marketExtremeStepBars, marketExtremeStepValues, marketChochStepBars, marketChochStepValues)\n        marketDirection = 1\n        marketChochPending = True\n        [seedValue, seedBar, seedIdm, seedIdmBar, seedSweep] = f_marketFindNextKey(1, replayBar, replayBar)\n        marketExtremeValue = seedValue\n        marketExtremeTriggerValue = seedValue\n        marketExtremeBar = seedBar\n        marketExtremeIdm = seedIdm\n        marketExtremeIdmBar = seedIdmBar\n        marketExtremeIdmSweepBar = seedSweep\n        pendingOppositePivot = seedIdm\n        pendingOppositePivotBar = seedIdmBar\n        _return = array.clear(marketExtremeStepBars)\n        _return = array.clear(marketExtremeStepValues)\n        marketHasExtreme = False\n        marketStatusText = 'Ожидается новый ключевой MAX'\n    else:\n        if marketHasExtreme and _compare(replayLow, marketExtremeTriggerValue, 'Lt'):\n            marketExtremeTriggerValue = replayLow\n            _return = array.push(marketExtremeStepBars, replayBar)\n            _return = array.push(marketExtremeStepValues, marketExtremeTriggerValue)\n        if not na(marketChochTriggerValue) and _compare(replayHigh, marketChochTriggerValue, 'Gt'):\n            marketChochTriggerValue = replayHigh\n            _return = array.push(marketChochStepBars, replayBar)\n            _return = array.push(marketChochStepValues, marketChochTriggerValue)\n    replayBar += 1\n    replaySafety += 1",
+    "market_live": "hasLiveBar = not barstate.isconfirmed and (not na(marketReplayEndBar)) and _compare(bar_index, marketReplayEndBar, 'Gt')\nif marketReady and hasLiveBar and (not na(marketExtremeValue)):\n    if _compare(marketDirection, 1, 'Eq') and _compare(high, marketExtremeTriggerValue, 'Gt'):\n        if marketHasExtreme:\n            marketExtremeTriggerValue = high\n            _return = array.push(marketExtremeStepBars, bar_index)\n            _return = array.push(marketExtremeStepValues, marketExtremeTriggerValue)\n        else:\n            marketExtremeValue = high\n            marketExtremeTriggerValue = high\n            marketExtremeBar = bar_index\n            marketExtremeIdm = pendingOppositePivot\n            marketExtremeIdmBar = pendingOppositePivotBar\n            _return = array.clear(marketExtremeStepBars)\n            _return = array.clear(marketExtremeStepValues)\n    elif _compare(marketDirection, -1, 'Eq') and _compare(low, marketExtremeTriggerValue, 'Lt'):\n        if marketHasExtreme:\n            marketExtremeTriggerValue = low\n            _return = array.push(marketExtremeStepBars, bar_index)\n            _return = array.push(marketExtremeStepValues, marketExtremeTriggerValue)\n        else:\n            marketExtremeValue = low\n            marketExtremeTriggerValue = low\n            marketExtremeBar = bar_index\n            marketExtremeIdm = pendingOppositePivot\n            marketExtremeIdmBar = pendingOppositePivotBar\n            _return = array.clear(marketExtremeStepBars)\n            _return = array.clear(marketExtremeStepValues)\nliveRemovesExtremeIdm = marketReady and hasLiveBar and (not marketHasExtreme) and (not na(marketExtremeValue)) and (not na(marketExtremeIdm)) and _compare(bar_index, marketExtremeBar, 'Gt') and (_compare(low, marketExtremeIdm, 'Lt') if _compare(marketDirection, 1, 'Eq') else _compare(high, marketExtremeIdm, 'Gt'))\nif liveRemovesExtremeIdm:\n    marketExtremeIdmSweepBar = bar_index\n    marketHasExtreme = True\n    if marketChochPending:\n        liveBosBar = marketBosBar if na(marketPendingBos) else marketPendingBos.pointBar\n        [liveChoch, liveChochBar, liveChochIdm, liveChochIdmBar, liveChochSweep] = f_marketChochForKey(liveBosBar, marketExtremeBar, marketDirection, bar_index)\n        if not na(marketPendingBos):\n            marketBosValue = marketPendingBos.value\n            marketBosTriggerValue = marketPendingBos.triggerValue\n            marketBosBar = marketPendingBos.pointBar\n            marketBosBreakBar = marketPendingBos.breakBar\n            marketBosIdm = marketPendingBos.idm\n            marketBosIdmBar = marketPendingBos.idmBar\n            marketBosIdmSweepBar = marketPendingBos.idmSweepBar\n            _return = f_marketCopySteps(marketPendingBos.stepBars, marketPendingBos.stepValues, marketBosStepBars, marketBosStepValues)\n            marketPendingBos = None\n        if na(marketChochBar) or _compare(liveChochBar, marketChochBar, 'NotEq') or _compare(liveChoch, marketChochValue, 'NotEq'):\n            marketChochValue = liveChoch\n            marketChochTriggerValue = liveChoch\n            marketChochBar = liveChochBar\n            marketChochIdm = liveChochIdm\n            marketChochIdmBar = liveChochIdmBar\n            marketChochIdmSweepBar = liveChochSweep\n            _return = array.clear(marketChochStepBars)\n            _return = array.clear(marketChochStepValues)\n        marketChochPending = False\nif marketReady and marketHasExtreme:\n    marketStatusText = 'Восходящий диапазон: CHOCH — MAX' if _compare(marketDirection, 1, 'Eq') else 'Нисходящий диапазон: CHOCH — MIN'"
+  }
+}

@@ -1,0 +1,801 @@
+{
+  "sha256": "CC2E1422F6D865C7D4814B7FF7CD4EEA82F87EB89642E8EF5F158A47B85D057F",
+  "inputs": [
+    {
+      "variable": "showStructure",
+      "type": "bool",
+      "title": "Структурная ломаная",
+      "group": "Структурное движение",
+      "line": 37,
+      "default": true,
+      "tooltip": ""
+    },
+    {
+      "variable": "showDevelopingLeg",
+      "type": "bool",
+      "title": "Последнее формирующееся плечо",
+      "group": "Структурное движение",
+      "line": 38,
+      "default": true,
+      "tooltip": ""
+    },
+    {
+      "variable": "maxSegments",
+      "type": "int",
+      "title": "Хранить подтверждённых отрезков",
+      "group": "Структурное движение",
+      "line": 39,
+      "default": 100,
+      "min": 10,
+      "max": 390,
+      "tooltip": "До 390 отрезков структуры. Отдельный запас оставлен для уровней IDM и формирующихся отрезков."
+    },
+    {
+      "variable": "structureWidth",
+      "type": "int",
+      "title": "Толщина структурной линии",
+      "group": "Структурное движение",
+      "line": 40,
+      "default": 3,
+      "min": 1,
+      "max": 5,
+      "tooltip": ""
+    },
+    {
+      "variable": "upColor",
+      "type": "color",
+      "title": "Восходящее плечо",
+      "group": "Структурное движение",
+      "line": 42,
+      "default": "#056656FF",
+      "tooltip": ""
+    },
+    {
+      "variable": "downColor",
+      "type": "color",
+      "title": "Нисходящее плечо",
+      "group": "Структурное движение",
+      "line": 43,
+      "default": "#B22833FF",
+      "tooltip": ""
+    },
+    {
+      "variable": "showMarketOnlyOnH1",
+      "type": "bool",
+      "title": "Показывать структуру рынка только на H1 / H4",
+      "group": "Структура рынка",
+      "line": 45,
+      "default": true,
+      "tooltip": ""
+    },
+    {
+      "variable": "enableMarketStructureInput",
+      "type": "bool",
+      "title": "BOS / CHOCH / MAX / MIN",
+      "group": "Структура рынка",
+      "line": 46,
+      "default": true,
+      "tooltip": ""
+    },
+    {
+      "variable": "showMarketIdmInput",
+      "type": "bool",
+      "title": "Показывать IDM уровней",
+      "group": "Структура рынка",
+      "line": 47,
+      "default": true,
+      "tooltip": ""
+    },
+    {
+      "variable": "showMarketStatusInput",
+      "type": "bool",
+      "title": "Показывать состояние инициализации",
+      "group": "Структура рынка",
+      "line": 48,
+      "default": false,
+      "tooltip": ""
+    },
+    {
+      "variable": "marketBosColor",
+      "type": "color",
+      "title": "BOS",
+      "group": "Структура рынка",
+      "line": 61,
+      "default": "#512DA8FF",
+      "tooltip": ""
+    },
+    {
+      "variable": "marketChochColor",
+      "type": "color",
+      "title": "CHOCH",
+      "group": "Структура рынка",
+      "line": 62,
+      "default": "#7B1FA2FF",
+      "tooltip": ""
+    },
+    {
+      "variable": "marketMaxColor",
+      "type": "color",
+      "title": "MAX",
+      "group": "Структура рынка",
+      "line": 63,
+      "default": "#056656FF",
+      "tooltip": ""
+    },
+    {
+      "variable": "marketMinColor",
+      "type": "color",
+      "title": "MIN",
+      "group": "Структура рынка",
+      "line": 64,
+      "default": "#B22833FF",
+      "tooltip": ""
+    },
+    {
+      "variable": "marketIdmColor",
+      "type": "color",
+      "title": "IDM",
+      "group": "Структура рынка",
+      "line": 65,
+      "default": "#0097A7FF",
+      "tooltip": ""
+    },
+    {
+      "variable": "marketBosWidth",
+      "type": "int",
+      "title": "Толщина BOS",
+      "group": "Структура рынка",
+      "line": 67,
+      "default": 3,
+      "min": 1,
+      "max": 5,
+      "tooltip": ""
+    },
+    {
+      "variable": "marketChochWidth",
+      "type": "int",
+      "title": "Толщина CHOCH",
+      "group": "Структура рынка",
+      "line": 68,
+      "default": 3,
+      "min": 1,
+      "max": 5,
+      "tooltip": ""
+    },
+    {
+      "variable": "marketMaxWidth",
+      "type": "int",
+      "title": "Толщина MAX",
+      "group": "Структура рынка",
+      "line": 69,
+      "default": 3,
+      "min": 1,
+      "max": 5,
+      "tooltip": ""
+    },
+    {
+      "variable": "marketMinWidth",
+      "type": "int",
+      "title": "Толщина MIN",
+      "group": "Структура рынка",
+      "line": 70,
+      "default": 3,
+      "min": 1,
+      "max": 5,
+      "tooltip": ""
+    },
+    {
+      "variable": "marketIdmWidth",
+      "type": "int",
+      "title": "Толщина IDM",
+      "group": "Структура рынка",
+      "line": 71,
+      "default": 2,
+      "min": 1,
+      "max": 5,
+      "tooltip": ""
+    },
+    {
+      "variable": "ibEnabled",
+      "type": "bool",
+      "title": "Пустые внутренние свечи",
+      "group": "Структурное движение",
+      "line": 1589,
+      "default": true,
+      "tooltip": "Убирает заливку тела, включая последнюю внутреннюю свечу. Если стандартная линия цены становится невидимой, задайте ей непрозрачный цвет в настройках графика TradingView."
+    },
+    {
+      "variable": "flowShowLevels",
+      "type": "bool",
+      "title": "Уровни последнего потока",
+      "group": "Последний поток приказов",
+      "line": 1627,
+      "default": true,
+      "tooltip": "На H1/H4/D/W/M — собственные уровни. На M1/M5 переносятся уровни потока H1, если включён перенос ниже. Фильтр FVG действует и при скрытых уровнях. 0 — минимум, 1 — максимум; начало потока задаёт пробившее плечо."
+    },
+    {
+      "variable": "flowH1OnM5",
+      "type": "bool",
+      "title": "Показывать поток H1 на M1 / M5",
+      "group": "Последний поток приказов",
+      "line": 1628,
+      "default": true,
+      "tooltip": "Те же уровни 0 / 0,4 / 0,5 / 0,6 / 1, рассчитанные по H1. На открытой H1-свече диапазон может изменяться."
+    },
+    {
+      "variable": "flowShowPrevious",
+      "type": "bool",
+      "title": "Показывать предыдущий поток",
+      "group": "Последний поток приказов",
+      "line": 1629,
+      "default": true,
+      "tooltip": "Пунктирные уровни предыдущего потока от его начала до свечи подтверждения смены. На M1/M5 — предыдущий поток H1."
+    },
+    {
+      "variable": "flowShowData",
+      "type": "bool",
+      "title": "Отображать данные действующего потока",
+      "group": "Последний поток приказов",
+      "line": 1630,
+      "default": false,
+      "tooltip": "Показывать значения уровней и цены действующего потока, включая H1 на M1/M5. Предыдущий поток всегда без подписей."
+    },
+    {
+      "variable": "flowDiagnosticEnabled",
+      "type": "bool",
+      "title": "Диагностика смены потока",
+      "group": "Последний поток приказов",
+      "line": 1631,
+      "default": false,
+      "tooltip": ""
+    },
+    {
+      "variable": "flowDiagnosticFont",
+      "type": "string",
+      "title": "Размер шрифта диагностики",
+      "group": "Последний поток приказов",
+      "line": 1632,
+      "default": "large",
+      "options": [
+        "small",
+        "normal",
+        "large",
+        "huge"
+      ],
+      "tooltip": ""
+    },
+    {
+      "variable": "flowDiagnosticBottomOffset",
+      "type": "float",
+      "title": "Отступ диагностики снизу (%)",
+      "group": "Последний поток приказов",
+      "line": 1633,
+      "default": 6.0,
+      "min": 0,
+      "max": 40,
+      "step": 1,
+      "tooltip": ""
+    },
+    {
+      "variable": "flowPreviousColor",
+      "type": "color",
+      "title": "Цвет предыдущего потока",
+      "group": "Последний поток приказов",
+      "line": 1634,
+      "default": "#00000033",
+      "tooltip": ""
+    },
+    {
+      "variable": "flowColor0",
+      "type": "color",
+      "title": "Цвет уровня 0",
+      "group": "Последний поток приказов",
+      "line": 1635,
+      "default": "#388E3CFF",
+      "tooltip": ""
+    },
+    {
+      "variable": "flowColor04",
+      "type": "color",
+      "title": "Цвет уровня 0,4",
+      "group": "Последний поток приказов",
+      "line": 1636,
+      "default": "#388E3CFF",
+      "tooltip": ""
+    },
+    {
+      "variable": "flowColor05",
+      "type": "color",
+      "title": "Цвет уровня 0,5",
+      "group": "Последний поток приказов",
+      "line": 1637,
+      "default": "#636363FF",
+      "tooltip": ""
+    },
+    {
+      "variable": "flowColor06",
+      "type": "color",
+      "title": "Цвет уровня 0,6",
+      "group": "Последний поток приказов",
+      "line": 1638,
+      "default": "#B22833FF",
+      "tooltip": ""
+    },
+    {
+      "variable": "flowColor1",
+      "type": "color",
+      "title": "Цвет уровня 1",
+      "group": "Последний поток приказов",
+      "line": 1639,
+      "default": "#B22833FF",
+      "tooltip": ""
+    },
+    {
+      "variable": "flowLineWidth",
+      "type": "int",
+      "title": "Толщина линий",
+      "group": "Последний поток приказов",
+      "line": 1640,
+      "default": 3,
+      "min": 1,
+      "max": 5,
+      "tooltip": ""
+    },
+    {
+      "variable": "flowFontSize",
+      "type": "string",
+      "title": "Размер шрифта",
+      "group": "Последний поток приказов",
+      "line": 1641,
+      "default": "normal",
+      "options": [
+        "tiny",
+        "small",
+        "normal",
+        "large",
+        "huge"
+      ],
+      "tooltip": ""
+    },
+    {
+      "variable": "fvgEnabled",
+      "type": "bool",
+      "title": "Показывать FVG",
+      "group": "FVG",
+      "line": 1646,
+      "default": true,
+      "tooltip": ""
+    },
+    {
+      "variable": "fvgShowM1",
+      "type": "bool",
+      "title": "Показывать FVG M1",
+      "group": "FVG",
+      "line": 1647,
+      "default": true,
+      "tooltip": "На M1 показываются зоны, пересекающие отображаемый рабочий FVG H1/H4/D/W/M и начинающиеся не раньше него. Достаточно частичного пересечения по цене. Это правило действует и для пробитых зон: они сохраняют цвет пробоя и заканчиваются на свече пробоя. На FVG старших таймфреймов не влияет."
+    },
+    {
+      "variable": "fvgShowM5",
+      "type": "bool",
+      "title": "Показывать FVG M5",
+      "group": "FVG",
+      "line": 1648,
+      "default": true,
+      "tooltip": "На M5 показываются зоны, пересекающие отображаемый рабочий FVG H1/H4/D/W/M и начинающиеся не раньше него. Достаточно частичного пересечения по цене. Это правило действует и для пробитых зон: они сохраняют цвет пробоя и заканчиваются на свече пробоя. На FVG старших таймфреймов не влияет."
+    },
+    {
+      "variable": "fvgExcludeGaps",
+      "type": "bool",
+      "title": "Исключать FVG с гэпами",
+      "group": "FVG",
+      "line": 1649,
+      "default": true,
+      "tooltip": "Не создавать FVG, если диапазоны по теням любой пары соседних свечей в тройке не пересекаются. Касание границ допускается. Проверка на исходном таймфрейме зоны; разница открытия и предыдущего закрытия сама по себе не считается гэпом."
+    },
+    {
+      "variable": "fvgMtfDiagnostics",
+      "type": "bool",
+      "title": "Диагностика FVG H1 / M1 / M5",
+      "group": "FVG",
+      "line": 1650,
+      "default": false,
+      "tooltip": "На M1/M5 показывает доступность снимка H1, число зон H1, отображаемых рабочих старших зон и показанных FVG."
+    },
+    {
+      "variable": "fvgOnlyInFlow",
+      "type": "bool",
+      "title": "FVG текущего и предыдущего потоков",
+      "group": "FVG",
+      "line": 1651,
+      "default": true,
+      "tooltip": "На родном ТФ показываем зоны текущего и предыдущего потоков. На младшие ТФ переносим только один рабочий FVG каждого старшего ТФ. После пробоя ждём новый FVG ближе к конечному экстремуму потока."
+    },
+    {
+      "variable": "fvgMaxZones",
+      "type": "int",
+      "title": "Хранить последних зон",
+      "group": "FVG",
+      "line": 1652,
+      "default": 20,
+      "min": 1,
+      "max": 200,
+      "tooltip": "Лимит отображаемых зон суммарно: на M1/M5 сначала H1/H4/D/W/M, затем зоны своего ТФ. На каждом исходном таймфрейме хранится до этого количества последних зон."
+    },
+    {
+      "variable": "fvgFilledColor",
+      "type": "color",
+      "title": "Цвет пробитого FVG",
+      "group": "FVG",
+      "line": 1653,
+      "default": "#F57F1726",
+      "tooltip": ""
+    },
+    {
+      "variable": "fvgBullColor",
+      "type": "color",
+      "title": "Бычий FVG",
+      "group": "FVG",
+      "line": 1654,
+      "default": "#00332A26",
+      "tooltip": ""
+    },
+    {
+      "variable": "fvgBearColor",
+      "type": "color",
+      "title": "Медвежий FVG",
+      "group": "FVG",
+      "line": 1655,
+      "default": "#80192226",
+      "tooltip": ""
+    },
+    {
+      "variable": "fvgBorderWidth",
+      "type": "int",
+      "title": "Толщина границ FVG",
+      "group": "FVG",
+      "line": 1657,
+      "default": 1,
+      "min": 1,
+      "max": 5,
+      "tooltip": ""
+    },
+    {
+      "variable": "fvgFontM1",
+      "type": "string",
+      "title": "Шрифт FVG M1",
+      "group": "FVG",
+      "line": 1658,
+      "default": "tiny",
+      "options": [
+        "tiny",
+        "small",
+        "normal",
+        "large",
+        "huge"
+      ],
+      "tooltip": ""
+    },
+    {
+      "variable": "fvgFontM5",
+      "type": "string",
+      "title": "Шрифт FVG M5",
+      "group": "FVG",
+      "line": 1659,
+      "default": "tiny",
+      "options": [
+        "tiny",
+        "small",
+        "normal",
+        "large",
+        "huge"
+      ],
+      "tooltip": ""
+    },
+    {
+      "variable": "fvgFontH1",
+      "type": "string",
+      "title": "Шрифт FVG H1",
+      "group": "FVG",
+      "line": 1660,
+      "default": "small",
+      "options": [
+        "tiny",
+        "small",
+        "normal",
+        "large",
+        "huge"
+      ],
+      "tooltip": ""
+    },
+    {
+      "variable": "fvgFontH4",
+      "type": "string",
+      "title": "Шрифт FVG H4",
+      "group": "FVG",
+      "line": 1661,
+      "default": "normal",
+      "options": [
+        "tiny",
+        "small",
+        "normal",
+        "large",
+        "huge"
+      ],
+      "tooltip": ""
+    },
+    {
+      "variable": "fvgFontD",
+      "type": "string",
+      "title": "Шрифт FVG D",
+      "group": "FVG",
+      "line": 1662,
+      "default": "normal",
+      "options": [
+        "tiny",
+        "small",
+        "normal",
+        "large",
+        "huge"
+      ],
+      "tooltip": ""
+    },
+    {
+      "variable": "fvgFontW",
+      "type": "string",
+      "title": "Шрифт FVG W",
+      "group": "FVG",
+      "line": 1663,
+      "default": "large",
+      "options": [
+        "tiny",
+        "small",
+        "normal",
+        "large",
+        "huge"
+      ],
+      "tooltip": ""
+    },
+    {
+      "variable": "fvgFontM",
+      "type": "string",
+      "title": "Шрифт FVG M",
+      "group": "FVG",
+      "line": 1664,
+      "default": "huge",
+      "options": [
+        "tiny",
+        "small",
+        "normal",
+        "large",
+        "huge"
+      ],
+      "tooltip": ""
+    },
+    {
+      "variable": "fvgMiddleWidth",
+      "type": "int",
+      "title": "Толщина точечной середины",
+      "group": "FVG",
+      "line": 1665,
+      "default": 1,
+      "min": 1,
+      "max": 5,
+      "tooltip": ""
+    },
+    {
+      "variable": "liquidityHistoryBars",
+      "type": "int",
+      "title": "История старших ТФ для условия №1",
+      "group": "Последний поток приказов",
+      "line": 2017,
+      "default": 1000,
+      "min": 100,
+      "max": 2000,
+      "tooltip": ""
+    },
+    {
+      "variable": "showH1OnM5",
+      "type": "bool",
+      "title": "FVG H1 на M1 / M5",
+      "group": "FVG",
+      "line": 3103,
+      "default": true,
+      "tooltip": ""
+    },
+    {
+      "variable": "showH4OnM5",
+      "type": "bool",
+      "title": "FVG H4 на M1 / M5 / H1",
+      "group": "FVG",
+      "line": 3104,
+      "default": true,
+      "tooltip": ""
+    },
+    {
+      "variable": "showDOnM5",
+      "type": "bool",
+      "title": "FVG D на M1 / M5 / H1 / H4",
+      "group": "FVG",
+      "line": 3105,
+      "default": true,
+      "tooltip": ""
+    },
+    {
+      "variable": "showWOnM5",
+      "type": "bool",
+      "title": "FVG W на M1 / M5 / H1 / H4 / D",
+      "group": "FVG",
+      "line": 3106,
+      "default": true,
+      "tooltip": ""
+    },
+    {
+      "variable": "showMOnM5",
+      "type": "bool",
+      "title": "FVG M на M1 / M5 / H1 / H4 / D / W",
+      "group": "FVG",
+      "line": 3107,
+      "default": true,
+      "tooltip": ""
+    },
+    {
+      "variable": "currentFvgTableEnabled",
+      "type": "bool",
+      "title": "Состояние текущего инструмента H1 / H4 / D / W / M",
+      "group": "Сводка инструмента",
+      "line": 3108,
+      "default": true,
+      "tooltip": "Цвет ячейки ТФ: зелёный — цена в рабочем лонговом FVG, красный — в шортовом, серый — вне рабочего FVG или нет данных."
+    },
+    {
+      "variable": "currentFvgCellWidth",
+      "type": "float",
+      "title": "Текущий инструмент: ширина ячейки (%)",
+      "group": "Сводка инструмента",
+      "line": 3109,
+      "default": 3.0,
+      "min": 1,
+      "max": 10,
+      "step": 0.5,
+      "tooltip": ""
+    },
+    {
+      "variable": "currentFvgCellHeight",
+      "type": "float",
+      "title": "Текущий инструмент: высота ячейки (%)",
+      "group": "Сводка инструмента",
+      "line": 3110,
+      "default": 0.0,
+      "min": 0,
+      "max": 20,
+      "step": 0.5,
+      "tooltip": "0 — автоматическая высота по размеру текста."
+    },
+    {
+      "variable": "currentFvgFontSize",
+      "type": "string",
+      "title": "Текущий инструмент: размер текста",
+      "group": "Сводка инструмента",
+      "line": 3111,
+      "default": "normal",
+      "options": [
+        "tiny",
+        "small",
+        "normal",
+        "large",
+        "huge"
+      ],
+      "tooltip": ""
+    },
+    {
+      "variable": "currentFlowArrowSize",
+      "type": "string",
+      "title": "Текущий инструмент: размер стрелок потока",
+      "group": "Сводка инструмента",
+      "line": 3112,
+      "default": "large",
+      "options": [
+        "normal",
+        "large",
+        "huge"
+      ],
+      "tooltip": ""
+    },
+    {
+      "variable": "vwapEnabled",
+      "type": "bool",
+      "title": "Показывать VWAP",
+      "group": "VWAP",
+      "line": 3318,
+      "default": true,
+      "tooltip": ""
+    },
+    {
+      "variable": "vwapAnchor",
+      "type": "string",
+      "title": "Период",
+      "group": "VWAP",
+      "line": 3319,
+      "default": "Session",
+      "options": [
+        "Session",
+        "Week",
+        "Month",
+        "Quarter",
+        "Year",
+        "Decade",
+        "Century"
+      ],
+      "tooltip": ""
+    },
+    {
+      "variable": "vwapSource",
+      "type": "source",
+      "title": "Источник",
+      "group": "VWAP",
+      "line": 3320,
+      "default": "hlc3",
+      "options": [
+        "open",
+        "high",
+        "low",
+        "close",
+        "hl2",
+        "hlc3",
+        "ohlc4",
+        "volume"
+      ],
+      "tooltip": ""
+    },
+    {
+      "variable": "vwapColor",
+      "type": "color",
+      "title": "Цвет VWAP",
+      "group": "VWAP",
+      "line": 3321,
+      "default": "#0C3299FF",
+      "tooltip": ""
+    },
+    {
+      "variable": "vwapWidth",
+      "type": "int",
+      "title": "Толщина VWAP",
+      "group": "VWAP",
+      "line": 3322,
+      "default": 3,
+      "min": 1,
+      "max": 5,
+      "tooltip": ""
+    },
+    {
+      "variable": "vwapShowPrevious",
+      "type": "bool",
+      "title": "Продлевать VWAP прошлого периода",
+      "group": "VWAP",
+      "line": 3323,
+      "default": true,
+      "tooltip": ""
+    },
+    {
+      "variable": "vwapPreviousColor",
+      "type": "color",
+      "title": "Цвет прошлого VWAP",
+      "group": "VWAP",
+      "line": 3324,
+      "default": "#0C3299FF",
+      "tooltip": ""
+    },
+    {
+      "variable": "vwapPreviousWidth",
+      "type": "int",
+      "title": "Толщина прошлого VWAP",
+      "group": "VWAP",
+      "line": 3325,
+      "default": 3,
+      "min": 1,
+      "max": 5,
+      "tooltip": ""
+    }
+  ]
+}

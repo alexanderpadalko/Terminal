@@ -1,0 +1,3397 @@
+//@version=6
+indicator(
+     "Структура + FVG + VWAP v2.11 H1 + H4",
+     shorttitle = "Структура + FVG + VWAP H1 + H4 v2.11",
+     overlay = true,
+     max_lines_count = 500,
+     max_labels_count = 50,
+     max_polylines_count = 63,
+     max_boxes_count = 410)
+
+//------------------------------------------------------------------------------
+// Настройки
+//------------------------------------------------------------------------------
+
+// Бюджет линий (max_lines_count = 500): до 390 подтверждённых отрезков
+// + 50 прошлых VWAP + 3 линии IDM + 2 формирующихся отрезка (текущее плечо
+// и база внешней цепочки) = 445. В режиме «только диапазон» вместо IDM
+// рисуются 2 линии MAX/MIN, итого 444.
+// BOS/CHOCH/MAX/MIN-полилинии имеют отдельный лимит и сюда не входят.
+const int STRUCTURE_HISTORY_LIMIT = 390
+
+string GROUP_VIEW = "Структурное движение"
+string GROUP_MARKET = "Структура рынка"
+
+// Ломаная считается по high/low: пробой границы материнской свечи
+// засчитывается телом или тенью, закрытие не требуется.
+// direction — направление плеча, которое рисуется сейчас. На внешней свече он
+// сразу переключается на следующее плечо, поэтому пока цепочка активна
+// outsideOrigin == -direction.
+// Внешняя вершина переносится на каждую следующую внешнюю свечу (high растёт,
+// low падает), пока не случится односторонний выход. Предыдущая внешняя свеча
+// поглощается: отдельного пивота она не создаёт.
+// Ретроспективные BOS/CHOCH могут пересматриваться при изменении истории.
+// Поток обновляется внутри свечи, BOS/CHOCH подтверждаются закрытием.
+// Окраска внутренних свечей обновляется внутри текущей свечи.
+
+bool showStructure = input.bool(true, "Структурная ломаная", group = GROUP_VIEW)
+bool showDevelopingLeg = input.bool(true, "Последнее формирующееся плечо", group = GROUP_VIEW)
+int maxSegments = input.int(100, "Хранить подтверждённых отрезков", minval = 10, maxval = STRUCTURE_HISTORY_LIMIT, tooltip = "До 390 отрезков структуры. Отдельный запас оставлен для уровней IDM и формирующихся отрезков.", group = GROUP_VIEW)
+int structureWidth = input.int(3, "Толщина структурной линии", minval = 1, maxval = 5, group = GROUP_VIEW)
+
+color upColor = input.color(#056656, "Восходящее плечо", group = GROUP_VIEW)
+color downColor = input.color(#B22833, "Нисходящее плечо", group = GROUP_VIEW)
+
+bool showMarketOnlyOnH1 = input.bool(true, "Показывать структуру рынка только на H1 / H4", group = GROUP_MARKET)
+bool enableMarketStructureInput = input.bool(true, "BOS / CHOCH / MAX / MIN", group = GROUP_MARKET)
+bool showMarketIdmInput = input.bool(true, "Показывать IDM уровней", group = GROUP_MARKET)
+bool showMarketStatusInput = input.bool(false, "Показывать состояние инициализации", group = GROUP_MARKET)
+
+bool marketChartIsH1 = timeframe.in_seconds(timeframe.period) == timeframe.in_seconds("60")
+bool marketChartIsH4 = timeframe.in_seconds(timeframe.period) == timeframe.in_seconds("240")
+bool marketVisibleOnChart = not showMarketOnlyOnH1 or marketChartIsH1 or marketChartIsH4
+// Индекс свечи совпадает с индексом истории: допустимы 0..99 999.
+// Историю не сдвигаем: иначе изменились бы исходные MAX/MIN и весь replay.
+const int MARKET_HISTORY_LIMIT = 100000
+bool marketHistoryLimitReached = enableMarketStructureInput and marketVisibleOnChart and bar_index >= MARKET_HISTORY_LIMIT
+bool enableMarketStructure = enableMarketStructureInput and marketVisibleOnChart and not marketHistoryLimitReached
+bool showMarketIdm = showMarketIdmInput and marketVisibleOnChart
+bool showMarketStatus = showMarketStatusInput and enableMarketStructure
+
+color marketBosColor = input.color(#512DA8, "BOS", group = GROUP_MARKET)
+color marketChochColor = input.color(#7B1FA2, "CHOCH", group = GROUP_MARKET)
+color marketMaxColor = input.color(#056656, "MAX", group = GROUP_MARKET)
+color marketMinColor = input.color(#B22833, "MIN", group = GROUP_MARKET)
+color marketIdmColor = input.color(#0097A7, "IDM", group = GROUP_MARKET)
+
+int marketBosWidth = input.int(3, "Толщина BOS", minval = 1, maxval = 5, group = GROUP_MARKET)
+int marketChochWidth = input.int(3, "Толщина CHOCH", minval = 1, maxval = 5, group = GROUP_MARKET)
+int marketMaxWidth = input.int(3, "Толщина MAX", minval = 1, maxval = 5, group = GROUP_MARKET)
+int marketMinWidth = input.int(3, "Толщина MIN", minval = 1, maxval = 5, group = GROUP_MARKET)
+int marketIdmWidth = input.int(2, "Толщина IDM", minval = 1, maxval = 5, group = GROUP_MARKET)
+
+//------------------------------------------------------------------------------
+// Служебные функции
+//------------------------------------------------------------------------------
+
+var array<line> confirmedSegments = array.new_line()
+
+f_storeSegment(line segment) =>
+    array.push(confirmedSegments, segment)
+    if array.size(confirmedSegments) > maxSegments
+        line.delete(array.shift(confirmedSegments))
+
+f_confirmSegment(
+     line developingSegment,
+     int fromTime,
+     float fromPrice,
+     int toTime,
+     float toPrice,
+     color segmentColor,
+     bool isFinal = true) =>
+    // Внешняя цепочка использует тот же объект, но до одностороннего выхода
+    // отрезок остаётся предварительным и не входит в подтверждённую историю.
+    line confirmedSegment = developingSegment
+    if na(confirmedSegment)
+        confirmedSegment := line.new(
+             fromTime,
+             fromPrice,
+             toTime,
+             toPrice,
+             xloc = xloc.bar_time,
+             extend = extend.none,
+             color = segmentColor,
+             style = isFinal ? line.style_solid : line.style_dashed,
+             width = structureWidth)
+    else
+        line.set_xy1(confirmedSegment, fromTime, fromPrice)
+        line.set_xy2(confirmedSegment, toTime, toPrice)
+        line.set_color(confirmedSegment, segmentColor)
+        line.set_style(confirmedSegment, isFinal ? line.style_solid : line.style_dashed)
+        line.set_width(confirmedSegment, structureWidth)
+    if isFinal
+        f_storeSegment(confirmedSegment)
+    confirmedSegment
+
+f_newDevelopingSegment(
+     int fromTime,
+     float fromPrice,
+     int toTime,
+     float toPrice,
+     color segmentColor) =>
+    line.new(
+         fromTime,
+         fromPrice,
+         toTime,
+         toPrice,
+         xloc = xloc.bar_time,
+         extend = extend.none,
+         color = segmentColor,
+         style = line.style_dashed,
+         width = structureWidth)
+
+//------------------------------------------------------------------------------
+// Состояние структуры
+// direction: 1 = рост, -1 = падение, 0 = ожидание автозапуска.
+// motherHigh и motherLow — границы материнской свечи: последней, которая
+// пробила границу предыдущего диапазона. Внутренние свечи материнскую
+// свечу не обновляют.
+// В росте выход выше motherHigh продолжает движение, выход ниже motherLow
+// запускает структурный откат. В падении правила зеркальны.
+// Пробой обеих границ одной свечой — отдельный случай: старт внешней цепочки.
+//------------------------------------------------------------------------------
+
+var int direction = 0
+// Направление, с которого началась ещё не разрешённая цепочка внешних свечей.
+// Сохраняется до первого одностороннего выхода из активного диапазона.
+var int outsideOrigin = 0
+var int outsideBasePivotTime = na
+var float outsideBasePivotPrice = na
+var line outsideBaseLine = na
+var float legExtreme = na
+var int legExtremeBar = na
+var int legExtremeTime = na
+var float motherHigh = na
+var float motherLow = na
+var float lastPivotPrice = na
+var int lastPivotBar = na
+var int lastPivotTime = na
+var line developingLine = na
+
+// Первая свеча является начальной материнской свечой в режиме «Авто».
+var float initialHigh = na
+var int initialHighBar = na
+var int initialHighTime = na
+var float initialLow = na
+var int initialLowBar = na
+var int initialLowTime = na
+
+bool turnUp = false
+bool turnDown = false
+// Событие переноса вершины внешней цепочки; сбрасывается на каждом расчёте.
+// Не является новым структурным откатом.
+int movedOutsidePivotFromBar = na
+int movedOutsidePivotToBar = na
+float movedOutsidePivotPrice = na
+int movedOutsidePivotType = 0
+// Ломаная пересчитывается на тиках; Pine rollback не сохраняет промежуточные
+// откаты как закрытые бары. BOS/CHOCH по закрытию остаются в своём блоке.
+
+if barstate.isfirst
+    initialHigh := high
+    initialHighBar := bar_index
+    initialHighTime := time
+    initialLow := low
+    initialLowBar := bar_index
+    initialLowTime := time
+
+if not barstate.isfirst
+    // Автозапуск: контролируем обе границы первой материнской свечи.
+    if direction == 0
+        bool brokeInitialHigh = high > initialHigh
+        bool brokeInitialLow = low < initialLow
+
+        int chosenDirection = 0
+        if brokeInitialHigh and not brokeInitialLow
+            chosenDirection := 1
+        else if brokeInitialLow and not brokeInitialHigh
+            chosenDirection := -1
+        else if brokeInitialHigh and brokeInitialLow
+            // В автозапуске входящее направление ещё неизвестно. Используем
+            // сторону большего выхода как начальное направление структуры.
+            float upExpansion = high - initialHigh
+            float downExpansion = initialLow - low
+            bool assumedLong = upExpansion >= downExpansion
+            outsideBasePivotTime := assumedLong ? initialLowTime : initialHighTime
+            outsideBasePivotPrice := assumedLong ? initialLow : initialHigh
+            if showStructure
+                outsideBaseLine := f_confirmSegment(
+                     na,
+                     outsideBasePivotTime,
+                     outsideBasePivotPrice,
+                     time,
+                     assumedLong ? high : low,
+                     assumedLong ? upColor : downColor,
+                     false)
+
+            // Long проходит High → Low и заканчивается плечом short.
+            // Short проходит Low → High и заканчивается плечом long.
+            chosenDirection := assumedLong ? -1 : 1
+            direction := chosenDirection
+            outsideOrigin := assumedLong ? 1 : -1
+            lastPivotPrice := assumedLong ? high : low
+            lastPivotBar := bar_index
+            lastPivotTime := time
+            legExtreme := assumedLong ? low : high
+            legExtremeBar := bar_index
+            legExtremeTime := time
+            motherHigh := high
+            motherLow := low
+            turnUp := not assumedLong
+            turnDown := assumedLong
+
+        if chosenDirection == 1 and not brokeInitialLow
+            direction := 1
+            lastPivotPrice := initialLow
+            lastPivotBar := initialLowBar
+            lastPivotTime := initialLowTime
+            legExtreme := high
+            legExtremeBar := bar_index
+            legExtremeTime := time
+            motherHigh := high
+            motherLow := low
+        else if chosenDirection == -1 and not brokeInitialHigh
+            direction := -1
+            lastPivotPrice := initialHigh
+            lastPivotBar := initialHighBar
+            lastPivotTime := initialHighTime
+            legExtreme := low
+            legExtremeBar := bar_index
+            legExtremeTime := time
+            motherHigh := high
+            motherLow := low
+
+    else
+        bool brokeMotherHigh = high > motherHigh
+        bool brokeMotherLow = low < motherLow
+
+        // Только односторонний выход завершает внешнюю цепочку. Фиксируем
+        // её базовый отрезок до обработки нового плеча и сброса ссылки.
+        // Внутренняя или очередная внешняя свеча оставляет его пунктирным.
+        if outsideOrigin != 0 and brokeMotherHigh != brokeMotherLow and not na(outsideBaseLine)
+            line.set_style(outsideBaseLine, line.style_solid)
+            f_storeSegment(outsideBaseLine)
+
+        if brokeMotherHigh and brokeMotherLow
+            // Пока не было одностороннего выхода, новая внешняя свеча заменяет
+            // предыдущую. Промежуточные зигзаги в структуру не добавляются.
+            bool continuingOutsideChain = outsideOrigin != 0
+            int pathDirection = continuingOutsideChain ? outsideOrigin : direction
+
+            // Сохраняем старый индекс до изменения lastPivotBar. Перенос данных
+            // выполняется независимо от видимости ломаной, после роста массивов.
+            if continuingOutsideChain
+                movedOutsidePivotFromBar := lastPivotBar
+                movedOutsidePivotToBar := bar_index
+                movedOutsidePivotPrice := pathDirection == 1 ? high : low
+                movedOutsidePivotType := pathDirection
+
+            if not continuingOutsideChain
+                outsideOrigin := direction
+                outsideBasePivotTime := lastPivotTime
+                outsideBasePivotPrice := lastPivotPrice
+
+                if showStructure
+                    line baseSegment = showDevelopingLeg ? developingLine : na
+                    outsideBaseLine := f_confirmSegment(
+                         baseSegment,
+                         outsideBasePivotTime,
+                         outsideBasePivotPrice,
+                         time,
+                         pathDirection == 1 ? high : low,
+                         pathDirection == 1 ? upColor : downColor,
+                         false)
+                    developingLine := na
+
+                if pathDirection == 1
+                    turnDown := true
+                else
+                    turnUp := true
+            else if showStructure
+                // Удаляем только противоположное формирующееся плечо прошлой
+                // внешней свечи. Базовый отрезок переносим на последнюю свечу.
+                if not na(developingLine)
+                    line.delete(developingLine)
+                    developingLine := na
+
+                if not na(outsideBaseLine)
+                    line.set_xy1(outsideBaseLine, outsideBasePivotTime, outsideBasePivotPrice)
+                    line.set_xy2(outsideBaseLine, time, pathDirection == 1 ? high : low)
+                    line.set_color(outsideBaseLine, pathDirection == 1 ? upColor : downColor)
+                    line.set_style(outsideBaseLine, line.style_dashed)
+                    line.set_width(outsideBaseLine, structureWidth)
+
+            if pathDirection == 1
+                lastPivotPrice := high
+                lastPivotBar := bar_index
+                lastPivotTime := time
+                direction := -1
+                legExtreme := low
+                legExtremeBar := bar_index
+                legExtremeTime := time
+            else
+                lastPivotPrice := low
+                lastPivotBar := bar_index
+                lastPivotTime := time
+                direction := 1
+                legExtreme := high
+                legExtremeBar := bar_index
+                legExtremeTime := time
+
+            motherHigh := high
+            motherLow := low
+
+        else if direction == 1
+            if brokeMotherLow
+                float turnPrice = legExtreme
+                int turnBar = legExtremeBar
+                int turnTime = legExtremeTime
+
+                if showStructure
+                    line segmentToConfirm = showDevelopingLeg ? developingLine : na
+                    f_confirmSegment(segmentToConfirm, lastPivotTime, lastPivotPrice, turnTime, turnPrice, upColor)
+                    developingLine := na
+
+                lastPivotPrice := turnPrice
+                lastPivotBar := turnBar
+                lastPivotTime := turnTime
+                direction := -1
+                legExtreme := low
+                legExtremeBar := bar_index
+                legExtremeTime := time
+                motherHigh := high
+                motherLow := low
+                turnDown := true
+                outsideOrigin := 0
+                outsideBasePivotTime := na
+                outsideBasePivotPrice := na
+                outsideBaseLine := na
+            else if brokeMotherHigh
+                legExtreme := high
+                legExtremeBar := bar_index
+                legExtremeTime := time
+                motherHigh := high
+                motherLow := low
+                outsideOrigin := 0
+                outsideBasePivotTime := na
+                outsideBasePivotPrice := na
+                outsideBaseLine := na
+
+        else if direction == -1
+            if brokeMotherHigh
+                float turnPrice = legExtreme
+                int turnBar = legExtremeBar
+                int turnTime = legExtremeTime
+
+                if showStructure
+                    line segmentToConfirm = showDevelopingLeg ? developingLine : na
+                    f_confirmSegment(segmentToConfirm, lastPivotTime, lastPivotPrice, turnTime, turnPrice, downColor)
+                    developingLine := na
+
+                lastPivotPrice := turnPrice
+                lastPivotBar := turnBar
+                lastPivotTime := turnTime
+                direction := 1
+                legExtreme := high
+                legExtremeBar := bar_index
+                legExtremeTime := time
+                motherHigh := high
+                motherLow := low
+                turnUp := true
+                outsideOrigin := 0
+                outsideBasePivotTime := na
+                outsideBasePivotPrice := na
+                outsideBaseLine := na
+            else if brokeMotherLow
+                legExtreme := low
+                legExtremeBar := bar_index
+                legExtremeTime := time
+                motherHigh := high
+                motherLow := low
+                outsideOrigin := 0
+                outsideBasePivotTime := na
+                outsideBasePivotPrice := na
+                outsideBaseLine := na
+
+// Формирующееся плечо рисуется пунктиром. После подтверждения тот же объект
+// становится сплошным, а новое плечо снова начинается пунктиром.
+if showStructure and showDevelopingLeg and direction != 0 and not na(lastPivotPrice) and not na(legExtreme)
+    if na(developingLine)
+        developingLine := f_newDevelopingSegment(
+             lastPivotTime,
+             lastPivotPrice,
+             legExtremeTime,
+             legExtreme,
+             direction == 1 ? upColor : downColor)
+    else
+        line.set_xy1(developingLine, lastPivotTime, lastPivotPrice)
+        line.set_xy2(developingLine, legExtremeTime, legExtreme)
+        line.set_color(developingLine, direction == 1 ? upColor : downColor)
+        line.set_style(developingLine, line.style_dashed)
+        line.set_width(developingLine, structureWidth)
+
+//------------------------------------------------------------------------------
+// Структура рынка
+//
+// Фаза 1: сохраняем всю доступную историю и текущие структурные повороты
+// первого урока, включая переносимую вершину внешней цепочки.
+// Фаза 2: при инициализации и закрытии свечи ретроспективно выбираем более
+// поздний исторический экстремум и воспроизводим переходы до текущей свечи.
+//
+// Правила:
+// • старт — от абсолютных MAX/MIN всей загруженной истории, сторона — по более
+//   позднему экстремуму; при изменении глубины истории уровни могут переехать;
+// • IDM — ближайший противоположный пивот; снятие IDM строго раньше закрытия тела;
+// • тень, вышедшая за триггер без закрытия тела, подтягивает уровень: BOS и CHOCH
+//   фиксируются только закрытием тела за максимумом или минимумом теней;
+// • закрытие за ключевым MAX/MIN создаёт кандидата BOS. Прежние BOS/CHOCH
+//   сохраняются до снятия IDM следующего MAX/MIN, затем обновляются вместе;
+// • CHOCH — экстремум между точкой подтверждённого BOS и ключевым MAX/MIN;
+// • если предыдущего ключевого экстремума нет — режим «только диапазон»:
+//   показываются MAX/MIN графика, структура не определена.
+//------------------------------------------------------------------------------
+
+var array<float> marketBarHigh = array.new_float()
+var array<float> marketBarLow = array.new_float()
+var array<float> marketBarClose = array.new_float()
+var array<int> marketBarTime = array.new_int()
+var array<float> marketPivotHigh = array.new_float()
+var array<float> marketPivotLow = array.new_float()
+var array<bool> marketRecordHigh = array.new_bool()
+var array<bool> marketRecordLow = array.new_bool()
+// Барные индексы только рекордных pivot, по возрастанию. Поиск старого BOS
+// перебирает эти редкие кандидаты вместо всех исторических свечей.
+var array<int> marketHighRecordBars = array.new_int()
+var array<int> marketLowRecordBars = array.new_int()
+// Индекс последнего pivot строго слева; перестраивается вместе с replay.
+var array<int> marketPreviousHighBar = array.new_int()
+var array<int> marketPreviousLowBar = array.new_int()
+
+// Каждый следующий слой объединяет пары High/Low предыдущего. Нижний слой
+// ссылается на сырые свечи, отдельные массивы никогда не превышают 100 000.
+type MarketRangeLayer
+    array<float> highs
+    array<float> lows
+    int endBar
+
+var array<MarketRangeLayer> marketRangeLayers = array.new<MarketRangeLayer>()
+
+// Следующее закрытие за цепочкой теней. Индекс хранится справа налево:
+// позиция array.size(...) - 1 - bar соответствует исходной свече bar.
+var array<int> marketBodyHighNext = array.new_int()
+var array<int> marketBodyLowNext = array.new_int()
+
+if enableMarketStructure and bar_index == array.size(marketBarHigh)
+    array.push(marketBarHigh, high)
+    array.push(marketBarLow, low)
+    array.push(marketBarClose, close)
+    array.push(marketBarTime, time)
+    array.push(marketPivotHigh, na)
+    array.push(marketPivotLow, na)
+else if enableMarketStructure and bar_index < array.size(marketBarHigh)
+    array.set(marketBarHigh, bar_index, high)
+    array.set(marketBarLow, bar_index, low)
+    array.set(marketBarClose, bar_index, close)
+    array.set(marketBarTime, bar_index, time)
+
+// Массивы уже содержат текущую свечу. Переносим только соответствующий тип
+// вершины: противоположная структурная точка на старой свече сохраняется.
+if enableMarketStructure and movedOutsidePivotType != 0 and not na(movedOutsidePivotFromBar) and not na(movedOutsidePivotToBar)
+    array<float> movedPivotArray = movedOutsidePivotType == 1 ? marketPivotHigh : marketPivotLow
+    if movedOutsidePivotFromBar >= 0 and movedOutsidePivotFromBar < array.size(movedPivotArray) and movedOutsidePivotToBar >= 0 and movedOutsidePivotToBar < array.size(movedPivotArray)
+        array.set(movedPivotArray, movedOutsidePivotFromBar, na)
+        array.set(movedPivotArray, movedOutsidePivotToBar, movedOutsidePivotPrice)
+
+if enableMarketStructure and turnDown and not na(lastPivotBar) and lastPivotBar >= 0 and lastPivotBar < array.size(marketPivotHigh)
+    array.set(marketPivotHigh, lastPivotBar, lastPivotPrice)
+
+if enableMarketStructure and turnUp and not na(lastPivotBar) and lastPivotBar >= 0 and lastPivotBar < array.size(marketPivotLow)
+    array.set(marketPivotLow, lastPivotBar, lastPivotPrice)
+
+f_marketBuildRangeIndex() =>
+    array.clear(marketRangeLayers)
+    array.push(marketRangeLayers, MarketRangeLayer.new(marketBarHigh, marketBarLow, array.size(marketBarHigh) - 1))
+    int count = array.size(marketBarHigh)
+    int layerIndex = 0
+    while count > 1
+        MarketRangeLayer child = array.get(marketRangeLayers, layerIndex)
+        array<float> highs = array.new<float>()
+        array<float> lows = array.new<float>()
+        int childIndex = 0
+        while childIndex < count
+            float combinedHigh = array.get(child.highs, childIndex)
+            float combinedLow = array.get(child.lows, childIndex)
+            if childIndex + 1 < count
+                combinedHigh := math.max(combinedHigh, array.get(child.highs, childIndex + 1))
+                combinedLow := math.min(combinedLow, array.get(child.lows, childIndex + 1))
+            array.push(highs, combinedHigh)
+            array.push(lows, combinedLow)
+            childIndex += 2
+        array.push(marketRangeLayers, MarketRangeLayer.new(highs, lows, int(na)))
+        count := array.size(highs)
+        layerIndex += 1
+    count
+
+// Иерархию экстремумов наращиваем по одной свече. При первом вызове
+// строим все имеющиеся узлы, затем обновляем только последний узел слоя.
+// Размер следующего слоя берём из его массива после записи пары High/Low.
+f_marketAppendRangeIndex() =>
+    int barCount = array.size(marketBarHigh)
+    if barCount > 0
+        if array.size(marketRangeLayers) == 0
+            f_marketBuildRangeIndex()
+        MarketRangeLayer base = array.get(marketRangeLayers, 0)
+        // Базовый слой всегда ссылается на текущие исходные массивы.
+        base.highs := marketBarHigh
+        base.lows := marketBarLow
+        base.endBar := barCount - 1
+        int levelCount = array.size(base.highs)
+        int level = 0
+        while levelCount > 1
+            MarketRangeLayer child = array.get(marketRangeLayers, level)
+            int parentIndex = math.floor((levelCount - 1) / 2)
+            int leftIndex = parentIndex * 2
+            float combinedHigh = array.get(child.highs, leftIndex)
+            float combinedLow = array.get(child.lows, leftIndex)
+            if leftIndex + 1 < levelCount
+                combinedHigh := math.max(combinedHigh, array.get(child.highs, leftIndex + 1))
+                combinedLow := math.min(combinedLow, array.get(child.lows, leftIndex + 1))
+            if level + 1 >= array.size(marketRangeLayers)
+                array.push(marketRangeLayers, MarketRangeLayer.new(array.new_float(), array.new_float(), int(na)))
+            MarketRangeLayer parent = array.get(marketRangeLayers, level + 1)
+            if parentIndex == array.size(parent.highs)
+                array.push(parent.highs, combinedHigh)
+                array.push(parent.lows, combinedLow)
+            else
+                array.set(parent.highs, parentIndex, combinedHigh)
+                array.set(parent.lows, parentIndex, combinedLow)
+            levelCount := array.size(parent.highs)
+            level += 1
+    barCount
+
+// На истории стоимость построения распределяется между свечами.
+// Включён только для отдельной структуры BOS/CHOCH, в её исходной истории.
+if enableMarketStructure
+    f_marketAppendRangeIndex()
+
+// Первый строгий выход High выше уровня или Low ниже него. Пропускаем целые
+// блоки без пробоя и спускаемся только внутри первого подходящего блока.
+// Если появилась открытая свеча после построения индекса, её хвост проверяется
+// отдельно: старшие слои не читаются за пределами индексированной истории.
+f_marketFirstCross(int pointType, int fromBar, int endBar, float level) =>
+    int result = na
+    if not na(level) and not na(fromBar) and not na(endBar)
+        int start = math.max(0, fromBar)
+        int finish = math.min(endBar, array.size(marketBarHigh) - 1)
+        int indexedEnd = -1
+        if array.size(marketRangeLayers) > 0
+            MarketRangeLayer baseLayer = array.get(marketRangeLayers, 0)
+            indexedEnd := math.min(finish, baseLayer.endBar)
+        int searchBar = start
+        while searchBar <= indexedEnd and array.size(marketRangeLayers) > 0 and na(result)
+            int layerIndex = 0
+            int blockSize = 1
+            while layerIndex + 1 < array.size(marketRangeLayers) and searchBar % (blockSize * 2) == 0 and searchBar + blockSize * 2 - 1 <= indexedEnd
+                layerIndex += 1
+                blockSize := blockSize * 2
+            MarketRangeLayer layer = array.get(marketRangeLayers, layerIndex)
+            float extreme = pointType == 1 ? array.get(layer.highs, int(searchBar / blockSize)) : array.get(layer.lows, int(searchBar / blockSize))
+            bool crossed = pointType == 1 ? extreme > level : extreme < level
+            if crossed
+                while layerIndex > 0
+                    layerIndex -= 1
+                    blockSize := int(blockSize / 2)
+                    MarketRangeLayer child = array.get(marketRangeLayers, layerIndex)
+                    float leftExtreme = pointType == 1 ? array.get(child.highs, int(searchBar / blockSize)) : array.get(child.lows, int(searchBar / blockSize))
+                    bool leftCrossed = pointType == 1 ? leftExtreme > level : leftExtreme < level
+                    if not leftCrossed
+                        searchBar += blockSize
+                result := searchBar
+            else
+                searchBar += blockSize
+        int tailBar = math.max(start, indexedEnd + 1)
+        while tailBar <= finish and na(result)
+            float shadow = pointType == 1 ? array.get(marketBarHigh, tailBar) : array.get(marketBarLow, tailBar)
+            bool crossed = pointType == 1 ? shadow > level : shadow < level
+            if crossed
+                result := tailBar
+            tailBar += 1
+    result
+
+f_marketPointIdm(int pointBar, int pointType, int endBar) =>
+    float idmValue = na
+    int idmBar = na
+    int sweepBar = na
+    int previousPivotBar = na
+    if not na(pointBar) and pointBar >= 0 and pointBar < array.size(marketPreviousLowBar)
+        previousPivotBar := pointType == 1 ? array.get(marketPreviousLowBar, pointBar) : array.get(marketPreviousHighBar, pointBar)
+    if not na(previousPivotBar)
+        idmBar := previousPivotBar
+        idmValue := pointType == 1 ? array.get(marketPivotLow, previousPivotBar) : array.get(marketPivotHigh, previousPivotBar)
+
+    if not na(idmValue)
+        sweepBar := f_marketFirstCross(-pointType, pointBar + 1, endBar, idmValue)
+
+    [idmValue, idmBar, sweepBar]
+
+// Каждый элемент вычисляется один раз. После первого выхода тенью без
+// закрытия дальнейший результат совпадает с результатом для этой новой тени.
+// Монотонные стеки находят первую строго более высокую/низкую тень справа.
+// Это исключает повторный проход по одним свечам для каждого прошлого pivot.
+f_marketBuildBodyIndex() =>
+    array.clear(marketBodyHighNext)
+    array.clear(marketBodyLowNext)
+    array<int> highStack = array.new<int>()
+    array<int> lowStack = array.new<int>()
+    int indexedEnd = array.size(marketBarHigh) - 1
+    int sourceBar = indexedEnd
+    while sourceBar >= 0
+        float sourceHigh = array.get(marketBarHigh, sourceBar)
+        float sourceLow = array.get(marketBarLow, sourceBar)
+        while array.size(highStack) > 0 and array.get(marketBarHigh, array.last(highStack)) <= sourceHigh
+            array.remove(highStack, array.size(highStack) - 1)
+        while array.size(lowStack) > 0 and array.get(marketBarLow, array.last(lowStack)) >= sourceLow
+            array.remove(lowStack, array.size(lowStack) - 1)
+        int highBreak = na
+        int lowBreak = na
+        if array.size(highStack) > 0
+            int nextHigh = array.last(highStack)
+            highBreak := array.get(marketBarClose, nextHigh) > sourceHigh ? nextHigh : array.get(marketBodyHighNext, indexedEnd - nextHigh)
+        if array.size(lowStack) > 0
+            int nextLow = array.last(lowStack)
+            lowBreak := array.get(marketBarClose, nextLow) < sourceLow ? nextLow : array.get(marketBodyLowNext, indexedEnd - nextLow)
+        array.push(marketBodyHighNext, highBreak)
+        array.push(marketBodyLowNext, lowBreak)
+        array.push(highStack, sourceBar)
+        array.push(lowStack, sourceBar)
+        sourceBar -= 1
+    indexedEnd
+
+// Ключевой экстремум и его пробой — два последовательных события. Сначала
+// должен быть снят собственный IDM. Затем только закрытие тела за текущим
+// уровнем создаёт кандидата BOS; для его фиксации нужен следующий ключевой
+// MAX/MIN. Выход одной тенью переносит проверяемый уровень на High/Low тени.
+f_marketBodyBreakAfterIdm(int pointType, float pointValue, int idmSweepBar, int endBar) =>
+    int breakBar = na
+    int searchBar = idmSweepBar + 1
+    float triggerValue = pointValue
+
+    int indexedEnd = array.size(marketBodyHighNext) - 1
+    bool bodyIndexReady = indexedEnd >= endBar and array.size(marketBodyLowNext) == indexedEnd + 1
+    if bodyIndexReady
+        int firstCross = f_marketFirstCross(pointType, searchBar, endBar, pointValue)
+        if not na(firstCross)
+            float firstClose = array.get(marketBarClose, firstCross)
+            bool bodyBreak = pointType == 1 ? firstClose > pointValue : firstClose < pointValue
+            int indexedBreak = bodyBreak ? firstCross : array.get(pointType == 1 ? marketBodyHighNext : marketBodyLowNext, indexedEnd - firstCross)
+            // Индекс построен на всей доступной истории, но запрос не получает
+            // закрытие правее endBar, в том числе с ещё открытой свечи.
+            if not na(indexedBreak) and indexedBreak <= endBar
+                breakBar := indexedBreak
+    else
+        // Без индекса или для добавленной справа свечи сохраняем точный
+        // линейный поиск. Основной replay всегда предварительно строит индекс.
+        while searchBar <= endBar and na(breakBar)
+            float testedClose = array.get(marketBarClose, searchBar)
+            bool bodyBreak = pointType == 1 ? testedClose > triggerValue : testedClose < triggerValue
+            if bodyBreak
+                breakBar := searchBar
+            else
+                float testedShadow = pointType == 1 ? array.get(marketBarHigh, searchBar) : array.get(marketBarLow, searchBar)
+                bool shadowBreak = pointType == 1 ? testedShadow > triggerValue : testedShadow < triggerValue
+                if shadowBreak
+                    triggerValue := testedShadow
+            searchBar += 1
+
+    breakBar
+
+// Восстанавливает ступени уже найденного BOS. Свеча, закрывшаяся телом за
+// текущим уровнем, завершает линию и своим High/Low новую ступень не создаёт.
+f_marketBuildBosSteps(
+     int pointType,
+     float pointValue,
+     int idmSweepBar,
+     int breakBar,
+     array<int> targetBars,
+     array<float> targetValues) =>
+    array.clear(targetBars)
+    array.clear(targetValues)
+    float triggerValue = pointValue
+    int searchBar = idmSweepBar + 1
+
+    // Ищем следующий строгий выход тенью через индекс диапазонов и пропускаем
+    // свечи без изменений. Если выходы идут почти на каждой свече, переходим
+    // к прежнему линейному проходу: он быстрее на плотной серии ступеней BOS.
+    // Свеча breakBar по-прежнему не включается в ступени.
+    int denseCrosses = 0
+    bool useRangeIndex = true
+    while searchBar < breakBar
+        if useRangeIndex
+            int crossedBar = f_marketFirstCross(pointType, searchBar, breakBar - 1, triggerValue)
+            if na(crossedBar)
+                break
+            denseCrosses := crossedBar - searchBar <= 2 ? denseCrosses + 1 : 0
+            if denseCrosses >= 8
+                useRangeIndex := false
+            triggerValue := pointType == 1 ? array.get(marketBarHigh, crossedBar) : array.get(marketBarLow, crossedBar)
+            array.push(targetBars, crossedBar)
+            array.push(targetValues, triggerValue)
+            searchBar := crossedBar + 1
+        else
+            float testedShadow = pointType == 1 ? array.get(marketBarHigh, searchBar) : array.get(marketBarLow, searchBar)
+            bool shadowBreak = pointType == 1 ? testedShadow > triggerValue : testedShadow < triggerValue
+            if shadowBreak
+                triggerValue := testedShadow
+                array.push(targetBars, searchBar)
+                array.push(targetValues, triggerValue)
+            searchBar += 1
+
+    triggerValue
+
+// При ретроспективном запуске High/Low — это не любой внутренний поворот.
+// High должен обновлять все предшествующие свечные High, а Low — все
+// предшествующие свечные Low. Сравнение со всей сырой историей также исключает
+// ложные рекорды, появившиеся из-за первой неполной структурной ножки.
+f_marketIsStructuralRecord(int pointType, int pointBar) =>
+    pointType == 1 ? array.get(marketRecordHigh, pointBar) : array.get(marketRecordLow, pointBar)
+
+// Идёт хронологически назад по структурным High/Low. Кандидат обязан сначала
+// снять свой IDM, а затем быть пробит телом. Если последовательность не
+// подтверждена, поиск продолжается дальше влево до начала истории.
+f_marketPreviousKeyRecord(int pointType, int beforeBar, float breakerValue, int endBar) =>
+    float resultValue = na
+    int resultBar = na
+    float resultIdm = na
+    int resultIdmBar = na
+    int resultSweepBar = na
+    int resultBreakBar = na
+    // Все рекордные pivots хранятся по возрастанию индекса. Перебираем только
+    // их, в том же порядке справа налево, что и прежний проход по всем свечам.
+    array<int> recordBars = pointType == 1 ? marketHighRecordBars : marketLowRecordBars
+    int recordCursor = array.size(recordBars) - 1
+    while recordCursor >= 0 and array.get(recordBars, recordCursor) >= beforeBar
+        recordCursor -= 1
+
+    while recordCursor >= 0 and na(resultBar)
+        int searchBar = array.get(recordBars, recordCursor)
+        float testedPivot = pointType == 1 ? array.get(marketPivotHigh, searchBar) : array.get(marketPivotLow, searchBar)
+        bool isActuallyBroken = pointType == 1 ? testedPivot < breakerValue : testedPivot > breakerValue
+
+        if isActuallyBroken
+            [testedIdm, testedIdmBar, testedSweepBar] = f_marketPointIdm(searchBar, pointType, endBar)
+            int testedBreakBar = not na(testedIdm) and not na(testedSweepBar) ? f_marketBodyBreakAfterIdm(pointType, testedPivot, testedSweepBar, endBar) : na
+            if not na(testedBreakBar)
+                resultValue := testedPivot
+                resultBar := searchBar
+                resultIdm := testedIdm
+                resultIdmBar := testedIdmBar
+                resultSweepBar := testedSweepBar
+                resultBreakBar := testedBreakBar
+
+        recordCursor -= 1
+
+    [resultValue, resultBar, resultIdm, resultIdmBar, resultSweepBar, resultBreakBar]
+
+f_marketInitialSide(int pointType, float extremeValue, int extremeBar) =>
+    // Абсолютный MAX/MIN графика является текущей границей диапазона. Для
+    // запуска структуры ему не требуется предварительно снимать собственный
+    // IDM: ключевой статус проверяем у предыдущего экстремума, который этот MAX/MIN
+    // уже пробил.
+    float previousValue = na
+    int previousBar = na
+    float previousIdm = na
+    int previousIdmBar = na
+    int previousSweepBar = na
+    int previousBreakBar = na
+
+    // Предыдущий High/Low должен быть ключевым уже к моменту выбранного
+    // абсолютного MAX/MIN. Свечи справа от абсолютного экстремума не могут
+    // задним числом снять IDM промежуточного поворота и превратить его в BOS.
+    [foundValue, foundBar, foundIdm, foundIdmBar, foundSweepBar, foundBreakBar] = f_marketPreviousKeyRecord(pointType, extremeBar, extremeValue, extremeBar)
+    previousValue := foundValue
+    previousBar := foundBar
+    previousIdm := foundIdm
+    previousIdmBar := foundIdmBar
+    previousSweepBar := foundSweepBar
+    previousBreakBar := foundBreakBar
+
+    bool sideReady = not na(previousBar) and not na(previousBreakBar)
+    [sideReady, previousValue, previousBar, previousIdm, previousIdmBar, previousSweepBar, previousBreakBar]
+
+f_marketRangePoint(int fromBar, int toBar, int pointType) =>
+    float pointValue = na
+    int pointBar = na
+    int rangeStart = math.max(0, math.min(fromBar, toBar))
+    int rangeEnd = math.min(array.size(marketBarHigh) - 1, math.max(fromBar, toBar))
+    int rangeBar = rangeStart
+
+    while rangeBar <= rangeEnd
+        float testedValue = pointType == 1 ? array.get(marketBarHigh, rangeBar) : array.get(marketBarLow, rangeBar)
+        bool replacesPoint = na(pointValue) or pointType == 1 and testedValue >= pointValue or pointType == -1 and testedValue <= pointValue
+        if replacesPoint
+            pointValue := testedValue
+            pointBar := rangeBar
+        rangeBar += 1
+
+    [pointValue, pointBar]
+
+// Свеча снятия IDM подтверждает ключевой MAX/MIN, но не расширяет участок
+// выбора CHOCH за свечу самого экстремума. IDM CHOCH проверяется отдельно.
+f_marketChochForKey(int bosBar, int extremeBar, int direction, int endBar) =>
+    [pointValue, pointBar] = f_marketRangePoint(bosBar, extremeBar, -direction)
+    [idmValue, idmBar, sweepBar] = f_marketPointIdm(pointBar, -direction, endBar)
+    [pointValue, pointBar, idmValue, idmBar, sweepBar]
+
+// Контекстный поиск начинается заново после конкретной свечи пробоя.
+// Текущий кандидат MAX/MIN обновляется по сырым High/Low каждой свечи, поэтому
+// отображается сразу, не дожидаясь подтверждённого поворота ломаной. Ключевым
+// он становится только после последующего снятия закреплённого за ним IDM.
+f_marketFindNextKey(int pointType, int afterBar, int endBar) =>
+    float lastOppositePivot = na
+    int lastOppositePivotBar = na
+    // Первый кандидат опирается на pivot строго перед свечой пробоя.
+    int seedBar = na
+    if not na(afterBar) and afterBar >= 0 and afterBar < array.size(marketPreviousLowBar)
+        seedBar := pointType == 1 ? array.get(marketPreviousLowBar, afterBar) : array.get(marketPreviousHighBar, afterBar)
+    if not na(seedBar)
+        lastOppositePivot := pointType == 1 ? array.get(marketPivotLow, seedBar) : array.get(marketPivotHigh, seedBar)
+        lastOppositePivotBar := seedBar
+
+    float candidateValue = na
+    int candidateBar = na
+    float candidateIdm = na
+    int candidateIdmBar = na
+    int candidateSweepBar = na
+    // Свеча пробоя одновременно может быть первой точкой нового MAX/MIN.
+    int searchBar = afterBar
+
+    while searchBar <= endBar and na(candidateSweepBar)
+        float oppositePivot = pointType == 1 ? array.get(marketPivotLow, searchBar) : array.get(marketPivotHigh, searchBar)
+        float sameSideValue = pointType == 1 ? array.get(marketBarHigh, searchBar) : array.get(marketBarLow, searchBar)
+
+        // IDM кандидата берём только из пивотов СТРОГО ЛЕВЕЕ его свечи.
+        bool replacesCandidate = not na(lastOppositePivot) and not na(lastOppositePivotBar) and lastOppositePivotBar < searchBar and (na(candidateValue) or pointType == 1 and sameSideValue > candidateValue or pointType == -1 and sameSideValue < candidateValue)
+        if replacesCandidate
+            candidateValue := sameSideValue
+            candidateBar := searchBar
+            candidateIdm := lastOppositePivot
+            candidateIdmBar := lastOppositePivotBar
+
+        if not na(candidateValue) and searchBar > candidateBar
+            bool removesIdm = pointType == 1 ? array.get(marketBarLow, searchBar) < candidateIdm : array.get(marketBarHigh, searchBar) > candidateIdm
+            if removesIdm
+                candidateSweepBar := searchBar
+
+        // Пивот текущей свечи доступен как IDM только начиная со следующей свечи.
+        if not na(oppositePivot)
+            lastOppositePivot := oppositePivot
+            lastOppositePivotBar := searchBar
+
+        searchBar += 1
+
+    [candidateValue, candidateBar, candidateIdm, candidateIdmBar, candidateSweepBar]
+
+f_marketTime(int targetBar) =>
+    not na(targetBar) and targetBar >= 0 and targetBar < array.size(marketBarTime) ? array.get(marketBarTime, targetBar) : time
+
+f_marketCopySteps(array<int> sourceBars, array<float> sourceValues, array<int> targetBars, array<float> targetValues) =>
+    array.clear(targetBars)
+    array.clear(targetValues)
+    int stepIndex = 0
+    while stepIndex < array.size(sourceBars)
+        array.push(targetBars, array.get(sourceBars, stepIndex))
+        array.push(targetValues, array.get(sourceValues, stepIndex))
+        stepIndex += 1
+
+// До 100 000 ступеней в массиве: максимум 21 часть на уровень, 63 на три.
+// Общая точка соседних частей сохраняет непрерывность без потери ступеней.
+f_marketStepPolyline(array<polyline> targetPolylines, int originBar, float originValue, array<int> stepBars, array<float> stepValues, int endTime, color lineColor, int lineWidth) =>
+    array<chart.point> points = array.new<chart.point>()
+    array.push(points, chart.point.from_time(f_marketTime(originBar), originValue))
+    float previousValue = originValue
+    int stepIndex = 0
+
+    while stepIndex < array.size(stepBars)
+        // Оставляем место для двух точек ступени и конечной точки.
+        if array.size(points) + 3 > 10000
+            array.push(targetPolylines, polyline.new(points, curved = false, closed = false, xloc = xloc.bar_time, line_color = lineColor, line_width = lineWidth))
+            chart.point joinPoint = array.get(points, array.size(points) - 1)
+            array.clear(points)
+            array.push(points, joinPoint)
+        int stepTime = f_marketTime(array.get(stepBars, stepIndex))
+        float stepValue = array.get(stepValues, stepIndex)
+        array.push(points, chart.point.from_time(stepTime, previousValue))
+        array.push(points, chart.point.from_time(stepTime, stepValue))
+        previousValue := stepValue
+        stepIndex += 1
+
+    array.push(points, chart.point.from_time(endTime, previousValue))
+    array.push(targetPolylines, polyline.new(points, curved = false, closed = false, xloc = xloc.bar_time, line_color = lineColor, line_width = lineWidth))
+
+// Пробитый ключевой экстремум ещё не является новым BOS: сохраняем его
+// отдельно до подтверждения следующего MAX/MIN. Ступени копируются по значению.
+type MarketBosState
+    float value
+    float triggerValue
+    int pointBar
+    int breakBar
+    float idm
+    int idmBar
+    int idmSweepBar
+    array<int> stepBars
+    array<float> stepValues
+
+// Актуальное состояние после полного ретроспективного прохода.
+var bool marketReady = false
+var bool marketHasExtreme = false
+var bool marketRangeOnly = false
+var int marketDirection = 0
+var string marketStatusText = "Ожидание истории"
+var string marketStartText = ""
+var float marketChartMaximum = na
+var int marketChartMaximumBar = na
+var float marketChartMinimum = na
+var int marketChartMinimumBar = na
+
+var float marketBosValue = na
+var float marketBosTriggerValue = na
+var int marketBosBar = na
+var int marketBosBreakBar = na
+var float marketBosIdm = na
+var int marketBosIdmBar = na
+var int marketBosIdmSweepBar = na
+var MarketBosState marketPendingBos = na
+
+var float marketChochValue = na
+var float marketChochTriggerValue = na
+var int marketChochBar = na
+var float marketChochIdm = na
+var int marketChochIdmBar = na
+var int marketChochIdmSweepBar = na
+var bool marketChochPending = false
+
+var float marketExtremeValue = na
+var float marketExtremeTriggerValue = na
+var int marketExtremeBar = na
+var float marketExtremeIdm = na
+var int marketExtremeIdmBar = na
+var int marketExtremeIdmSweepBar = na
+
+var array<int> marketBosStepBars = array.new_int()
+var array<float> marketBosStepValues = array.new_float()
+var array<int> marketChochStepBars = array.new_int()
+var array<float> marketChochStepValues = array.new_float()
+var array<int> marketExtremeStepBars = array.new_int()
+var array<float> marketExtremeStepValues = array.new_float()
+
+// Подтверждённый результат сохраняется между свечами. Обычный var позволяет
+// Pine откатить предварительные изменения текущего тика перед следующим.
+var int marketReplayEndBar = na
+var float pendingOppositePivot = na
+var int pendingOppositePivotBar = na
+
+// Первичная инициализация — на последней исторической закрытой свече.
+// Далее полный проход нужен только на закрытии текущей свечи.
+bool marketNeedsReplay = enableMarketStructure and (barstate.islastconfirmedhistory or (barstate.islast and barstate.isconfirmed))
+if marketNeedsReplay
+    marketReady := false
+    marketHasExtreme := false
+    marketRangeOnly := false
+    marketDirection := 0
+    marketStatusText := "Недостаточно данных для инициализации"
+    marketStartText := ""
+    marketChartMaximum := na
+    marketChartMaximumBar := na
+    marketChartMinimum := na
+    marketChartMinimumBar := na
+    marketBosValue := na
+    marketBosTriggerValue := na
+    marketBosBar := na
+    marketBosBreakBar := na
+    marketBosIdm := na
+    marketBosIdmBar := na
+    marketBosIdmSweepBar := na
+    marketPendingBos := na
+    marketChochValue := na
+    marketChochTriggerValue := na
+    marketChochBar := na
+    marketChochIdm := na
+    marketChochIdmBar := na
+    marketChochIdmSweepBar := na
+    marketChochPending := false
+    marketExtremeValue := na
+    marketExtremeTriggerValue := na
+    marketExtremeBar := na
+    marketExtremeIdm := na
+    marketExtremeIdmBar := na
+    marketExtremeIdmSweepBar := na
+    pendingOppositePivot := na
+    pendingOppositePivotBar := na
+    array.clear(marketBosStepBars)
+    array.clear(marketBosStepValues)
+    array.clear(marketChochStepBars)
+    array.clear(marketChochStepValues)
+    array.clear(marketExtremeStepBars)
+    array.clear(marketExtremeStepValues)
+    // Незакрытая последняя свеча полностью исключена: до закрытия не
+    // учитываются ни её High/Low, ни текущее значение Close.
+    int historyEndBar = array.size(marketBarHigh) - (barstate.isconfirmed ? 1 : 2)
+    int bodyEndBar = historyEndBar
+    marketReplayEndBar := historyEndBar
+    // Строится один раз на полный пересчёт. Переносы внешних пивотов уже
+    // учтены в массивах; индекс не кеширует принадлежность IDM или пивота.
+    // Резервный путь на случай отсутствия инкрементального индекса.
+    if array.size(marketRangeLayers) == 0
+        f_marketBuildRangeIndex()
+    f_marketBuildBodyIndex()
+
+    // Один линейный проход заранее отмечает только рекордные структурные
+    // High/Low. Это сохраняет скорость на минутной истории: последующий поиск
+    // BOS больше не пересматривает весь график для каждого локального поворота.
+    array.clear(marketRecordHigh)
+    array.clear(marketRecordLow)
+    array.clear(marketHighRecordBars)
+    array.clear(marketLowRecordBars)
+    array.clear(marketPreviousHighBar)
+    array.clear(marketPreviousLowBar)
+    int latestHighPivotBar = na
+    int latestLowPivotBar = na
+    float runningRawHigh = na
+    float runningRawLow = na
+    int recordSearchBar = 0
+    while recordSearchBar <= historyEndBar
+        float testedPivotHigh = array.get(marketPivotHigh, recordSearchBar)
+        float testedPivotLow = array.get(marketPivotLow, recordSearchBar)
+        // Записываем ДО текущих pivot: свеча не может быть собственным IDM.
+        array.push(marketPreviousHighBar, latestHighPivotBar)
+        array.push(marketPreviousLowBar, latestLowPivotBar)
+        if not na(testedPivotHigh)
+            latestHighPivotBar := recordSearchBar
+        if not na(testedPivotLow)
+            latestLowPivotBar := recordSearchBar
+        // Сначала сравниваем pivot только со свечами строго слева от него.
+        // High/Low самой свечи добавляются в накопленный рекорд уже после этого.
+        bool isNewRecordHigh = not na(testedPivotHigh) and (na(runningRawHigh) or testedPivotHigh > runningRawHigh)
+        bool isNewRecordLow = not na(testedPivotLow) and (na(runningRawLow) or testedPivotLow < runningRawLow)
+        array.push(marketRecordHigh, isNewRecordHigh)
+        array.push(marketRecordLow, isNewRecordLow)
+        if isNewRecordHigh
+            array.push(marketHighRecordBars, recordSearchBar)
+        if isNewRecordLow
+            array.push(marketLowRecordBars, recordSearchBar)
+        float rawHigh = array.get(marketBarHigh, recordSearchBar)
+        float rawLow = array.get(marketBarLow, recordSearchBar)
+        runningRawHigh := na(runningRawHigh) ? rawHigh : math.max(runningRawHigh, rawHigh)
+        runningRawLow := na(runningRawLow) ? rawLow : math.min(runningRawLow, rawLow)
+        recordSearchBar += 1
+
+    // MAX и MIN всей истории, которую TradingView загрузил для текущего
+    // таймфрейма. При равной цене выбираем более позднюю свечу.
+    float chartMaximum = na
+    int chartMaximumBar = na
+    float chartMinimum = na
+    int chartMinimumBar = na
+    int extremeSearchBar = 0
+    while extremeSearchBar <= historyEndBar
+        float testedHigh = array.get(marketBarHigh, extremeSearchBar)
+        float testedLow = array.get(marketBarLow, extremeSearchBar)
+        if na(chartMaximum) or testedHigh >= chartMaximum
+            chartMaximum := testedHigh
+            chartMaximumBar := extremeSearchBar
+        if na(chartMinimum) or testedLow <= chartMinimum
+            chartMinimum := testedLow
+            chartMinimumBar := extremeSearchBar
+        extremeSearchBar += 1
+
+    bool initializeFromHigh = chartMaximumBar > chartMinimumBar
+    marketChartMaximum := chartMaximum
+    marketChartMaximumBar := chartMaximumBar
+    marketChartMinimum := chartMinimum
+    marketChartMinimumBar := chartMinimumBar
+
+    [highSideReady, previousHighValue, previousHighBar, previousHighIdm, previousHighIdmBar, previousHighSweepBar, previousHighBreakBar] = f_marketInitialSide(1, chartMaximum, chartMaximumBar)
+    [lowSideReady, previousLowValue, previousLowBar, previousLowIdm, previousLowIdmBar, previousLowSweepBar, previousLowBreakBar] = f_marketInitialSide(-1, chartMinimum, chartMinimumBar)
+
+    // Сначала пробуем более позднюю границу. Если для неё нет предыдущего
+    // ключевого рекорда, зеркально пробуем вторую сторону.
+    bool useHighSide = initializeFromHigh ? highSideReady : not lowSideReady and highSideReady
+    bool useLowSide = initializeFromHigh ? not highSideReady and lowSideReady : lowSideReady
+    int replayBar = na
+
+    if useHighSide or useLowSide
+        marketDirection := useHighSide ? 1 : -1
+        marketBosValue := useHighSide ? previousHighValue : previousLowValue
+        marketBosBar := useHighSide ? previousHighBar : previousLowBar
+        marketBosBreakBar := useHighSide ? previousHighBreakBar : previousLowBreakBar
+        marketBosIdm := useHighSide ? previousHighIdm : previousLowIdm
+        marketBosIdmBar := useHighSide ? previousHighIdmBar : previousLowIdmBar
+        marketBosIdmSweepBar := useHighSide ? previousHighSweepBar : previousLowSweepBar
+        marketBosTriggerValue := f_marketBuildBosSteps(
+             marketDirection,
+             marketBosValue,
+             marketBosIdmSweepBar,
+             marketBosBreakBar,
+             marketBosStepBars,
+             marketBosStepValues)
+
+        marketPendingBos := MarketBosState.new(marketBosValue, marketBosTriggerValue, marketBosBar, marketBosBreakBar, marketBosIdm, marketBosIdmBar, marketBosIdmSweepBar, array.copy(marketBosStepBars), array.copy(marketBosStepValues))
+        // Пока следующий MAX/MIN не ключевой, показываем прежние BOS и CHOCH.
+        // Без более раннего подтверждённого BOS не выдумываем замену.
+        [priorBosValue, priorBosBar, priorBosIdm, priorBosIdmBar, priorBosSweep, priorBosBreak] = f_marketPreviousKeyRecord(marketDirection, marketPendingBos.pointBar, marketPendingBos.value, marketPendingBos.pointBar)
+        if not na(priorBosBar)
+            [initialChochValue, initialChochBar, initialChochIdm, initialChochIdmBar, initialChochSweep] = f_marketChochForKey(priorBosBar, marketPendingBos.pointBar, marketDirection, marketPendingBos.breakBar)
+            marketChochValue := initialChochValue
+            marketChochBar := initialChochBar
+            marketChochIdm := initialChochIdm
+            marketChochIdmBar := initialChochIdmBar
+            marketChochIdmSweepBar := initialChochSweep
+            // Учитываем прежние выносы тенью до текущего BOS включительно.
+            marketChochTriggerValue := f_marketBuildBosSteps(-marketDirection, marketChochValue, marketChochBar, marketPendingBos.breakBar + 1, marketChochStepBars, marketChochStepValues)
+        marketBosValue := priorBosValue
+        marketBosBar := priorBosBar
+        marketBosBreakBar := priorBosBreak
+        marketBosIdm := priorBosIdm
+        marketBosIdmBar := priorBosIdmBar
+        marketBosIdmSweepBar := priorBosSweep
+        marketBosTriggerValue := na
+        array.clear(marketBosStepBars)
+        array.clear(marketBosStepValues)
+        if not na(priorBosBar)
+            marketBosTriggerValue := f_marketBuildBosSteps(marketDirection, priorBosValue, priorBosSweep, priorBosBreak, marketBosStepBars, marketBosStepValues)
+
+        // Стартуем с кандидата на свече BOS и хронологически подтверждаем его
+        // собственный IDM. Абсолютный MAX/MIN не получает исключения из правила.
+        [seedValue, seedBar, seedIdm, seedIdmBar, seedSweep] = f_marketFindNextKey(marketDirection, marketPendingBos.breakBar, marketPendingBos.breakBar)
+        marketExtremeValue := seedValue
+        marketExtremeTriggerValue := seedValue
+        marketExtremeBar := seedBar
+        marketExtremeIdm := seedIdm
+        marketExtremeIdmBar := seedIdmBar
+        marketExtremeIdmSweepBar := seedSweep
+        pendingOppositePivot := seedIdm
+        pendingOppositePivotBar := seedIdmBar
+        marketHasExtreme := false
+        marketChochPending := true
+        marketReady := true
+        marketStatusText := marketDirection == 1 ? "Ожидается новый ключевой MAX" : "Ожидается новый ключевой MIN"
+        replayBar := marketPendingBos.breakBar + 1
+
+        string actualStart = useHighSide ? "MAX" : "MIN"
+        string preferredStart = initializeFromHigh ? "MAX" : "MIN"
+        marketStartText := "График: MAX " + str.tostring(chartMaximum, format.mintick) + " | MIN " + str.tostring(chartMinimum, format.mintick) + " | старт " + preferredStart + (actualStart == preferredStart ? "" : " → " + actualStart)
+    else
+        marketRangeOnly := true
+        marketStatusText := "Структура пока не определена: диапазон минимума — максимума"
+        marketStartText := "График: MAX " + str.tostring(chartMaximum, format.mintick) + " | MIN " + str.tostring(chartMinimum, format.mintick) + " | нет предыдущих ключевых экстремумов"
+
+    // Последовательно воспроизводим торговые диапазоны до текущей свечи.
+    int replaySafety = 0
+    while marketReady and replayBar <= historyEndBar and replaySafety <= historyEndBar + 1
+        float replayHigh = array.get(marketBarHigh, replayBar)
+        float replayLow = array.get(marketBarLow, replayBar)
+        float replayClose = array.get(marketBarClose, replayBar)
+        bool replayBodyConfirmed = replayBar <= bodyEndBar
+        // Ожидание ключевого экстремума не приостанавливает проверку CHOCH.
+        // Порядок кандидата сохранён: новый экстремум, затем снятие его IDM.
+        if not marketHasExtreme
+            float oppositePivot = marketDirection == 1 ? array.get(marketPivotLow, replayBar) : array.get(marketPivotHigh, replayBar)
+            float candidatePrice = marketDirection == 1 ? replayHigh : replayLow
+            // Пивот на самой свече нового экстремума не может быть его IDM.
+            bool replacesCandidate = not na(pendingOppositePivot) and not na(pendingOppositePivotBar) and pendingOppositePivotBar < replayBar and (na(marketExtremeValue) or (marketDirection == 1 ? candidatePrice > marketExtremeValue : candidatePrice < marketExtremeValue))
+            if replacesCandidate
+                marketExtremeValue := candidatePrice
+                marketExtremeTriggerValue := candidatePrice
+                marketExtremeBar := replayBar
+                marketExtremeIdm := pendingOppositePivot
+                marketExtremeIdmBar := pendingOppositePivotBar
+                marketExtremeIdmSweepBar := na
+            bool removesCandidateIdm = not na(marketExtremeValue) and not na(marketExtremeIdm) and replayBar > marketExtremeBar and (marketDirection == 1 ? replayLow < marketExtremeIdm : replayHigh > marketExtremeIdm)
+            if removesCandidateIdm
+                marketExtremeIdmSweepBar := replayBar
+                marketHasExtreme := true
+            // Для будущих экстремумов текущий противоположный пивот уже допустим.
+            if not na(oppositePivot)
+                pendingOppositePivot := oppositePivot
+                pendingOppositePivotBar := replayBar
+
+        // После разворота прежний кандидат может стать CHOCH с ещё не снятым
+        // IDM. Отслеживаем его снятие и во время ожидания следующего MAX/MIN.
+        if na(marketChochIdmSweepBar) and not na(marketChochIdm) and replayBar > marketChochBar
+            bool removesChochIdm = marketDirection == 1 ? replayHigh > marketChochIdm : replayLow < marketChochIdm
+            if removesChochIdm
+                marketChochIdmSweepBar := replayBar
+
+        // До замены прежний CHOCH продолжает действовать. Его подтверждённый
+        // пробой имеет приоритет над переносом на только что подтверждённый MAX/MIN.
+        bool priorChochBroken = replayBodyConfirmed and not na(marketChochTriggerValue) and not na(marketChochIdmSweepBar) and marketChochIdmSweepBar < replayBar and (marketDirection == 1 ? replayClose < marketChochTriggerValue : replayClose > marketChochTriggerValue)
+        if marketChochPending and marketHasExtreme and not priorChochBroken
+            int nextBosBar = na(marketPendingBos) ? marketBosBar : marketPendingBos.pointBar
+            [nextChoch, nextChochBar, nextChochIdm, nextChochIdmBar, nextChochSweep] = f_marketChochForKey(nextBosBar, marketExtremeBar, marketDirection, replayBar)
+            // Следующий экстремум стал ключевым: BOS и CHOCH фиксируются вместе.
+            // Метка BOS остаётся на исходной свече пробоя, а не на свече снятия IDM.
+            if not na(marketPendingBos)
+                marketBosValue := marketPendingBos.value
+                marketBosTriggerValue := marketPendingBos.triggerValue
+                marketBosBar := marketPendingBos.pointBar
+                marketBosBreakBar := marketPendingBos.breakBar
+                marketBosIdm := marketPendingBos.idm
+                marketBosIdmBar := marketPendingBos.idmBar
+                marketBosIdmSweepBar := marketPendingBos.idmSweepBar
+                f_marketCopySteps(marketPendingBos.stepBars, marketPendingBos.stepValues, marketBosStepBars, marketBosStepValues)
+                marketPendingBos := na
+            // Тот же экстремум отката сохраняет уже нарисованные ступени.
+            if na(marketChochBar) or nextChochBar != marketChochBar or nextChoch != marketChochValue
+                marketChochValue := nextChoch
+                marketChochTriggerValue := nextChoch
+                marketChochBar := nextChochBar
+                marketChochIdm := nextChochIdm
+                marketChochIdmBar := nextChochIdmBar
+                marketChochIdmSweepBar := nextChochSweep
+                array.clear(marketChochStepBars)
+                array.clear(marketChochStepValues)
+            marketChochPending := false
+
+        // BOS нового кандидата возможен только после свечи снятия его IDM.
+        bool canBreakExtreme = marketHasExtreme and (na(marketExtremeIdmSweepBar) or marketExtremeIdmSweepBar < replayBar)
+
+        if marketDirection == 1
+            if canBreakExtreme and replayBodyConfirmed and replayClose > marketExtremeTriggerValue
+                // Пробой MAX сохраняется кандидатом BOS до снятия IDM следующего
+                // максимума. Подтверждённые BOS и CHOCH пока остаются прежними.
+                marketPendingBos := MarketBosState.new(marketExtremeValue, marketExtremeTriggerValue, marketExtremeBar, replayBar, marketExtremeIdm, marketExtremeIdmBar, marketExtremeIdmSweepBar, array.copy(marketExtremeStepBars), array.copy(marketExtremeStepValues))
+                marketChochPending := true
+
+                // Инициализируем кандидата только на свече пробоя.
+                // Последующие свечи обработает основной цикл с проверкой CHOCH.
+                [seedValue, seedBar, seedIdm, seedIdmBar, seedSweep] = f_marketFindNextKey(1, replayBar, replayBar)
+                marketExtremeValue := seedValue
+                marketExtremeTriggerValue := seedValue
+                marketExtremeBar := seedBar
+                marketExtremeIdm := seedIdm
+                marketExtremeIdmBar := seedIdmBar
+                marketExtremeIdmSweepBar := seedSweep
+                pendingOppositePivot := seedIdm
+                pendingOppositePivotBar := seedIdmBar
+                array.clear(marketExtremeStepBars)
+                array.clear(marketExtremeStepValues)
+                marketHasExtreme := false
+                marketStatusText := "Ожидается новый ключевой MAX"
+
+            else if replayBodyConfirmed and not na(marketChochTriggerValue) and replayClose < marketChochTriggerValue and not na(marketChochIdmSweepBar) and marketChochIdmSweepBar < replayBar
+                // Смена направления: CHOCH становится BOS, MAX становится
+                // верхним CHOCH, затем ожидается ключевой MIN.
+                // Неподтверждённый кандидат не становится противоположным CHOCH.
+                // Последний ключевой MAX — пробитый уровень кандидата BOS,
+                // если он есть; его следующий максимум ещё не подтверждён.
+                if not marketHasExtreme
+                    marketExtremeValue := na(marketPendingBos) ? marketBosValue : marketPendingBos.value
+                    marketExtremeTriggerValue := na(marketPendingBos) ? marketBosTriggerValue : marketPendingBos.triggerValue
+                    marketExtremeBar := na(marketPendingBos) ? marketBosBar : marketPendingBos.pointBar
+                    marketExtremeIdm := na(marketPendingBos) ? marketBosIdm : marketPendingBos.idm
+                    marketExtremeIdmBar := na(marketPendingBos) ? marketBosIdmBar : marketPendingBos.idmBar
+                    marketExtremeIdmSweepBar := na(marketPendingBos) ? marketBosIdmSweepBar : marketPendingBos.idmSweepBar
+                    f_marketCopySteps(na(marketPendingBos) ? marketBosStepBars : marketPendingBos.stepBars, na(marketPendingBos) ? marketBosStepValues : marketPendingBos.stepValues, marketExtremeStepBars, marketExtremeStepValues)
+                marketPendingBos := na
+                marketBosValue := marketChochValue
+                marketBosTriggerValue := marketChochTriggerValue
+                marketBosBar := marketChochBar
+                marketBosBreakBar := replayBar
+                marketBosIdm := marketChochIdm
+                marketBosIdmBar := marketChochIdmBar
+                marketBosIdmSweepBar := marketChochIdmSweepBar
+                f_marketCopySteps(marketChochStepBars, marketChochStepValues, marketBosStepBars, marketBosStepValues)
+                marketChochValue := marketExtremeValue
+                marketChochTriggerValue := marketExtremeTriggerValue
+                marketChochBar := marketExtremeBar
+                marketChochIdm := marketExtremeIdm
+                marketChochIdmBar := marketExtremeIdmBar
+                marketChochIdmSweepBar := marketExtremeIdmSweepBar
+                f_marketCopySteps(marketExtremeStepBars, marketExtremeStepValues, marketChochStepBars, marketChochStepValues)
+                marketDirection := -1
+                marketChochPending := true
+
+                // Инициализируем кандидата только на свече пробоя.
+                // Последующие свечи обработает основной цикл с проверкой CHOCH.
+                [seedValue, seedBar, seedIdm, seedIdmBar, seedSweep] = f_marketFindNextKey(-1, replayBar, replayBar)
+                marketExtremeValue := seedValue
+                marketExtremeTriggerValue := seedValue
+                marketExtremeBar := seedBar
+                marketExtremeIdm := seedIdm
+                marketExtremeIdmBar := seedIdmBar
+                marketExtremeIdmSweepBar := seedSweep
+                pendingOppositePivot := seedIdm
+                pendingOppositePivotBar := seedIdmBar
+                array.clear(marketExtremeStepBars)
+                array.clear(marketExtremeStepValues)
+                marketHasExtreme := false
+                marketStatusText := "Ожидается новый ключевой MIN"
+
+            else
+                if marketHasExtreme and replayHigh > marketExtremeTriggerValue
+                    marketExtremeTriggerValue := replayHigh
+                    array.push(marketExtremeStepBars, replayBar)
+                    array.push(marketExtremeStepValues, marketExtremeTriggerValue)
+                if not na(marketChochTriggerValue) and replayLow < marketChochTriggerValue
+                    marketChochTriggerValue := replayLow
+                    array.push(marketChochStepBars, replayBar)
+                    array.push(marketChochStepValues, marketChochTriggerValue)
+
+        else
+            if canBreakExtreme and replayBodyConfirmed and replayClose < marketExtremeTriggerValue
+                // Зеркальный кандидат BOS после пробоя ключевого MIN.
+                marketPendingBos := MarketBosState.new(marketExtremeValue, marketExtremeTriggerValue, marketExtremeBar, replayBar, marketExtremeIdm, marketExtremeIdmBar, marketExtremeIdmSweepBar, array.copy(marketExtremeStepBars), array.copy(marketExtremeStepValues))
+                marketChochPending := true
+
+                // Инициализируем кандидата только на свече пробоя.
+                // Последующие свечи обработает основной цикл с проверкой CHOCH.
+                [seedValue, seedBar, seedIdm, seedIdmBar, seedSweep] = f_marketFindNextKey(-1, replayBar, replayBar)
+                marketExtremeValue := seedValue
+                marketExtremeTriggerValue := seedValue
+                marketExtremeBar := seedBar
+                marketExtremeIdm := seedIdm
+                marketExtremeIdmBar := seedIdmBar
+                marketExtremeIdmSweepBar := seedSweep
+                pendingOppositePivot := seedIdm
+                pendingOppositePivotBar := seedIdmBar
+                array.clear(marketExtremeStepBars)
+                array.clear(marketExtremeStepValues)
+                marketHasExtreme := false
+                marketStatusText := "Ожидается новый ключевой MIN"
+
+            else if replayBodyConfirmed and not na(marketChochTriggerValue) and replayClose > marketChochTriggerValue and not na(marketChochIdmSweepBar) and marketChochIdmSweepBar < replayBar
+                // Зеркальная смена направления вверх.
+                if not marketHasExtreme
+                    marketExtremeValue := na(marketPendingBos) ? marketBosValue : marketPendingBos.value
+                    marketExtremeTriggerValue := na(marketPendingBos) ? marketBosTriggerValue : marketPendingBos.triggerValue
+                    marketExtremeBar := na(marketPendingBos) ? marketBosBar : marketPendingBos.pointBar
+                    marketExtremeIdm := na(marketPendingBos) ? marketBosIdm : marketPendingBos.idm
+                    marketExtremeIdmBar := na(marketPendingBos) ? marketBosIdmBar : marketPendingBos.idmBar
+                    marketExtremeIdmSweepBar := na(marketPendingBos) ? marketBosIdmSweepBar : marketPendingBos.idmSweepBar
+                    f_marketCopySteps(na(marketPendingBos) ? marketBosStepBars : marketPendingBos.stepBars, na(marketPendingBos) ? marketBosStepValues : marketPendingBos.stepValues, marketExtremeStepBars, marketExtremeStepValues)
+                marketPendingBos := na
+                marketBosValue := marketChochValue
+                marketBosTriggerValue := marketChochTriggerValue
+                marketBosBar := marketChochBar
+                marketBosBreakBar := replayBar
+                marketBosIdm := marketChochIdm
+                marketBosIdmBar := marketChochIdmBar
+                marketBosIdmSweepBar := marketChochIdmSweepBar
+                f_marketCopySteps(marketChochStepBars, marketChochStepValues, marketBosStepBars, marketBosStepValues)
+                marketChochValue := marketExtremeValue
+                marketChochTriggerValue := marketExtremeTriggerValue
+                marketChochBar := marketExtremeBar
+                marketChochIdm := marketExtremeIdm
+                marketChochIdmBar := marketExtremeIdmBar
+                marketChochIdmSweepBar := marketExtremeIdmSweepBar
+                f_marketCopySteps(marketExtremeStepBars, marketExtremeStepValues, marketChochStepBars, marketChochStepValues)
+                marketDirection := 1
+                marketChochPending := true
+
+                // Инициализируем кандидата только на свече пробоя.
+                // Последующие свечи обработает основной цикл с проверкой CHOCH.
+                [seedValue, seedBar, seedIdm, seedIdmBar, seedSweep] = f_marketFindNextKey(1, replayBar, replayBar)
+                marketExtremeValue := seedValue
+                marketExtremeTriggerValue := seedValue
+                marketExtremeBar := seedBar
+                marketExtremeIdm := seedIdm
+                marketExtremeIdmBar := seedIdmBar
+                marketExtremeIdmSweepBar := seedSweep
+                pendingOppositePivot := seedIdm
+                pendingOppositePivotBar := seedIdmBar
+                array.clear(marketExtremeStepBars)
+                array.clear(marketExtremeStepValues)
+                marketHasExtreme := false
+                marketStatusText := "Ожидается новый ключевой MAX"
+
+            else
+                if marketHasExtreme and replayLow < marketExtremeTriggerValue
+                    marketExtremeTriggerValue := replayLow
+                    array.push(marketExtremeStepBars, replayBar)
+                    array.push(marketExtremeStepValues, marketExtremeTriggerValue)
+                if not na(marketChochTriggerValue) and replayHigh > marketChochTriggerValue
+                    marketChochTriggerValue := replayHigh
+                    array.push(marketChochStepBars, replayBar)
+                    array.push(marketChochStepValues, marketChochTriggerValue)
+
+        replayBar += 1
+        replaySafety += 1
+
+// Предварительное состояние обновляем отдельно от полного прохода по истории.
+// На закрытии используется заново рассчитанный подтверждённый результат.
+if enableMarketStructure and (marketNeedsReplay or barstate.islast)
+    // Незакрытая последняя свеча не подтверждает BOS/CHOCH телом. Однако её
+    // тень сразу снимает IDM кандидата и обновляет отображаемый MAX/MIN.
+    bool hasLiveBar = not barstate.isconfirmed and not na(marketReplayEndBar) and bar_index > marketReplayEndBar
+
+    // Как в f_marketFindNextKey(): сначала обновляем кандидата MAX/MIN,
+    // затем проверяем снятие IDM. Новая вершина не подтверждается своей свечой.
+    if marketReady and hasLiveBar and not na(marketExtremeValue)
+        if marketDirection == 1 and high > marketExtremeTriggerValue
+            if marketHasExtreme
+                marketExtremeTriggerValue := high
+                array.push(marketExtremeStepBars, bar_index)
+                array.push(marketExtremeStepValues, marketExtremeTriggerValue)
+            else
+                marketExtremeValue := high
+                marketExtremeTriggerValue := high
+                marketExtremeBar := bar_index
+                marketExtremeIdm := pendingOppositePivot
+                marketExtremeIdmBar := pendingOppositePivotBar
+                array.clear(marketExtremeStepBars)
+                array.clear(marketExtremeStepValues)
+        else if marketDirection == -1 and low < marketExtremeTriggerValue
+            if marketHasExtreme
+                marketExtremeTriggerValue := low
+                array.push(marketExtremeStepBars, bar_index)
+                array.push(marketExtremeStepValues, marketExtremeTriggerValue)
+            else
+                marketExtremeValue := low
+                marketExtremeTriggerValue := low
+                marketExtremeBar := bar_index
+                marketExtremeIdm := pendingOppositePivot
+                marketExtremeIdmBar := pendingOppositePivotBar
+                array.clear(marketExtremeStepBars)
+                array.clear(marketExtremeStepValues)
+
+    // Достаточно тени последующей свечи; закрытия для предварительного снятия
+    // IDM не ждём. После обновления кандидата marketExtremeBar == bar_index,
+    // поэтому одновременный выход за экстремум и IDM не подтверждает кандидата.
+    bool liveRemovesExtremeIdm = marketReady and hasLiveBar and not marketHasExtreme and not na(marketExtremeValue) and not na(marketExtremeIdm) and bar_index > marketExtremeBar and (marketDirection == 1 ? low < marketExtremeIdm : high > marketExtremeIdm)
+    if liveRemovesExtremeIdm
+        marketExtremeIdmSweepBar := bar_index
+        marketHasExtreme := true
+        // Предварительный перенос откатывается вместе с текущим тиком.
+        // Закрытие заново воспроизведёт правило и проверит возможный пробой.
+        if marketChochPending
+            int liveBosBar = na(marketPendingBos) ? marketBosBar : marketPendingBos.pointBar
+            [liveChoch, liveChochBar, liveChochIdm, liveChochIdmBar, liveChochSweep] = f_marketChochForKey(liveBosBar, marketExtremeBar, marketDirection, bar_index)
+            if not na(marketPendingBos)
+                marketBosValue := marketPendingBos.value
+                marketBosTriggerValue := marketPendingBos.triggerValue
+                marketBosBar := marketPendingBos.pointBar
+                marketBosBreakBar := marketPendingBos.breakBar
+                marketBosIdm := marketPendingBos.idm
+                marketBosIdmBar := marketPendingBos.idmBar
+                marketBosIdmSweepBar := marketPendingBos.idmSweepBar
+                f_marketCopySteps(marketPendingBos.stepBars, marketPendingBos.stepValues, marketBosStepBars, marketBosStepValues)
+                marketPendingBos := na
+            if na(marketChochBar) or liveChochBar != marketChochBar or liveChoch != marketChochValue
+                marketChochValue := liveChoch
+                marketChochTriggerValue := liveChoch
+                marketChochBar := liveChochBar
+                marketChochIdm := liveChochIdm
+                marketChochIdmBar := liveChochIdmBar
+                marketChochIdmSweepBar := liveChochSweep
+                array.clear(marketChochStepBars)
+                array.clear(marketChochStepValues)
+            marketChochPending := false
+
+    if marketReady and marketHasExtreme
+        marketStatusText := marketDirection == 1 ? "Восходящий диапазон: CHOCH — MAX" : "Нисходящий диапазон: CHOCH — MIN"
+
+//------------------------------------------------------------------------------
+// Отображение только актуального комплекта уровней.
+//------------------------------------------------------------------------------
+
+var array<line> marketLevelLines = array.new_line()
+var array<polyline> marketLevelPolylines = array.new<polyline>()
+var array<label> marketLevelLabels = array.new_label()
+var table marketStatusTable = table.new(position.bottom_right, 1, 2)
+
+if barstate.islast
+    while array.size(marketLevelLines) > 0
+        line.delete(array.pop(marketLevelLines))
+    while array.size(marketLevelPolylines) > 0
+        polyline.delete(array.pop(marketLevelPolylines))
+    while array.size(marketLevelLabels) > 0
+        label.delete(array.pop(marketLevelLabels))
+    int rightTime = na(time_close) ? time : time_close
+
+    if enableMarketStructure and marketRangeOnly and not na(marketChartMaximum) and not na(marketChartMinimum)
+        line rawMaximumLine = line.new(f_marketTime(marketChartMaximumBar), marketChartMaximum, rightTime, marketChartMaximum, xloc = xloc.bar_time, extend = extend.none, color = marketMaxColor, width = marketMaxWidth, style = line.style_solid)
+        line rawMinimumLine = line.new(f_marketTime(marketChartMinimumBar), marketChartMinimum, rightTime, marketChartMinimum, xloc = xloc.bar_time, extend = extend.none, color = marketMinColor, width = marketMinWidth, style = line.style_solid)
+        label rawMaximumLabel = label.new(rightTime, marketChartMaximum, "Максимум графика", xloc = xloc.bar_time, style = label.style_label_left, color = marketMaxColor, textcolor = color.white, size = size.small)
+        label rawMinimumLabel = label.new(rightTime, marketChartMinimum, "Минимум графика", xloc = xloc.bar_time, style = label.style_label_left, color = marketMinColor, textcolor = color.white, size = size.small)
+        array.push(marketLevelLines, rawMaximumLine)
+        array.push(marketLevelLines, rawMinimumLine)
+        array.push(marketLevelLabels, rawMaximumLabel)
+        array.push(marketLevelLabels, rawMinimumLabel)
+
+    if enableMarketStructure and marketReady
+        if not na(marketBosValue)
+            int bosEndTime = f_marketTime(marketBosBreakBar)
+            f_marketStepPolyline(marketLevelPolylines, marketBosBar, marketBosValue, marketBosStepBars, marketBosStepValues, bosEndTime, marketBosColor, marketBosWidth)
+            label bosLabel = label.new(bosEndTime, marketBosTriggerValue, "BOS", xloc = xloc.bar_time, style = label.style_label_left, color = marketBosColor, textcolor = color.white, size = size.small)
+            array.push(marketLevelLabels, bosLabel)
+
+        if not na(marketChochValue)
+            f_marketStepPolyline(marketLevelPolylines, marketChochBar, marketChochValue, marketChochStepBars, marketChochStepValues, rightTime, marketChochColor, marketChochWidth)
+            label chochLabel = label.new(rightTime, marketChochTriggerValue, "CHOCH", xloc = xloc.bar_time, style = label.style_label_left, color = marketChochColor, textcolor = color.white, size = size.small)
+            array.push(marketLevelLabels, chochLabel)
+
+        // Кандидат MAX/MIN показывается сразу после BOS, ещё до снятия его IDM.
+        if not na(marketExtremeValue) and not na(marketExtremeBar)
+            string extremeText = marketDirection == 1 ? "MAX" : "MIN"
+            color extremeColor = marketDirection == 1 ? marketMaxColor : marketMinColor
+            int extremeWidth = marketDirection == 1 ? marketMaxWidth : marketMinWidth
+            f_marketStepPolyline(marketLevelPolylines, marketExtremeBar, marketExtremeValue, marketExtremeStepBars, marketExtremeStepValues, rightTime, extremeColor, extremeWidth)
+            label extremeLabel = label.new(rightTime, marketExtremeTriggerValue, extremeText, xloc = xloc.bar_time, style = label.style_label_left, color = extremeColor, textcolor = color.white, size = size.small)
+            array.push(marketLevelLabels, extremeLabel)
+
+        if showMarketIdm
+            if not na(marketBosIdm)
+                int bosIdmEndTime = na(marketBosIdmSweepBar) ? rightTime : f_marketTime(marketBosIdmSweepBar)
+                line bosIdmLine = line.new(f_marketTime(marketBosIdmBar), marketBosIdm, bosIdmEndTime, marketBosIdm, xloc = xloc.bar_time, extend = extend.none, color = marketIdmColor, width = marketIdmWidth, style = line.style_dashed)
+                label bosIdmLabel = label.new(bosIdmEndTime, marketBosIdm, "IDM BOS", xloc = xloc.bar_time, style = label.style_label_left, color = marketIdmColor, textcolor = color.white, size = size.tiny)
+                array.push(marketLevelLines, bosIdmLine)
+                array.push(marketLevelLabels, bosIdmLabel)
+
+            if not na(marketChochIdm)
+                int chochIdmEndTime = na(marketChochIdmSweepBar) ? rightTime : f_marketTime(marketChochIdmSweepBar)
+                line chochIdmLine = line.new(f_marketTime(marketChochIdmBar), marketChochIdm, chochIdmEndTime, marketChochIdm, xloc = xloc.bar_time, extend = extend.none, color = marketIdmColor, width = marketIdmWidth, style = line.style_dashed)
+                label chochIdmLabel = label.new(chochIdmEndTime, marketChochIdm, "IDM CHOCH", xloc = xloc.bar_time, style = label.style_label_left, color = marketIdmColor, textcolor = color.white, size = size.tiny)
+                array.push(marketLevelLines, chochIdmLine)
+                array.push(marketLevelLabels, chochIdmLabel)
+
+            if not na(marketExtremeIdm) and not na(marketExtremeIdmBar)
+                int extremeIdmEndTime = na(marketExtremeIdmSweepBar) ? rightTime : f_marketTime(marketExtremeIdmSweepBar)
+                string extremeIdmText = marketDirection == 1 ? "IDM MAX" : "IDM MIN"
+                line extremeIdmLine = line.new(f_marketTime(marketExtremeIdmBar), marketExtremeIdm, extremeIdmEndTime, marketExtremeIdm, xloc = xloc.bar_time, extend = extend.none, color = marketIdmColor, width = marketIdmWidth, style = line.style_dashed)
+                label extremeIdmLabel = label.new(extremeIdmEndTime, marketExtremeIdm, extremeIdmText, xloc = xloc.bar_time, style = label.style_label_left, color = marketIdmColor, textcolor = color.white, size = size.tiny)
+                array.push(marketLevelLines, extremeIdmLine)
+                array.push(marketLevelLabels, extremeIdmLabel)
+
+    if marketHistoryLimitReached
+        table.cell(marketStatusTable, 0, 0, "BOS/CHOCH/MAX/MIN отключены: история превышает 100 000 свечей", bgcolor = color.new(color.orange, 15), text_color = color.white, text_size = size.small)
+        table.cell(marketStatusTable, 0, 1, "Уменьшите загруженную историю. Ломаная продолжает работать.", bgcolor = color.new(color.black, 35), text_color = color.white, text_size = size.tiny)
+    else if showMarketStatus
+        color statusColor = marketReady ? color.new(marketDirection == 1 ? marketMaxColor : marketMinColor, 15) : color.new(color.orange, 15)
+        table.cell(marketStatusTable, 0, 0, marketStatusText, bgcolor = statusColor, text_color = color.white, text_size = size.small)
+        table.cell(marketStatusTable, 0, 1, marketStartText, bgcolor = color.new(color.black, 35), text_color = color.white, text_size = size.tiny)
+    else
+        table.cell(marketStatusTable, 0, 0, "", bgcolor = color.new(color.black, 100), text_color = color.new(color.white, 100))
+        table.cell(marketStatusTable, 0, 1, "", bgcolor = color.new(color.black, 100), text_color = color.new(color.white, 100))
+
+// Отдельные невидимые серии выводят на ценовую шкалу только актуальные
+// структурные уровни. Сами линии по-прежнему рисуются объектами выше.
+plot(enableMarketStructure and marketReady and not na(marketChochValue) ? marketChochTriggerValue : na, "CHOCH", color = marketChochColor, display = display.price_scale, show_last = 1)
+plot(enableMarketStructure and marketReady and marketDirection == 1 and not na(marketExtremeValue) ? marketExtremeTriggerValue : na, "MAX", color = marketMaxColor, display = display.price_scale, show_last = 1)
+plot(enableMarketStructure and marketReady and marketDirection == -1 and not na(marketExtremeValue) ? marketExtremeTriggerValue : na, "MIN", color = marketMinColor, display = display.price_scale, show_last = 1)
+
+//------------------------------------------------------------------------------
+//------------------------------------------------------------------------------
+
+// Внутренние и материнские свечи
+// Adapted from Inside Bars (Multiple / Consecutive).
+// This source code is subject to the terms of the Mozilla Public License 2.0 at
+// https://mozilla.org/MPL/2.0/
+// © nilstrades_
+// Изменения: интеграция, префиксы имён, русские подписи и выключатель блока.
+// Треугольники, границы, заливка и ценовые метки диапазона удалены.
+// Пустые тела внутренних свечей, включая последнюю. Отдельная линия цены не создаётся.
+// Прозрачная окраска может влиять на стандартную линию цены при автоматическом цвете.
+// Изменение v1.53: весь High/Low внутренней свечи должен оставаться внутри
+// неизменного диапазона материнской. Выход любой тени завершает цепочку.
+// Здесь «материнская» — свеча-контейнер серии внутренних свечей, а не
+// структурная материнская свеча из блока ломаной.
+//------------------------------------------------------------------------------
+
+bool ibEnabled = input.bool(true, "Пустые внутренние свечи", tooltip = "Убирает заливку тела, включая последнюю внутреннюю свечу. Если стандартная линия цены становится невидимой, задайте ей непрозрачный цвет в настройках графика TradingView.", group = GROUP_VIEW)
+
+var float ibMotherHigh = na
+var float ibMotherLow = na
+var bool ibConsecutive = false
+
+bool ibIsInsideBar = high <= high[1] and low >= low[1]
+bool ibReset = false
+
+if ibEnabled
+    if ibIsInsideBar and not ibConsecutive
+        ibMotherHigh := high[1]
+        ibMotherLow := low[1]
+        ibConsecutive := true
+
+    if ibConsecutive
+        // Касание границы допустимо; выход за неё даже одной тенью — нет.
+        if high > ibMotherHigh or low < ibMotherLow
+            ibReset := true
+
+if ibReset or not ibEnabled
+    ibMotherHigh := na
+    ibMotherLow := na
+    ibConsecutive := false
+
+// Не исключаем текущую свечу и не ждём её закрытия для удаления заливки.
+barcolor(ibEnabled and ibConsecutive ? color.new(color.black, 100) : na, title = "Пустые внутренние свечи")
+
+//------------------------------------------------------------------------------
+// Последний поток приказов: настройки отображения.
+//------------------------------------------------------------------------------
+// Собственный поток рассчитывается только на H1 / H4 / D / W / M.
+// Вложенный вызов на H1 использует свой ТФ даже на графике M1/M5.
+f_isFlowTimeframe() =>
+    float seconds = timeframe.in_seconds()
+    seconds == 3600 or seconds == 14400 or (timeframe.isdaily and timeframe.multiplier == 1) or (timeframe.isweekly and timeframe.multiplier == 1) or (timeframe.ismonthly and timeframe.multiplier == 1)
+
+bool flowOnChart = f_isFlowTimeframe()
+bool flowShowLevels = input.bool(true, "Уровни последнего потока", group = "Последний поток приказов", tooltip = "На H1/H4/D/W/M — собственные уровни. На M1/M5 переносятся уровни потока H1, если включён перенос ниже. Фильтр FVG действует и при скрытых уровнях. 0 — минимум, 1 — максимум; начало потока задаёт пробившее плечо.")
+bool flowH1OnM5 = input.bool(true, "Показывать поток H1 на M1 / M5", group = "Последний поток приказов", tooltip = "Те же уровни 0 / 0,4 / 0,5 / 0,6 / 1, рассчитанные по H1. На открытой H1-свече диапазон может изменяться.")
+bool flowShowPrevious = input.bool(true, "Показывать предыдущий поток", group = "Последний поток приказов", tooltip = "Пунктирные уровни предыдущего потока от его начала до свечи подтверждения смены. На M1/M5 — предыдущий поток H1.")
+bool flowShowData = input.bool(false, "Отображать данные действующего потока", group = "Последний поток приказов", tooltip = "Показывать значения уровней и цены действующего потока, включая H1 на M1/M5. Предыдущий поток всегда без подписей.")
+bool flowDiagnosticEnabled = input.bool(false, "Диагностика смены потока", group = "Последний поток приказов")
+string flowDiagnosticFont = input.string(size.large, "Размер шрифта диагностики", options = [size.small, size.normal, size.large, size.huge], group = "Последний поток приказов")
+float flowDiagnosticBottomOffset = input.float(6.0, "Отступ диагностики снизу (%)", minval = 0, maxval = 40, step = 1, group = "Последний поток приказов")
+color flowPreviousColor = input.color(color.new(#000000, 80), "Цвет предыдущего потока", group = "Последний поток приказов")
+color flowColor0 = input.color(#388E3C, "Цвет уровня 0", group = "Последний поток приказов")
+color flowColor04 = input.color(#388E3C, "Цвет уровня 0,4", group = "Последний поток приказов")
+color flowColor05 = input.color(#636363, "Цвет уровня 0,5", group = "Последний поток приказов")
+color flowColor06 = input.color(#B22833, "Цвет уровня 0,6", group = "Последний поток приказов")
+color flowColor1 = input.color(#B22833, "Цвет уровня 1", group = "Последний поток приказов")
+int flowLineWidth = input.int(3, "Толщина линий", minval = 1, maxval = 5, group = "Последний поток приказов")
+string flowFontSize = input.string(size.normal, "Размер шрифта", options = [size.tiny, size.small, size.normal, size.large, size.huge], group = "Последний поток приказов")
+
+//------------------------------------------------------------------------------
+// FVG — расчёт на исходных таймфреймах и общий вывод зон.
+string FVG_GROUP = "FVG"
+bool fvgEnabled = input.bool(true, "Показывать FVG", group = FVG_GROUP)
+bool fvgShowM1 = input.bool(true, "Показывать FVG M1", group = FVG_GROUP, tooltip = "На M1 показываются зоны, пересекающие отображаемый рабочий FVG H1/H4/D/W/M и начинающиеся не раньше него. Достаточно частичного пересечения по цене. Это правило действует и для пробитых зон: они сохраняют цвет пробоя и заканчиваются на свече пробоя. На FVG старших таймфреймов не влияет.")
+bool fvgShowM5 = input.bool(true, "Показывать FVG M5", group = FVG_GROUP, tooltip = "На M5 показываются зоны, пересекающие отображаемый рабочий FVG H1/H4/D/W/M и начинающиеся не раньше него. Достаточно частичного пересечения по цене. Это правило действует и для пробитых зон: они сохраняют цвет пробоя и заканчиваются на свече пробоя. На FVG старших таймфреймов не влияет.")
+bool fvgExcludeGaps = input.bool(true, "Исключать FVG с гэпами", group = FVG_GROUP, tooltip = "Не создавать FVG, если диапазоны по теням любой пары соседних свечей в тройке не пересекаются. Касание границ допускается. Проверка на исходном таймфрейме зоны; разница открытия и предыдущего закрытия сама по себе не считается гэпом.")
+bool fvgMtfDiagnostics = input.bool(false, "Диагностика FVG H1 / M1 / M5", tooltip = "На M1/M5 показывает доступность снимка H1, число зон H1, отображаемых рабочих старших зон и показанных FVG.", group = FVG_GROUP)
+bool fvgOnlyInFlow = input.bool(true, "FVG текущего и предыдущего потоков", tooltip = "На родном ТФ показываем зоны текущего и предыдущего потоков. На младшие ТФ переносим только один рабочий FVG каждого старшего ТФ. После пробоя ждём новый FVG ближе к конечному экстремуму потока.", group = FVG_GROUP)
+int fvgMaxZones = input.int(20, "Хранить последних зон", minval = 1, maxval = 200, tooltip = "Лимит отображаемых зон суммарно: на M1/M5 сначала H1/H4/D/W/M, затем зоны своего ТФ. На каждом исходном таймфрейме хранится до этого количества последних зон.", group = FVG_GROUP)
+color fvgFilledColor = input.color(color.new(#F57F17, 85), "Цвет пробитого FVG", group = FVG_GROUP)
+color fvgBullColor = input.color(color.new(#00332A, 85), "Бычий FVG", group = FVG_GROUP)
+color fvgBearColor = input.color(color.new(#801922, 85), "Медвежий FVG", group = FVG_GROUP)
+
+int fvgBorderWidth = input.int(1, "Толщина границ FVG", minval = 1, maxval = 5, group = FVG_GROUP)
+string fvgFontM1 = input.string(size.tiny, "Шрифт FVG M1", options = [size.tiny, size.small, size.normal, size.large, size.huge], group = FVG_GROUP)
+string fvgFontM5 = input.string(size.tiny, "Шрифт FVG M5", options = [size.tiny, size.small, size.normal, size.large, size.huge], group = FVG_GROUP)
+string fvgFontH1 = input.string(size.small, "Шрифт FVG H1", options = [size.tiny, size.small, size.normal, size.large, size.huge], group = FVG_GROUP)
+string fvgFontH4 = input.string(size.normal, "Шрифт FVG H4", options = [size.tiny, size.small, size.normal, size.large, size.huge], group = FVG_GROUP)
+string fvgFontD = input.string(size.normal, "Шрифт FVG D", options = [size.tiny, size.small, size.normal, size.large, size.huge], group = FVG_GROUP)
+string fvgFontW = input.string(size.large, "Шрифт FVG W", options = [size.tiny, size.small, size.normal, size.large, size.huge], group = FVG_GROUP)
+string fvgFontM = input.string(size.huge, "Шрифт FVG M", options = [size.tiny, size.small, size.normal, size.large, size.huge], group = FVG_GROUP)
+int fvgMiddleWidth = input.int(1, "Толщина точечной середины", minval = 1, maxval = 5, group = FVG_GROUP)
+
+f_mtfFlow() =>
+    var int direction = 0
+    var int outsideOrigin = 0
+    var int outsideBasePivotTime = na
+    var int outsideBasePivotBar = na
+    var float outsideBasePivotPrice = na
+    var float legExtreme = na
+    var int legExtremeBar = na
+    var int legExtremeTime = na
+    var float motherHigh = na
+    var float motherLow = na
+    var float lastPivotPrice = na
+    var int lastPivotBar = na
+    var int lastPivotTime = na
+    var float initialHigh = na
+    var int initialHighBar = na
+    var int initialHighTime = na
+    var float initialLow = na
+    var int initialLowBar = na
+    var int initialLowTime = na
+    if barstate.isfirst
+        initialHigh := high
+        initialHighBar := bar_index
+        initialHighTime := time
+        initialLow := low
+        initialLowBar := bar_index
+        initialLowTime := time
+    if not barstate.isfirst
+        if direction == 0
+            bool brokeInitialHigh = high > initialHigh
+            bool brokeInitialLow = low < initialLow
+            int chosenDirection = 0
+            if brokeInitialHigh and not brokeInitialLow
+                chosenDirection := 1
+            else if brokeInitialLow and not brokeInitialHigh
+                chosenDirection := -1
+            else if brokeInitialHigh and brokeInitialLow
+                float upExpansion = high - initialHigh
+                float downExpansion = initialLow - low
+                bool assumedLong = upExpansion >= downExpansion
+                outsideBasePivotTime := assumedLong ? initialLowTime : initialHighTime
+                outsideBasePivotBar := assumedLong ? initialLowBar : initialHighBar
+                outsideBasePivotPrice := assumedLong ? initialLow : initialHigh
+                chosenDirection := assumedLong ? -1 : 1
+                direction := chosenDirection
+                outsideOrigin := assumedLong ? 1 : -1
+                lastPivotPrice := assumedLong ? high : low
+                lastPivotBar := bar_index
+                lastPivotTime := time
+                legExtreme := assumedLong ? low : high
+                legExtremeBar := bar_index
+                legExtremeTime := time
+                motherHigh := high
+                motherLow := low
+            if chosenDirection == 1 and not brokeInitialLow
+                direction := 1
+                lastPivotPrice := initialLow
+                lastPivotBar := initialLowBar
+                lastPivotTime := initialLowTime
+                legExtreme := high
+                legExtremeBar := bar_index
+                legExtremeTime := time
+                motherHigh := high
+                motherLow := low
+            else if chosenDirection == -1 and not brokeInitialHigh
+                direction := -1
+                lastPivotPrice := initialHigh
+                lastPivotBar := initialHighBar
+                lastPivotTime := initialHighTime
+                legExtreme := low
+                legExtremeBar := bar_index
+                legExtremeTime := time
+                motherHigh := high
+                motherLow := low
+        else
+            bool brokeMotherHigh = high > motherHigh
+            bool brokeMotherLow = low < motherLow
+            if brokeMotherHigh and brokeMotherLow
+                bool continuingOutsideChain = outsideOrigin != 0
+                int pathDirection = continuingOutsideChain ? outsideOrigin : direction
+                if not continuingOutsideChain
+                    outsideOrigin := direction
+                    outsideBasePivotTime := lastPivotTime
+                    outsideBasePivotBar := lastPivotBar
+                    outsideBasePivotPrice := lastPivotPrice
+                if pathDirection == 1
+                    lastPivotPrice := high
+                    lastPivotBar := bar_index
+                    lastPivotTime := time
+                    direction := -1
+                    legExtreme := low
+                    legExtremeBar := bar_index
+                    legExtremeTime := time
+                else
+                    lastPivotPrice := low
+                    lastPivotBar := bar_index
+                    lastPivotTime := time
+                    direction := 1
+                    legExtreme := high
+                    legExtremeBar := bar_index
+                    legExtremeTime := time
+                motherHigh := high
+                motherLow := low
+            else if direction == 1
+                if brokeMotherLow
+                    float turnPrice = legExtreme
+                    int turnBar = legExtremeBar
+                    int turnTime = legExtremeTime
+                    lastPivotPrice := turnPrice
+                    lastPivotBar := turnBar
+                    lastPivotTime := turnTime
+                    direction := -1
+                    legExtreme := low
+                    legExtremeBar := bar_index
+                    legExtremeTime := time
+                    motherHigh := high
+                    motherLow := low
+                    outsideOrigin := 0
+                    outsideBasePivotTime := na
+                    outsideBasePivotBar := na
+                    outsideBasePivotPrice := na
+                else if brokeMotherHigh
+                    legExtreme := high
+                    legExtremeBar := bar_index
+                    legExtremeTime := time
+                    motherHigh := high
+                    motherLow := low
+                    outsideOrigin := 0
+                    outsideBasePivotTime := na
+                    outsideBasePivotBar := na
+                    outsideBasePivotPrice := na
+            else if direction == -1
+                if brokeMotherHigh
+                    float turnPrice = legExtreme
+                    int turnBar = legExtremeBar
+                    int turnTime = legExtremeTime
+                    lastPivotPrice := turnPrice
+                    lastPivotBar := turnBar
+                    lastPivotTime := turnTime
+                    direction := 1
+                    legExtreme := high
+                    legExtremeBar := bar_index
+                    legExtremeTime := time
+                    motherHigh := high
+                    motherLow := low
+                    outsideOrigin := 0
+                    outsideBasePivotTime := na
+                    outsideBasePivotBar := na
+                    outsideBasePivotPrice := na
+                else if brokeMotherLow
+                    legExtreme := low
+                    legExtremeBar := bar_index
+                    legExtremeTime := time
+                    motherHigh := high
+                    motherLow := low
+                    outsideOrigin := 0
+                    outsideBasePivotTime := na
+                    outsideBasePivotBar := na
+                    outsideBasePivotPrice := na
+    [direction, lastPivotTime, lastPivotPrice, legExtreme, outsideOrigin, outsideBasePivotTime, outsideBasePivotPrice, lastPivotBar, legExtremeBar, outsideBasePivotBar, legExtremeTime]
+
+// Фильтр только для потоков: первое и встречное плечо принимаются, если их
+// начало и экстремум лежат на разных свечах. Возраст внутренних свечей
+// не превращает односвечное внешнее плечо в допустимое.
+f_orderMovement(int rawDir, int rawStart, float rawBase, float rawTip, int rawStartBar, int rawTipBar, int rawTipTime) =>
+    var int moveDir = 0
+    var int moveStart = na
+    var float moveBase = na
+    var float moveTip = na
+    var int moveTipTime = na
+    if moveDir == 0 and rawDir != 0
+        if not na(rawStartBar) and not na(rawTipBar) and rawTipBar - rawStartBar + 1 >= 2
+            moveDir := rawDir
+            moveStart := rawStart
+            moveBase := rawBase
+            moveTip := rawTip
+            moveTipTime := rawTipTime
+    else if moveDir != 0 and rawDir == moveDir
+        // При совпадении направления сохраняем начало принятого движения.
+        if moveDir == 1 ? rawTip > moveTip : rawTip < moveTip
+            moveTipTime := rawTipTime
+        moveTip := moveDir == 1 ? math.max(moveTip, rawTip) : math.min(moveTip, rawTip)
+    else if rawDir != 0
+        if not na(rawStartBar) and not na(rawTipBar) and rawTipBar - rawStartBar + 1 >= 2
+            moveDir := rawDir
+            moveStart := rawStart
+            moveBase := rawBase
+            moveTip := rawTip
+            moveTipTime := rawTipTime
+    [moveDir, moveStart, moveBase, moveTip, moveTipTime]
+
+// Данные зоны для переноса между ТФ; графические объекты сюда не входят.
+type MtfFvg
+    int leftTime
+    int impulseTime
+    float top
+    float bottom
+    int side
+    bool active
+    int rightTime
+
+// Отдельный индекс ещё непробитых FVG: полностью сохраняем архив zones,
+// но не проверяем пробитые зоны повторно на каждой из тысяч исторических свечей.
+// Индексы обновляются при сдвиге ограниченного массива zones.
+f_fvgUpdateActive(array<MtfFvg> zones, array<int> activeIndices) =>
+    int cursor = array.size(activeIndices) - 1
+    while cursor >= 0
+        int zoneIndex = array.get(activeIndices, cursor)
+        MtfFvg zone = array.get(zones, zoneIndex)
+        zone.rightTime := time_close
+        if zone.side == 1 ? close <= zone.bottom : close >= zone.top
+            zone.active := false
+            array.remove(activeIndices, cursor)
+        cursor -= 1
+
+f_fvgAppendActive(array<MtfFvg> zones, array<int> activeIndices, MtfFvg zone) =>
+    if array.size(zones) >= fvgMaxZones
+        array.shift(zones)
+        int cursor = array.size(activeIndices) - 1
+        while cursor >= 0
+            int oldIndex = array.get(activeIndices, cursor)
+            if oldIndex == 0
+                array.remove(activeIndices, cursor)
+            else
+                array.set(activeIndices, cursor, oldIndex - 1)
+            cursor -= 1
+    array.push(zones, zone)
+    array.push(activeIndices, array.size(zones) - 1)
+
+// Расчётная зона движения независима от массива отображения.
+type FlowFvg
+    float top
+    float bottom
+    int side
+    int impulseTime
+    bool balanced = false
+    int brokenAt = na
+    int leftTime = na
+
+f_updateFlowFvg(FlowFvg zone) =>
+    if not na(zone) and na(zone.brokenAt)
+        float midpoint = (zone.top + zone.bottom) / 2.0
+        if zone.side == 1 ? close <= midpoint : close >= midpoint
+            zone.balanced := true
+        if zone.side == 1 ? close <= zone.bottom : close >= zone.top
+            zone.brokenAt := time
+    zone
+
+f_pickSavedFlowFvg(FlowFvg currentZone, FlowFvg candidate) =>
+    FlowFvg result = currentZone
+    bool closer = na(currentZone)
+    if not closer
+        closer := candidate.side == 1 ? candidate.top > currentZone.top : candidate.bottom < currentZone.bottom
+    if closer
+        result := candidate
+    result
+
+// Неопределённая привязка FVG живёт отдельно от массива отображения.
+type PendingFlowFvg
+    FlowFvg zone
+    int formedAt
+    int originTime
+    int originBar
+    float originPrice
+    float rangeLo
+    float rangeHi
+    bool ready
+    int chainKey
+    bool outsideFirst
+    bool firstAttachment
+    int rangeLoTime
+    int rangeHiTime
+
+// Встречные зоны хранятся независимо: пробой одной не отменяет остальные.
+// Время формирования относится к подтверждающему FVG, а рабочая зона нового
+// потока выбирается отдельно среди живых FVG того же движения.
+type RuleOneFvg
+    FlowFvg zone
+    int formedAt
+    int originTime
+    float lo
+    float hi
+    int loTime
+    int hiTime
+
+f_updateRuleOneFvgs(array<RuleOneFvg> candidates, int direction, int start, int impulse) =>
+    int index = 0
+    while index < array.size(candidates)
+        RuleOneFvg candidate = array.get(candidates, index)
+        candidate.zone := f_updateFlowFvg(candidate.zone)
+        bool invalid = not na(candidate.zone.brokenAt) or candidate.zone.side != -direction or candidate.originTime < start or na(impulse) or candidate.zone.impulseTime <= impulse
+        if invalid
+            array.remove(candidates, index)
+        else
+            if low < candidate.lo
+                candidate.lo := low
+                candidate.loTime := time
+            if high > candidate.hi
+                candidate.hi := high
+                candidate.hiTime := time
+            index += 1
+    array.size(candidates)
+
+f_pickRuleOneFvg(array<RuleOneFvg> candidates, bool required, int captureTime) =>
+    RuleOneFvg latest = na
+    RuleOneFvg eligible = na
+    for candidate in candidates
+        if na(latest) or candidate.formedAt >= latest.formedAt
+            latest := candidate
+        bool afterCapture = not required or (not na(captureTime) and candidate.formedAt > captureTime)
+        if afterCapture and (na(eligible) or candidate.formedAt >= eligible.formedAt)
+            eligible := candidate
+    // До захвата факт FVG остаётся виден в диагностике, но не даёт разворот.
+    RuleOneFvg result = na(eligible) ? latest : eligible
+    result
+
+f_ruleOneWorkingZone(array<RuleOneFvg> candidates, RuleOneFvg selected) =>
+    FlowFvg result = na
+    if not na(selected)
+        for candidate in candidates
+            if candidate.originTime == selected.originTime
+                result := f_pickSavedFlowFvg(result, candidate.zone)
+    result
+
+type MtfSnapshot
+    array<MtfFvg> zones
+    int direction
+    float lo
+    float hi
+    int startTime
+    int closedAt
+    int sourceOpen
+    int prevStart
+    int prevEnd
+    float prevLo
+    float prevHi
+    bool firstBroken
+    float firstTop
+    float firstBottom
+    string diagnostic
+    int workingLeftTime
+    int workingImpulseTime
+
+f_mtfCopy(array<MtfFvg> zones, int dir, float lo, float hi, int start, int closedAt, int sourceOpen, int prevStart, int prevEnd, float prevLo, float prevHi, bool firstBroken, float firstTop, float firstBottom, int workingLeftTime, int workingImpulseTime, string diagnostic) =>
+    array<MtfFvg> copied = array.new<MtfFvg>()
+    for zone in zones
+        array.push(copied, MtfFvg.new(zone.leftTime, zone.impulseTime, zone.top, zone.bottom, zone.side, zone.active, zone.rightTime))
+    MtfSnapshot.new(copied, dir, lo, hi, start, closedAt, sourceOpen, prevStart, prevEnd, prevLo, prevHi, firstBroken, firstTop, firstBottom, diagnostic, workingLeftTime, workingImpulseTime)
+
+
+int liquidityHistoryBars = input.int(1000, "История старших ТФ для условия №1", minval = 100, maxval = 2000, group = "Последний поток приказов")
+
+// Рабочая пара: максимум + его IDM либо минимум + его IDM.
+// Внутренние повороты уточняют только кандидата. Пара меняется по пробою
+// её границы; касание не пробой. Кандидат — последний поворот перед пробоем.
+f_legIdm(int rawDir, int pivotTime, float pivotPrice, int outsidePath, int outsideStart, float outsideBase) =>
+    var int pairDirection = 0
+    var float pairHigh = na
+    var float pairLow = na
+    var int pairHighKey = na
+    var int pairLowKey = na
+    var float candidateHigh = na
+    var float candidateLow = na
+    var int candidateHighKey = na
+    var int candidateLowKey = na
+    var int seenPivot = na
+    var int seenDir = 0
+    bool currentOutside = outsidePath != 0 and pivotTime == time and not na(outsideBase) and not na(outsideStart)
+    bool newPivot = not na(pivotTime) and (na(seenPivot) or pivotTime != seenPivot or rawDir != seenDir)
+    if pairDirection == 0 and rawDir != 0 and not na(pivotPrice)
+        pairDirection := rawDir
+        pairHigh := rawDir == -1 ? pivotPrice : high
+        pairLow := rawDir == 1 ? pivotPrice : low
+        pairHighKey := rawDir == -1 ? pivotTime : time
+        pairLowKey := rawDir == 1 ? pivotTime : time
+        candidateHigh := pairHigh
+        candidateLow := pairLow
+        candidateHighKey := pairHighKey
+        candidateLowKey := pairLowKey
+    else if pairDirection != 0
+        if currentOutside
+            // Как в ломаной: первое движение внешней свечи продолжает
+            // входящее плечо. Второе проверяется уже против обновлённой пары.
+            if outsidePath == 1
+                if high > pairHigh
+                    pairHigh := high
+                    pairHighKey := time
+                    pairLow := outsideBase
+                    pairLowKey := outsideStart
+                    pairDirection := 1
+                    candidateLow := pairLow
+                    candidateLowKey := pairLowKey
+                // High внешней свечи — последний максимум перед её падением.
+                candidateHigh := high
+                candidateHighKey := time
+                if low < pairLow
+                    pairLow := low
+                    pairLowKey := time
+                    pairHigh := candidateHigh
+                    pairHighKey := candidateHighKey
+                    pairDirection := -1
+                    candidateLow := pairLow
+                    candidateLowKey := pairLowKey
+            else
+                if low < pairLow
+                    pairLow := low
+                    pairLowKey := time
+                    pairHigh := outsideBase
+                    pairHighKey := outsideStart
+                    pairDirection := -1
+                    candidateHigh := pairHigh
+                    candidateHighKey := pairHighKey
+                candidateLow := low
+                candidateLowKey := time
+                if high > pairHigh
+                    pairHigh := high
+                    pairHighKey := time
+                    pairLow := candidateLow
+                    pairLowKey := candidateLowKey
+                    pairDirection := 1
+                    candidateHigh := pairHigh
+                    candidateHighKey := pairHighKey
+        else
+            if newPivot
+                if rawDir == -1 and (na(candidateHighKey) or pivotTime >= candidateHighKey)
+                    candidateHigh := pivotPrice
+                    candidateHighKey := pivotTime
+                else if rawDir == 1 and (na(candidateLowKey) or pivotTime >= candidateLowKey)
+                    candidateLow := pivotPrice
+                    candidateLowKey := pivotTime
+            if high > pairHigh
+                pairHigh := high
+                pairHighKey := time
+                pairLow := candidateLow
+                pairLowKey := candidateLowKey
+                pairDirection := 1
+                candidateHigh := pairHigh
+                candidateHighKey := pairHighKey
+            else if low < pairLow
+                pairLow := low
+                pairLowKey := time
+                pairHigh := candidateHigh
+                pairHighKey := candidateHighKey
+                pairDirection := -1
+                candidateLow := pairLow
+                candidateLowKey := pairLowKey
+    if newPivot
+        seenPivot := pivotTime
+        seenDir := rawDir
+    [pairHigh, pairLow, pairHighKey, pairLowKey, pairDirection]
+
+// Состояние рабочего FVG для сводки текущего инструмента.
+// Оно не подменяет уровни, по которым проверяется сам захват.
+type LiquidityView
+    int side
+    float top
+    float bottom
+    bool working
+    int closedAt
+
+type FlowLiquidity
+    float structureHigh
+    float structureLow
+    int idmHighKey
+    int idmLowKey
+    float top
+    float bottom
+    int side
+    bool working
+    bool balanced
+    float sourceClose
+    int sourceClosedAt
+    float closingSourceClose = na
+    int closingSourceClosedAt = na
+    int structureDirection = 0
+    LiquidityView previousView = na
+    LiquidityView closingView = na
+
+// Уровни до пробоя сохраняются для событий захвата. Новое состояние и
+// текущее закрытие передаются отдельно с временем доступности исходного ТФ.
+f_exportLiquidity(FlowLiquidity level) =>
+    FlowLiquidity previousLevel = level[1]
+    FlowLiquidity result = na
+    if not na(previousLevel)
+        result := previousLevel.copy()
+        result.closingSourceClose := close
+        result.closingSourceClosedAt := time_close
+        // Для сводки нужны направление, рабочие границы и время подтверждения.
+        result.previousView := LiquidityView.new(previousLevel.side, previousLevel.top, previousLevel.bottom, previousLevel.working, previousLevel.sourceClosedAt)
+        result.closingView := LiquidityView.new(level.side, level.top, level.bottom, level.working, time_close)
+    result
+
+// Публикация для потребителя: до закрытия исходного ТФ — прежнее состояние,
+// на его закрытии — новое. Cutoff задаётся в контексте графика-потребителя.
+f_confirmedLiquidity(FlowLiquidity level, int cutoff) =>
+    LiquidityView result = na
+    if not na(level) and not na(cutoff)
+        LiquidityView previous = level.previousView
+        if not na(previous)
+            if not na(previous.closedAt) and previous.closedAt <= cutoff
+                result := previous.copy()
+        LiquidityView closing = level.closingView
+        if not na(closing)
+            if not na(closing.closedAt) and closing.closedAt <= cutoff and (na(result) or closing.closedAt >= result.closedAt)
+                result := closing.copy()
+    result
+
+// История действующих событий одного старшего ТФ.
+// Захват уровня пары не отменяется: более ранние записи больше не станут главными.
+type LiquidityCapture
+    int side
+    int capturedAt
+    string detail
+    bool fromFvg
+    float top
+    float bottom
+
+// Главное событие — последнее действующее; пробой FVG возвращает предыдущую запись.
+f_flowLiquidityEvents(FlowLiquidity level, string tf) =>
+    var string detail = ""
+    var string lastRegistered = "не зарегистрировано"
+    var string lastCancellation = "не было"
+    var int eventSide = 0
+    var int eventAt = na
+    var array<LiquidityCapture> captureHistory = array.new<LiquidityCapture>()
+    var int checkedSourceClose = na
+    var int trackedHighKey = na
+    var int trackedLowKey = na
+    var bool highSwept = false
+    var bool lowSwept = false
+    var bool wasTouched = false
+    var float touchedTop = na
+    var float touchedBottom = na
+    var int touchedSide = 0
+    if not na(level)
+        // Отмену подтверждает только закрытая свеча собственного ТФ зоны.
+        // Проверяем и отложенные записи: пробитое событие не должно восстановиться.
+        bool closingSourceAvailable = not na(time_close) and not na(level.closingSourceClosedAt) and level.closingSourceClosedAt <= time_close
+        int rejectionClosedAt = closingSourceAvailable ? level.closingSourceClosedAt : level.sourceClosedAt
+        float rejectionClose = closingSourceAvailable ? level.closingSourceClose : level.sourceClose
+        if not na(rejectionClosedAt) and (na(checkedSourceClose) or rejectionClosedAt > checkedSourceClose)
+            checkedSourceClose := rejectionClosedAt
+            int historyIndex = array.size(captureHistory) - 1
+            while historyIndex >= 0
+                LiquidityCapture saved = array.get(captureHistory, historyIndex)
+                bool rejected = saved.fromFvg and rejectionClosedAt > saved.capturedAt and (saved.side == 1 ? rejectionClose <= saved.bottom : rejectionClose >= saved.top)
+                if rejected
+                    lastCancellation := saved.detail + " отменено закрытием " + tf + " от " + str.format_time(rejectionClosedAt, "yyyy-MM-dd HH:mm", "Europe/Moscow")
+                    array.remove(captureHistory, historyIndex)
+                historyIndex -= 1
+            eventSide := 0
+            detail := ""
+            eventAt := na
+            if array.size(captureHistory) > 0
+                LiquidityCapture restored = array.last(captureHistory)
+                eventSide := restored.side
+                detail := restored.detail
+                eventAt := restored.capturedAt
+        // Смена плеча, потока или балансировка сами по себе захват не отменяют.
+        if not na(level.idmHighKey) and (na(trackedHighKey) or trackedHighKey != level.idmHighKey)
+            trackedHighKey := level.idmHighKey
+            highSwept := false
+        if not na(level.idmLowKey) and (na(trackedLowKey) or trackedLowKey != level.idmLowKey)
+            trackedLowKey := level.idmLowKey
+            lowSwept := false
+        bool sweptHigh = not highSwept and not na(level.structureHigh) and high > level.structureHigh
+        bool sweptLow = not lowSwept and not na(level.structureLow) and low < level.structureLow
+        if sweptHigh
+            highSwept := true
+        if sweptLow
+            lowSwept := true
+        // Касание границы не подтверждает: нужен хотя бы один тик внутри FVG.
+        bool insideZone = high > level.bottom and low < level.top
+        bool enteredOneTick = level.side == 1 ? math.round_to_mintick(low) <= math.round_to_mintick(level.top - syminfo.mintick) : math.round_to_mintick(high) >= math.round_to_mintick(level.bottom + syminfo.mintick)
+        bool touched = level.working and level.side != 0 and insideZone and enteredOneTick
+        // На свече подтверждённого пробоя старой зоны не создаём новый захват
+        // по её ещё смещённым на один исходный бар границам.
+        bool closingZoneRejected = closingSourceAvailable and (level.side == 1 ? rejectionClose <= level.bottom : rejectionClose >= level.top)
+        bool newTouch = touched and not level.balanced and not closingZoneRejected and (not wasTouched or touchedTop != level.top or touchedBottom != level.bottom or touchedSide != level.side)
+        bool longSignal = sweptLow or (newTouch and level.side == 1)
+        bool shortSignal = sweptHigh or (newTouch and level.side == -1)
+        // OHLC не определяет порядок противоположных событий внутри одной свечи.
+        if longSignal and shortSignal
+            lastCancellation := "Конфликт " + str.format_time(time, "yyyy-MM-dd HH:mm", "Europe/Moscow") + ": оба направления на одной свече; MIN=" + str.tostring(sweptLow) + ", MAX=" + str.tostring(sweptHigh) + ", заход FVG=" + str.tostring(newTouch) + "; прежнее: " + detail
+            array.clear(captureHistory)
+            eventSide := 0
+            detail := ""
+            eventAt := na
+        else if longSignal or shortSignal
+            if eventSide != 0
+                lastCancellation := detail + " заменено новым захватом " + str.format_time(time, "yyyy-MM-dd HH:mm", "Europe/Moscow")
+            eventSide := longSignal ? 1 : -1
+            eventAt := time
+            bool sweep = longSignal ? sweptLow : sweptHigh
+            string sweptName = longSignal ? (level.structureDirection == -1 ? " MIN " : " IDM ") : (level.structureDirection == 1 ? " MAX " : " IDM ")
+            string reason = sweep ? sweptName + str.tostring(longSignal ? level.structureLow : level.structureHigh, format.mintick) : " FVG " + (longSignal ? "ЛОНГ" : "ШОРТ") + " [" + str.tostring(level.bottom, format.mintick) + "; " + str.tostring(level.top, format.mintick) + "]"
+            detail := tf + reason + " от " + str.format_time(time, "yyyy-MM-dd HH:mm", "Europe/Moscow") + "; "
+            lastRegistered := detail
+            if sweep
+                // Захват MAX/MIN или IDM не отменяется и заслоняет предысторию.
+                array.clear(captureHistory)
+            array.push(captureHistory, LiquidityCapture.new(eventSide, eventAt, detail, not sweep, level.top, level.bottom))
+        wasTouched := touched
+        touchedTop := level.top
+        touchedBottom := level.bottom
+        touchedSide := level.side
+    // Строку аудита собираем только при включённой диагностике: иначе это
+    // лишняя работа на каждом баре в каждом регистре.
+    string audit = ""
+    if flowDiagnosticEnabled
+        audit := "\n" + tf + " последнее событие: " + lastRegistered + "\n" + tf + " последняя отмена: " + lastCancellation
+        audit += "\n" + tf + " рабочая пара: " + (na(level) ? "нет данных" : level.structureDirection == 1 ? "MAX " + str.tostring(level.structureHigh, format.mintick) + " | IDM " + str.tostring(level.structureLow, format.mintick) : "MIN " + str.tostring(level.structureLow, format.mintick) + " | IDM " + str.tostring(level.structureHigh, format.mintick))
+    [eventSide == 1 ? detail : "", eventSide == -1 ? detail : "", audit, eventSide == 1 ? eventAt : int(na), eventSide == -1 ? eventAt : int(na)]
+
+// Кандидаты обходятся от дальнего ТФ к ближнему: при равном времени берём ближний.
+f_newerCapture(int candidateLong, int candidateShort, int selectedLong, int selectedShort) =>
+    int candidateTime = na(candidateLong) ? candidateShort : candidateLong
+    int selectedTime = na(selectedLong) ? selectedShort : selectedLong
+    not na(candidateTime) and (na(selectedTime) or candidateTime >= selectedTime)
+
+f_ruleOneState(int direction, bool broken, int candidate, bool required, int longTime, int shortTime, int brokenAt, int fvgAt) =>
+    int eventTime = direction == -1 ? longTime : shortTime
+    bool orderedBreak = broken and (not required or (not na(eventTime) and not na(brokenAt) and brokenAt >= eventTime))
+    bool orderedFvg = not na(candidate) and (not required or (not na(eventTime) and not na(fvgAt) and fvgAt > eventTime))
+    string result = "\nСЕЙЧАС №1: " + (direction == 0 ? "инициализация структуры" : direction == -1 ? "ожидание лонга" : "ожидание шорта")
+    result += "\nФАКТ: первый FVG пробит: " + (broken ? "да" : "нет") + (na(brokenAt) ? "" : " от " + str.format_time(brokenAt, "yyyy-MM-dd HH:mm", "Europe/Moscow"))
+    result += "\nФАКТ: встречный FVG: " + (not na(candidate) ? "да" : "нет") + (na(fvgAt) ? "" : " от " + str.format_time(fvgAt, "yyyy-MM-dd HH:mm", "Europe/Moscow"))
+    result += "\nПОСЛЕ подтверждения: пробой=" + (orderedBreak ? "да" : "нет") + "; встречный FVG=" + (orderedFvg ? "да" : "нет")
+    result += "\nСтаршее подтверждение: " + (not required ? "не требуется" : na(eventTime) ? "нет" : str.format_time(eventTime, "yyyy-MM-dd HH:mm", "Europe/Moscow"))
+    result
+
+f_flowSnapshot(bool requireLiquidity, string longEvent, string shortEvent, string higherAudit, int longCaptureTime, int shortCaptureTime, bool exportLevel) =>
+    [rawDir, rawStart, rawBase, rawTip, rawOutsideDir, rawOutsideStart, rawOutsideBase, rawStartBar, rawTipBar, rawOutsideStartBar, rawTipTime] = f_mtfFlow()
+    [legDir, legStart, legBase, legTip, legTipTime] = f_orderMovement(rawDir, rawStart, rawBase, rawTip, rawStartBar, rawTipBar, rawTipTime)
+    var array<MtfFvg> zones = array.new<MtfFvg>()
+    var array<int> activeZoneIndices = array.new_int()
+    var array<PendingFlowFvg> pendingFvgs = array.new<PendingFlowFvg>()
+    var array<RuleOneFvg> ruleOneCandidates = array.new<RuleOneFvg>()
+    var int flowDir = 0
+    var float flowLo = na
+    var float flowHi = na
+    var int flowStart = na
+    var int flowSeedImpulse = na
+    var bool flowOriginLocked = false
+    var bool flowHasFvg = false
+    var float structuralReverseLo = na
+    var float structuralReverseHi = na
+    var int structuralReverseLoTime = na
+    var int structuralReverseHiTime = na
+    var int flowLoTime = na
+    var int flowHiTime = na
+    var int prevStart = na
+    var int prevEnd = na
+    var float prevLo = na
+    var float prevHi = na
+    var bool firstBroken = false
+    var int firstBrokenAt = na
+    var float guardTop = na
+    var int guardLeftTime = na
+    var bool guardBalanced = false
+    var float guardBottom = na
+    var int lastLongEventTime = na
+    var int lastShortEventTime = na
+    var string lastLongEvent = ""
+    var string lastShortEvent = ""
+    var string liquidityAuditLong = "ЛОНГ: старших событий ещё не зарегистрировано"
+    var string liquidityAuditShort = "ШОРТ: старших событий ещё не зарегистрировано"
+    // Предыдущий снимок должен содержать подтверждения предыдущей свечи.
+    int previousLongCaptureTime = lastLongEventTime
+    int previousShortCaptureTime = lastShortEventTime
+    string previousLiquidityAuditLong = liquidityAuditLong
+    string previousLiquidityAuditShort = liquidityAuditShort
+    if longEvent != "" and longEvent != lastLongEvent
+        lastLongEvent := longEvent
+        liquidityAuditLong := "ЛОНГ получено " + str.format_time(time, "yyyy-MM-dd HH:mm", "Europe/Moscow") + ": " + longEvent
+    if longEvent == ""
+        lastLongEvent := ""
+        liquidityAuditLong := "ЛОНГ: действующего старшего подтверждения нет"
+    if shortEvent != "" and shortEvent != lastShortEvent
+        lastShortEvent := shortEvent
+        liquidityAuditShort := "ШОРТ получено " + str.format_time(time, "yyyy-MM-dd HH:mm", "Europe/Moscow") + ": " + shortEvent
+    if shortEvent == ""
+        lastShortEvent := ""
+        liquidityAuditShort := "ШОРТ: действующего старшего подтверждения нет"
+    lastLongEventTime := longEvent == "" ? na : longCaptureTime
+    lastShortEventTime := shortEvent == "" ? na : shortCaptureTime
+    var string flowDiagnostic = "ИНИЦИАЛИЗАЦИЯ | ожидание структурного плеча"
+    var string flowExtensionText = ""
+    var string fvgBindingAudit = ""
+    var FlowFvg continuationZone = na
+    var FlowFvg reversalZone = na
+    var FlowFvg ruleOneZone = na
+    continuationZone := f_updateFlowFvg(continuationZone)
+    reversalZone := f_updateFlowFvg(reversalZone)
+    var int continuationStart = na
+    var int continuationImpulse = na
+    var float continuationLo = na
+    var float continuationHi = na
+    var int continuationLoTime = na
+    var int continuationHiTime = na
+    var int reversalStart = na
+    var int reversalImpulse = na
+    var int guardImpulse = na
+    var int ruleOneStart = na
+    var int ruleOneImpulse = na
+    var int ruleOneFvgAt = na
+    var float ruleOneLo = na
+    var float ruleOneHi = na
+    var int ruleOneLoTime = na
+    var int ruleOneHiTime = na
+    var float reversalLo = na
+    var float reversalHi = na
+    var int reversalLoTime = na
+    var int reversalHiTime = na
+    var int extensionTime = na
+    var float extensionBoundary = na
+    var float extensionPrice = na
+    var int extensionLegStart = na
+    // Сохраняем предыдущую свечу до первого структурного запуска потока.
+    // При запросе H1 из H4/D/W/M экспортируем компактные снимки на КАЖДОМ H1 баре.
+    // request.security с lookahead_off может выбирать не последний H1-бар,
+    // тогда прежний exportNow возвращал na и таблица ошибочно показывала «—».
+    // На собственном H1 и на M1/M5 исходный режим не меняется.
+    bool summaryH1Source = timeframe.in_seconds() == 3600 and timeframe.in_seconds(timeframe.main_period) > 3600
+    bool exportNow = barstate.islast or barstate.islastconfirmedhistory or summaryH1Source
+    MtfSnapshot previous = na
+    if exportNow
+        previous := f_mtfCopy(zones, flowDir, flowLo, flowHi, flowStart, time_close[1], time[1], prevStart, prevEnd, prevLo, prevHi, firstBroken, guardTop, guardBottom, guardLeftTime, guardImpulse, flowDiagnostic + f_ruleOneState(flowDir, firstBroken, ruleOneStart, requireLiquidity, previousLongCaptureTime, previousShortCaptureTime, firstBrokenAt, ruleOneFvgAt) + "\n" + previousLiquidityAuditLong + "\n" + previousLiquidityAuditShort + higherAudit[1] + (flowExtensionText == "" ? "" : "\n" + flowExtensionText) + fvgBindingAudit)
+    // Первое принятое структурное плечо запускает поток даже без FVG.
+    if flowDir == 0 and legDir != 0 and not na(legStart) and not na(legBase) and not na(legTip)
+        flowDir := legDir
+        flowStart := legStart
+        flowLo := math.min(legBase, math.min(legTip, low))
+        flowHi := math.max(legBase, math.max(legTip, high))
+        flowLoTime := legBase <= legTip and legBase <= low ? legStart : legTip <= low ? legTipTime : time
+        flowHiTime := legBase >= legTip and legBase >= high ? legStart : legTip >= high ? legTipTime : time
+        flowOriginLocked := true
+        flowHasFvg := false
+        structuralReverseLo := low
+        structuralReverseHi := high
+        structuralReverseLoTime := time
+        structuralReverseHiTime := time
+        flowDiagnostic := "СТАРТ ПО СТРУКТУРНОЙ ЛОМАНОЙ\n" + (flowDir == 1 ? "ЛОНГ" : "ШОРТ") + " | начало " + str.format_time(flowStart, "yyyy-MM-dd HH:mm", "Europe/Moscow") + " МСК"
+    // Пробой ближайшей зоны фиксируется независимо от её хранения в массиве.
+    if flowDir != 0 and not firstBroken and not na(guardTop)
+        firstBroken := flowDir == 1 ? close <= guardBottom : close >= guardTop
+        if firstBroken
+            firstBrokenAt := time
+    // Проверка против направления потока, до расширения диапазона. Касание не пробой.
+    bool boundaryBroken = flowDir == 1 ? close < flowLo : flowDir == -1 ? close > flowHi : false
+    // Архив разворота не должен включать расширение на свече подтверждения.
+    int beforeBarStart = flowStart
+    int beforeBarEnd = time_close[1]
+    float beforeBarLo = flowLo
+    float beforeBarHi = flowHi
+    int extendingLegStart = legDir == flowDir ? legStart : na
+    // Record the exceeded boundary BEFORE extending the existing flow.
+    // An earlier extension counts only inside the same candidate movement.
+    if flowDir == 1 and high > flowHi
+        if na(extensionLegStart) or extensionLegStart != extendingLegStart
+            extensionLegStart := extendingLegStart
+            extensionTime := time
+            extensionBoundary := flowHi
+            extensionPrice := high
+        flowHi := high
+        flowHiTime := time
+        structuralReverseLo := low
+        structuralReverseHi := high
+        structuralReverseLoTime := time
+        structuralReverseHiTime := time
+        flowExtensionText := "Расширение: " + str.tostring(flowHi, format.mintick) + " | " + str.format_time(time, "dd.MM HH:mm", "Europe/Moscow") + " МСК"
+    else if flowDir == -1 and low < flowLo
+        if na(extensionLegStart) or extensionLegStart != extendingLegStart
+            extensionLegStart := extendingLegStart
+            extensionTime := time
+            extensionBoundary := flowLo
+            extensionPrice := low
+        flowLo := low
+        flowLoTime := time
+        structuralReverseLo := low
+        structuralReverseHi := high
+        structuralReverseLoTime := time
+        structuralReverseHiTime := time
+        flowExtensionText := "Расширение: " + str.tostring(flowLo, format.mintick) + " | " + str.format_time(time, "dd.MM HH:mm", "Europe/Moscow") + " МСК"
+    if flowDir != 0
+        if na(structuralReverseLo) or low < structuralReverseLo
+            structuralReverseLoTime := time
+        if na(structuralReverseHi) or high > structuralReverseHi
+            structuralReverseHiTime := time
+        structuralReverseLo := na(structuralReverseLo) ? low : math.min(structuralReverseLo, low)
+        structuralReverseHi := na(structuralReverseHi) ? high : math.max(structuralReverseHi, high)
+    // Движение с FVG сохраняется через откаты до закрытия за его началом.
+    bool continuationMovementAlive = flowDir == 1 ? close >= continuationLo : flowDir == -1 ? close <= continuationHi : false
+    if not na(continuationStart)
+        if continuationMovementAlive
+            if flowDir == 1
+                if high > continuationHi
+                    continuationHiTime := time
+                continuationHi := math.max(continuationHi, high)
+            else
+                if low < continuationLo
+                    continuationLoTime := time
+                continuationLo := math.min(continuationLo, low)
+        else
+            continuationZone := na
+            continuationStart := na
+            continuationImpulse := na
+            continuationLo := na
+            continuationHi := na
+            continuationLoTime := na
+            continuationHiTime := na
+    // Противоположное движение с FVG ожидает закрытия за границей потока.
+    // Откат без нового FVG не теряет кандидата; пробой его начала отменяет его.
+    bool reversalMovementAlive = flowDir == 1 ? close <= reversalHi : flowDir == -1 ? close >= reversalLo : false
+    if not na(reversalStart)
+        if reversalMovementAlive
+            if flowDir == 1
+                if low < reversalLo
+                    reversalLoTime := time
+                reversalLo := math.min(reversalLo, low)
+            else
+                if high > reversalHi
+                    reversalHiTime := time
+                reversalHi := math.max(reversalHi, high)
+        else
+            reversalZone := na
+            reversalStart := na
+            reversalImpulse := na
+            reversalLo := na
+            reversalHi := na
+            reversalLoTime := na
+            reversalHiTime := na
+    var float motherHi = na
+    var float motherLo = na
+    bool inside = not na(motherHi) and high <= motherHi and low >= motherLo
+    if not inside
+        motherHi := high
+        motherLo := low
+    // Состояние рабочего FVG живёт независимо от ограниченного массива зон.
+    if flowDir != 0 and not na(guardTop) and not guardBalanced
+        float guardMidpoint = (guardTop + guardBottom) / 2.0
+        if flowDir == 1 ? close <= guardMidpoint : close >= guardMidpoint
+            guardBalanced := true
+    // Рабочая ребалансировка хранится отдельно в guardBalanced.
+    f_fvgUpdateActive(zones, activeZoneIndices)
+    // H1, M5 и M1: FVG создаём только из трёх невнутренних свечей.
+    // На H4/D/W/M FVG разрешены и по внутренним свечам.
+    bool allowInside = timeframe.in_seconds() > timeframe.in_seconds("60")
+    bool allowed = allowInside or (not inside and not inside[1] and not inside[2])
+    bool adjacentGap = low > high[1] or high < low[1] or low[1] > high[2] or high[1] < low[2]
+    bool gapAllowed = not fvgExcludeGaps or not adjacentGap
+    bool bull = not na(high[2]) and low > high[2] and gapAllowed
+    bool bear = not na(low[2]) and high < low[2] and gapAllowed
+    FlowFvg initialZone = na
+    int changeRule = 0
+    int newDir = 0
+    int newStart = na
+    float newLo = na
+    float newHi = na
+    int newLoTime = na
+    int newHiTime = na
+    if allowed and (bull or bear)
+        int side = bull ? 1 : -1
+        float top = bull ? low : low[2]
+        float bottom = bull ? high[2] : high
+        // Сопоставляем FVG с направлением отфильтрованного плеча.
+        bool normalLeg = legDir[1] == side and not na(legStart[1]) and not na(legBase[1])
+        // Поворот может подтвердиться только третьей свечой FVG.
+        // Направление средней свечи не является условием существования зоны.
+        bool currentLeg = legDir == side and not na(legStart) and not na(legBase) and legStart <= time[1]
+        bool outsideImpulse = rawOutsideDir[1] != 0
+        bool outsideFirst = outsideImpulse and rawOutsideDir[1] == side
+        bool rawImpulse = rawDir[1] == side
+        int originTime = outsideFirst ? rawOutsideStart[1] : outsideImpulse and rawImpulse ? rawStart[1] : normalLeg ? legStart[1] : currentLeg ? legStart : rawImpulse ? rawStart[1] : (side == 1 ? (low[2] <= low[1] ? time[2] : time[1]) : (high[2] >= high[1] ? time[2] : time[1]))
+        float originPrice = outsideFirst ? rawOutsideBase[1] : outsideImpulse and rawImpulse ? rawBase[1] : normalLeg ? legBase[1] : currentLeg ? legBase : rawImpulse ? rawBase[1] : (side == 1 ? math.min(low[2], low[1]) : math.max(high[2], high[1]))
+        int originBar = outsideFirst ? rawOutsideStartBar[1] : rawImpulse and rawStart[1] == originTime ? rawStartBar[1] : rawDir == side and rawStart == originTime ? rawStartBar : na
+        int impulseTipBar = outsideFirst ? rawStartBar[1] : rawImpulse ? rawTipBar[1] : rawDir == side ? rawTipBar : na
+        bool distinctEnds = not na(originBar) and not na(impulseTipBar) and impulseTipBar > originBar
+        bool legReady = outsideImpulse ? distinctEnds : normalLeg or currentLeg
+        float impulseTip = outsideFirst ? rawBase[1] : normalLeg ? legTip[1] : currentLeg ? legTip : (side == 1 ? high[1] : low[1])
+        int impulseTipTime = outsideFirst ? rawStart[1] : normalLeg ? legTipTime[1] : currentLeg ? legTipTime : time[1]
+        f_fvgAppendActive(zones, activeZoneIndices, MtfFvg.new(time[2], time[1], top, bottom, side, true, time_close))
+        float baseLo = math.min(originPrice, math.min(impulseTip, low))
+        float baseHi = math.max(originPrice, math.max(impulseTip, high))
+        int baseLoTime = originPrice <= impulseTip and originPrice <= low ? originTime : impulseTip <= low ? impulseTipTime : time
+        int baseHiTime = originPrice >= impulseTip and originPrice >= high ? originTime : impulseTip >= high ? impulseTipTime : time
+        FlowFvg detectedZone = FlowFvg.new(top, bottom, side, time[1], false, int(na), time[2])
+        array.push(pendingFvgs, PendingFlowFvg.new(detectedZone, time, originTime, originBar, originPrice, baseLo, baseHi, legReady, outsideImpulse ? rawOutsideStart[1] : int(na), outsideFirst, flowDir == 0 or (side == flowDir and not flowHasFvg), baseLoTime, baseHiTime))
+        // Начало внутри импульса, уже создавшего поток, — уточнение внешней
+        // свечи, а не новое плечо. Не архивируем поток и не сбрасываем пробой.
+        bool refinesOrigin = side == flowDir and not na(flowSeedImpulse) and originTime > flowStart and originTime <= flowSeedImpulse
+        if refinesOrigin and not flowOriginLocked
+            flowStart := originTime
+            if baseLo < flowLo
+                flowLo := baseLo
+                flowLoTime := baseLoTime
+            if baseHi > flowHi
+                flowHi := baseHi
+                flowHiTime := baseHiTime
+    // Повторная проверка только своего движения: последующее чужое плечо
+    // не превращает односвечное внешнее плечо в допустимое.
+    int pendingIndex = 0
+    while pendingIndex < array.size(pendingFvgs)
+        PendingFlowFvg saved = array.get(pendingFvgs, pendingIndex)
+        if time > saved.formedAt
+            saved.zone := f_updateFlowFvg(saved.zone)
+            if low < saved.rangeLo
+                saved.rangeLoTime := time
+            if high > saved.rangeHi
+                saved.rangeHiTime := time
+            saved.rangeLo := math.min(saved.rangeLo, low)
+            saved.rangeHi := math.max(saved.rangeHi, high)
+        bool sameChain = not na(saved.chainKey) and rawOutsideDir != 0 and rawOutsideStart == saved.chainKey
+        if not saved.ready and sameChain
+            if saved.outsideFirst
+                saved.ready := not na(rawOutsideStartBar) and rawStartBar > rawOutsideStartBar
+            else if rawDir == saved.zone.side
+                // При продолжении внешней цепочки её вершина переносится.
+                saved.originTime := rawStart
+                saved.originBar := rawStartBar
+                saved.originPrice := rawBase
+                saved.ready := rawTipBar > rawStartBar
+        bool sameRawLeg = rawDir == saved.zone.side and rawStart == saved.originTime
+        if not saved.ready and sameRawLeg
+            saved.originBar := rawStartBar
+            saved.originPrice := rawBase
+            saved.ready := not na(saved.originBar) and rawTipBar > saved.originBar
+        // FVG внутри материнской свечи может опередить подтверждение плеча.
+        // Без известного начала привязываем его к собственному raw-плечу,
+        // содержащему исходный импульс; известные внешние плечи не подменяем.
+        if not saved.ready and na(saved.originBar) and na(saved.chainKey)
+            if rawDir == saved.zone.side and not na(rawStart) and not na(rawStartBar) and not na(rawTipBar) and not na(rawTipTime) and rawStart <= saved.zone.impulseTime and rawTipTime >= saved.zone.impulseTime and rawTipBar > rawStartBar
+                saved.originTime := rawStart
+                saved.originBar := rawStartBar
+                saved.originPrice := rawBase
+                saved.ready := true
+        bool stale = (not na(flowStart) and saved.zone.impulseTime < flowStart) or saved.originTime > saved.zone.impulseTime
+        bool dead = not na(saved.zone.brokenAt)
+        if saved.ready and not stale and not dead
+            int side = saved.zone.side
+            float top = saved.zone.top
+            float bottom = saved.zone.bottom
+            int originTime = saved.originTime
+            float baseLo = math.min(saved.originPrice, saved.rangeLo)
+            float baseHi = math.max(saved.originPrice, saved.rangeHi)
+            int baseLoTime = saved.originPrice < saved.rangeLo ? originTime : saved.rangeLoTime
+            int baseHiTime = saved.originPrice > saved.rangeHi ? originTime : saved.rangeHiTime
+            // Резервный старт проходит только через готовое собственное плечо.
+            // Внутренние свечи не меняют saved.ready без нового экстремума.
+            if flowDir == 0 and newDir == 0
+                initialZone := saved.zone
+                changeRule := 4
+                newDir := side
+                newStart := originTime
+                newLo := baseLo
+                newHi := baseHi
+                newLoTime := baseLoTime
+                newHiTime := baseHiTime
+            // И первый рабочий FVG, и его замена требуют готового своего плеча.
+            // Пока кандидат ожидает, прежняя зона, пробой и встречный FVG сохраняются.
+            if flowDir != 0 and side == flowDir and saved.zone.impulseTime >= flowStart
+                bool closer = na(guardTop) or (side == 1 ? top > guardTop : bottom < guardBottom)
+                if closer
+                    flowHasFvg := true
+                    guardBalanced := saved.zone.balanced
+                    guardTop := top
+                    guardLeftTime := saved.zone.leftTime
+                    guardBottom := bottom
+                    guardImpulse := saved.zone.impulseTime
+                    firstBroken := not na(saved.zone.brokenAt)
+                    firstBrokenAt := saved.zone.brokenAt
+                    ruleOneZone := na
+                    ruleOneStart := na
+                    ruleOneFvgAt := na
+                    array.clear(ruleOneCandidates)
+            bool refinesOrigin = side == flowDir and not na(flowSeedImpulse) and originTime > flowStart and originTime <= flowSeedImpulse
+            if flowDir != 0 and side == flowDir and originTime > flowStart and not refinesOrigin and not saved.firstAttachment 
+                // FVG alone does not restart a flow inside its old range.
+                // Новое движение после полноценной коррекции заменяет кандидата.
+                // Плечо с началом и экстремумом на одном баре отсекается f_orderMovement.
+                // FVG того же движения и запоздавшая зона старого начало не сдвигают.
+                if na(continuationStart) or originTime > continuationStart
+                    continuationImpulse := saved.zone.impulseTime
+                    continuationStart := originTime
+                    continuationLo := baseLo
+                    continuationHi := baseHi
+                    continuationLoTime := baseLoTime
+                    continuationHiTime := baseHiTime
+                    continuationZone := na
+                if originTime == continuationStart
+                    continuationZone := f_pickSavedFlowFvg(continuationZone, saved.zone)
+            if flowDir != 0 and side == -flowDir and originTime >= flowStart 
+                if na(reversalStart) or originTime > reversalStart
+                    reversalStart := originTime
+                    reversalImpulse := saved.zone.impulseTime
+                    reversalLo := baseLo
+                    reversalHi := baseHi
+                    reversalLoTime := baseLoTime
+                    reversalHiTime := baseHiTime
+                    reversalZone := na
+                if originTime == reversalStart
+                    reversalZone := f_pickSavedFlowFvg(reversalZone, saved.zone)
+            if flowDir != 0 and side == -flowDir and originTime >= flowStart and not na(guardImpulse) and saved.zone.impulseTime > guardImpulse
+                array.push(ruleOneCandidates, RuleOneFvg.new(saved.zone, saved.formedAt, originTime, baseLo, baseHi, baseLoTime, baseHiTime))
+        if flowDiagnosticEnabled
+            string bindingState = dead ? "отменён: зона пробита" : stale ? "не относится к текущему потоку" : saved.ready ? "плечо принято" : "ожидание уточнения плеча (начало и экстремум на разных свечах)"
+            fvgBindingAudit := "\nПривязка FVG " + (saved.zone.side == 1 ? "ЛОНГ" : "ШОРТ") + " [" + str.tostring(saved.zone.bottom, format.mintick) + "; " + str.tostring(saved.zone.top, format.mintick) + "] от " + str.format_time(saved.formedAt, "yyyy-MM-dd HH:mm", "Europe/Moscow") + ": " + bindingState
+            if saved.ready and saved.zone.side == -flowDir and not na(guardImpulse) and saved.zone.impulseTime <= guardImpulse
+                fvgBindingAudit += "; встречный FVG не новее рабочего"
+        // Ушедшее движение без продолжающейся внешней цепочки уже не уточнится.
+        bool detached = not sameChain and not sameRawLeg and rawStart > saved.zone.impulseTime
+        if flowDiagnosticEnabled and detached and not saved.ready and not stale and not dead
+            fvgBindingAudit += "; движение завершилось без подходящего плеча"
+        if saved.ready or stale or dead or detached
+            array.remove(pendingFvgs, pendingIndex)
+        else
+            pendingIndex += 1
+    // №1 рассчитывается на H1/H4/D/W/M; M1/M5 используют отдельный детектор FVG.
+    // История отображаемых FVG не ограничивает расчётных кандидатов.
+    f_updateRuleOneFvgs(ruleOneCandidates, flowDir, flowStart, guardImpulse)
+    int ruleOneCaptureTime = flowDir == 1 ? lastShortEventTime : lastLongEventTime
+    RuleOneFvg chosenRuleOne = f_pickRuleOneFvg(ruleOneCandidates, requireLiquidity, ruleOneCaptureTime)
+    ruleOneZone := f_ruleOneWorkingZone(ruleOneCandidates, chosenRuleOne)
+    ruleOneStart := na(chosenRuleOne) ? na : chosenRuleOne.originTime
+    ruleOneImpulse := na(ruleOneZone) ? na : ruleOneZone.impulseTime
+    ruleOneFvgAt := na(chosenRuleOne) ? na : chosenRuleOne.formedAt
+    ruleOneLo := na(chosenRuleOne) ? na : chosenRuleOne.lo
+    ruleOneHi := na(chosenRuleOne) ? na : chosenRuleOne.hi
+    ruleOneLoTime := na(chosenRuleOne) ? na : chosenRuleOne.loTime
+    ruleOneHiTime := na(chosenRuleOne) ? na : chosenRuleOne.hiTime
+    // Старшая ликвидность может быть снята ещё до основания встречного плеча.
+    // Подтверждение сохраняется при продолжениях и ожидании встречного FVG.
+    int reversalEventTime = flowDir == 1 ? lastShortEventTime : lastLongEventTime
+    string reversalEvent = flowDir == 1 ? lastShortEvent : lastLongEvent
+    // Пробой допустим на свече старшего захвата; встречный FVG — строго позже захвата.
+    bool reversalLiquidity = not requireLiquidity or (not na(reversalEventTime) and not na(firstBrokenAt) and firstBrokenAt >= reversalEventTime and not na(ruleOneFvgAt) and ruleOneFvgAt > reversalEventTime)
+    // Разворот по №1 сильнее продолжения: если пробит первый FVG, есть встречный
+    // FVG и старшее подтверждение, поток меняет направление, а не перезапускается.
+    if flowDir != 0 and firstBroken and not na(ruleOneStart) and reversalLiquidity
+        changeRule := 1
+        newDir := -flowDir
+        newStart := ruleOneStart
+        newLo := ruleOneLo
+        newHi := ruleOneHi
+        newLoTime := ruleOneLoTime
+        newHiTime := ruleOneHiTime
+    bool continuationReady = not na(continuationStart) and not na(extensionTime) and extensionTime >= continuationStart
+    if newDir == 0 and continuationReady
+        changeRule := 3
+        newDir := flowDir
+        newStart := continuationStart
+        newLo := continuationLo
+        newHi := continuationHi
+        newLoTime := continuationLoTime
+        newHiTime := continuationHiTime
+    // Разворот по закрытию за границей имеет приоритет над №1 и №3.
+    // Снимок становится доступен потребителю только после закрытия исходной свечи.
+    if boundaryBroken
+        changeRule := 2
+        newDir := -flowDir
+        // Как при продолжении: FVG относится ко всему сохранённому движению.
+        newStart := reversalStart
+        newLo := reversalLo
+        newHi := reversalHi
+        newLoTime := reversalLoTime
+        newHiTime := reversalHiTime
+        bool reversalHasFvg = not na(reversalStart)
+        if not reversalHasFvg
+            // Без встречного FVG разворот идёт от конечного экстремума старого потока.
+            newStart := newDir == 1 ? flowLoTime : flowHiTime
+            newLo := newDir == 1 ? flowLo : structuralReverseLo
+            newHi := newDir == -1 ? flowHi : structuralReverseHi
+            newLoTime := newDir == 1 ? flowLoTime : structuralReverseLoTime
+            newHiTime := newDir == -1 ? flowHiTime : structuralReverseHiTime
+    if newDir != 0
+        // Передаём рабочую зону до сброса движений-кандидатов.
+        FlowFvg selectedZone = changeRule == 1 ? ruleOneZone : changeRule == 2 ? reversalZone : changeRule == 3 ? continuationZone : initialZone
+        // Замораживаем последнее состояние действующего потока перед сменой.
+        // Если FVG появился позже выхода тенью, не откатываем уже показанный диапазон.
+        int archivedStart = beforeBarStart
+        float archivedLo = beforeBarLo
+        float archivedHi = beforeBarHi
+        string stamp = str.format_time(time, "yyyy-MM-dd HH:mm", "Europe/Moscow")
+        string explanation = changeRule == 1 ? "№1: пробой первого FVG + противоположный FVG + старшее подтверждение" : changeRule == 4 ? "СТАРТ ПО ПЕРВОМУ FVG" : changeRule == 2 ? "№2: закрытие за границей потока" : "№3: попутное плечо с FVG + выход тенью за границу"
+        flowDiagnostic := explanation + "\n" + (flowDir == 0 ? "ИНИЦИАЛИЗАЦИЯ" : flowDir == 1 ? "ЛОНГ" : "ШОРТ") + " → " + (newDir == 1 ? "ЛОНГ" : "ШОРТ") + " | свеча " + stamp + " МСК"
+        if changeRule == 2 and na(selectedZone)
+            flowDiagnostic += "\nВстречного FVG нет: поток по структурной ломаной"
+        flowDiagnostic += "\nПрежний диапазон: " + str.tostring(archivedLo, format.mintick) + " — " + str.tostring(archivedHi, format.mintick)
+        if changeRule == 1
+            flowDiagnostic += "\nПервый FVG: " + str.tostring(guardBottom, format.mintick) + " — " + str.tostring(guardTop, format.mintick)
+            flowDiagnostic += requireLiquidity ? "\nПодтверждение: " + reversalEvent + "\nСвеча события: " + str.format_time(reversalEventTime, "yyyy-MM-dd HH:mm", "Europe/Moscow") : "\nM: старшее подтверждение не требуется"
+        if changeRule == 2
+            flowDiagnostic += "\nClose: " + str.tostring(close, format.mintick) + " | граница: " + str.tostring(flowDir == 1 ? flowLo : flowHi, format.mintick)
+        if changeRule == 3
+            flowDiagnostic += "\nПробитая граница: " + str.tostring(extensionBoundary, format.mintick) + " | тень: " + str.tostring(extensionPrice, format.mintick)
+            flowDiagnostic += "\nСвеча выхода: " + str.format_time(extensionTime, "yyyy-MM-dd HH:mm", "Europe/Moscow") + " МСК"
+            flowDiagnostic += "\nСтаршее подтверждение не проверяется (условие №3)"
+        if flowDir != 0
+            prevStart := archivedStart
+            prevEnd := beforeBarEnd
+            prevLo := archivedLo
+            prevHi := archivedHi
+        flowDiagnostic += "\nНачало нового потока: " + str.format_time(newStart, "yyyy-MM-dd HH:mm", "Europe/Moscow") + " | цена: " + str.tostring(newDir == 1 ? newLo : newHi, format.mintick)
+        // Координаты экстремумов независимы от свечи подтверждения смены.
+        flowOriginLocked := newDir != flowDir or na(selectedZone)
+        // Младший поток не расходует подтверждения старших потоков.
+        // Продолжение и структурный разворот сохраняют старшее подтверждение.
+        flowHasFvg := not na(selectedZone)
+        structuralReverseLo := low
+        structuralReverseHi := high
+        structuralReverseLoTime := time
+        structuralReverseHiTime := time
+        flowDir := newDir
+        flowStart := newStart
+        flowSeedImpulse := changeRule == 3 ? continuationImpulse : changeRule == 1 ? ruleOneImpulse : changeRule == 2 ? reversalImpulse : not na(initialZone) ? initialZone.impulseTime : time[1]
+        flowLo := newLo
+        flowHi := newHi
+        flowLoTime := newLoTime
+        flowHiTime := newHiTime
+        firstBroken := false
+        firstBrokenAt := na
+        continuationStart := na
+        continuationImpulse := na
+        continuationLo := na
+        continuationHi := na
+        continuationLoTime := na
+        continuationHiTime := na
+        reversalStart := na
+        reversalImpulse := na
+        reversalLo := na
+        reversalHi := na
+        reversalLoTime := na
+        reversalHiTime := na
+        extensionTime := na
+        extensionBoundary := na
+        extensionPrice := na
+        extensionLegStart := na
+        flowExtensionText := ""
+        guardBalanced := false
+        guardTop := na
+        guardLeftTime := na
+        guardBottom := na
+        guardImpulse := na
+        ruleOneStart := na
+        ruleOneFvgAt := na
+        ruleOneLoTime := na
+        ruleOneHiTime := na
+        continuationZone := na
+        reversalZone := na
+        ruleOneZone := na
+        array.clear(ruleOneCandidates)
+        if not na(selectedZone)
+            guardTop := selectedZone.top
+            guardLeftTime := selectedZone.leftTime
+            guardBottom := selectedZone.bottom
+            guardImpulse := selectedZone.impulseTime
+            guardBalanced := selectedZone.balanced
+            firstBroken := not na(selectedZone.brokenAt)
+            firstBrokenAt := selectedZone.brokenAt
+    MtfSnapshot current = na
+    if exportNow
+        current := f_mtfCopy(zones, flowDir, flowLo, flowHi, flowStart, time_close, time, prevStart, prevEnd, prevLo, prevHi, firstBroken, guardTop, guardBottom, guardLeftTime, guardImpulse, flowDiagnostic + f_ruleOneState(flowDir, firstBroken, ruleOneStart, requireLiquidity, lastLongEventTime, lastShortEventTime, firstBrokenAt, ruleOneFvgAt) + "\n" + liquidityAuditLong + "\n" + liquidityAuditShort + higherAudit + (flowExtensionText == "" ? "" : "\n" + flowExtensionText) + fvgBindingAudit)
+    [structureHigh, structureLow, structureHighKey, structureLowKey, structureDirection] = f_legIdm(rawDir, rawStart, rawBase, rawOutsideDir, rawOutsideStart, rawOutsideBase)
+    FlowLiquidity level = na
+    if exportLevel
+        level := FlowLiquidity.new(structureHigh, structureLow, structureHighKey, structureLowKey, guardTop, guardBottom, flowDir, flowDir != 0 and not firstBroken and not na(guardTop) and guardTop >= flowLo and guardBottom <= flowHi, guardBalanced, close, time_close, float(na), int(na), structureDirection)
+    [previous, current, level]
+
+f_monthLiquidity() =>
+    [_, _, level] = f_flowSnapshot(false, "", "", "", int(na), int(na), true)
+    f_exportLiquidity(level)
+
+// Общие точки запросов: повторные вызовы используют одинаковые аргументы.
+f_requestMonthLiquidity() =>
+    request.security(syminfo.tickerid, "M", f_monthLiquidity(), lookahead = barmerge.lookahead_on, ignore_invalid_symbol = true, calc_bars_count = liquidityHistoryBars)
+
+f_weekLiquidity() =>
+    FlowLiquidity month = f_requestMonthLiquidity()
+    [monthLong, monthShort, monthAudit, monthLongTime, monthShortTime] = f_flowLiquidityEvents(month, "M")
+    [_, _, level] = f_flowSnapshot(true, monthLong, monthShort, monthAudit, monthLongTime, monthShortTime, true)
+    f_exportLiquidity(level)
+
+f_requestWeekLiquidity() =>
+    request.security(syminfo.tickerid, "W", f_weekLiquidity(), lookahead = barmerge.lookahead_on, ignore_invalid_symbol = true, calc_bars_count = liquidityHistoryBars)
+
+f_dayLiquidity() =>
+    FlowLiquidity month = f_requestMonthLiquidity()
+    FlowLiquidity week = f_requestWeekLiquidity()
+    [monthLong, monthShort, monthAudit, monthLongTime, monthShortTime] = f_flowLiquidityEvents(month, "M")
+    [weekLong, weekShort, weekAudit, weekLongTime, weekShortTime] = f_flowLiquidityEvents(week, "W")
+    // Выбираем самое свежее событие; при равном времени неделя ближе месяца.
+    string chosenLong = monthLong
+    string chosenShort = monthShort
+    int chosenLongTime = monthLongTime
+    int chosenShortTime = monthShortTime
+    if f_newerCapture(weekLongTime, weekShortTime, chosenLongTime, chosenShortTime)
+        chosenLong := weekLong
+        chosenShort := weekShort
+        chosenLongTime := weekLongTime
+        chosenShortTime := weekShortTime
+    [_, _, level] = f_flowSnapshot(true, chosenLong, chosenShort, monthAudit + weekAudit, chosenLongTime, chosenShortTime, true)
+    f_exportLiquidity(level)
+
+f_requestDayLiquidity() =>
+    request.security(syminfo.tickerid, "D", f_dayLiquidity(), lookahead = barmerge.lookahead_on, ignore_invalid_symbol = true, calc_bars_count = liquidityHistoryBars)
+
+// H4 получает те же старшие события M/W/D, что раньше получал H1.
+// При равном времени приоритет у ближайшего ТФ: D, затем W, затем M.
+f_h4Liquidity() =>
+    FlowLiquidity month = f_requestMonthLiquidity()
+    FlowLiquidity week = f_requestWeekLiquidity()
+    FlowLiquidity day = f_requestDayLiquidity()
+    [monthLong, monthShort, monthAudit, monthLongTime, monthShortTime] = f_flowLiquidityEvents(month, "M")
+    [weekLong, weekShort, weekAudit, weekLongTime, weekShortTime] = f_flowLiquidityEvents(week, "W")
+    [dayLong, dayShort, dayAudit, dayLongTime, dayShortTime] = f_flowLiquidityEvents(day, "D")
+    string chosenLong = monthLong
+    string chosenShort = monthShort
+    int chosenLongTime = monthLongTime
+    int chosenShortTime = monthShortTime
+    if f_newerCapture(weekLongTime, weekShortTime, chosenLongTime, chosenShortTime)
+        chosenLong := weekLong
+        chosenShort := weekShort
+        chosenLongTime := weekLongTime
+        chosenShortTime := weekShortTime
+    if f_newerCapture(dayLongTime, dayShortTime, chosenLongTime, chosenShortTime)
+        chosenLong := dayLong
+        chosenShort := dayShort
+        chosenLongTime := dayLongTime
+        chosenShortTime := dayShortTime
+    [_, _, level] = f_flowSnapshot(true, chosenLong, chosenShort, monthAudit + weekAudit + dayAudit, chosenLongTime, chosenShortTime, true)
+    f_exportLiquidity(level)
+
+f_requestH4Liquidity() =>
+    request.security(syminfo.tickerid, "240", f_h4Liquidity(), lookahead = barmerge.lookahead_on, ignore_invalid_symbol = true, calc_bars_count = liquidityHistoryBars)
+
+// Собственные FVG младшего/прочего ТФ без направления, диапазона и условий потока.
+// Детектор, отмена зон и момент публикации совпадают с общим расчётом FVG.
+// На M1/M5 сохраняется тот же запрет внутренних свечей, что и в потоке H1.
+f_fvgSnapshot() =>
+    var array<MtfFvg> zones = array.new<MtfFvg>()
+    var array<int> activeZoneIndices = array.new_int()
+    bool exportNow = barstate.islast or barstate.islastconfirmedhistory
+    MtfSnapshot previous = na
+    if exportNow
+        previous := f_mtfCopy(zones, 0, float(na), float(na), int(na), time_close[1], time[1], int(na), int(na), float(na), float(na), false, float(na), float(na), int(na), int(na), "")
+    var float motherHi = na
+    var float motherLo = na
+    bool inside = not na(motherHi) and high <= motherHi and low >= motherLo
+    if not inside
+        motherHi := high
+        motherLo := low
+    // Отображаемым зонам достаточно статуса пробоя и времени окончания.
+    f_fvgUpdateActive(zones, activeZoneIndices)
+    // H1, M5 и M1: FVG создаём только из трёх невнутренних свечей.
+    // На H4/D/W/M FVG разрешены и по внутренним свечам.
+    bool allowInside = timeframe.in_seconds() > timeframe.in_seconds("60")
+    bool allowed = allowInside or (not inside and not inside[1] and not inside[2])
+    bool adjacentGap = low > high[1] or high < low[1] or low[1] > high[2] or high[1] < low[2]
+    bool gapAllowed = not fvgExcludeGaps or not adjacentGap
+    bool bull = not na(high[2]) and low > high[2] and gapAllowed
+    bool bear = not na(low[2]) and high < low[2] and gapAllowed
+    if allowed and (bull or bear)
+        int side = bull ? 1 : -1
+        float top = bull ? low : low[2]
+        float bottom = bull ? high[2] : high
+        f_fvgAppendActive(zones, activeZoneIndices, MtfFvg.new(time[2], time[1], top, bottom, side, true, time_close))
+    MtfSnapshot current = na
+    if exportNow
+        current := f_mtfCopy(zones, 0, float(na), float(na), int(na), time_close, time, int(na), int(na), float(na), float(na), false, float(na), float(na), int(na), int(na), "")
+    [previous, current]
+
+// Таблица на H4/D/W/M не рисует зоны H1 и не использует его диагностику.
+// Через младший request передаём только поля состояния; массив зон остаётся
+// в исходном контексте. Расчёт f_mtfBundle проходит всю прежнюю историю.
+f_summarySnapshot(MtfSnapshot snapshot) =>
+    MtfSnapshot result = na
+    if not na(snapshot)
+        result := MtfSnapshot.new(na, snapshot.direction, snapshot.lo, snapshot.hi, snapshot.startTime, snapshot.closedAt, snapshot.sourceOpen, snapshot.prevStart, snapshot.prevEnd, snapshot.prevLo, snapshot.prevHi, snapshot.firstBroken, snapshot.firstTop, snapshot.firstBottom, "", snapshot.workingLeftTime, snapshot.workingImpulseTime)
+    result
+
+f_mtfBundle() =>
+    float seconds = timeframe.in_seconds()
+    bool calculateFlow = f_isFlowTimeframe()
+    bool needsHigher = calculateFlow and not timeframe.ismonthly
+    string longEvent = ""
+    string shortEvent = ""
+    string higherAudit = ""
+    int longCaptureTime = na
+    int shortCaptureTime = na
+    FlowLiquidity month = na
+    FlowLiquidity week = na
+    FlowLiquidity h4 = na
+    FlowLiquidity day = na
+    if needsHigher
+        month := f_requestMonthLiquidity()
+        [monthLong, monthShort, monthAudit, monthLongTime, monthShortTime] = f_flowLiquidityEvents(month, "M")
+        longEvent := monthLong
+        shortEvent := monthShort
+        higherAudit := monthAudit
+        longCaptureTime := monthLongTime
+        shortCaptureTime := monthShortTime
+        if seconds < timeframe.in_seconds("W")
+            week := f_requestWeekLiquidity()
+            [weekLong, weekShort, weekAudit, weekLongTime, weekShortTime] = f_flowLiquidityEvents(week, "W")
+            higherAudit += weekAudit
+            // Более свежее событие недели заменяет выбранное; равное время — тоже.
+            if f_newerCapture(weekLongTime, weekShortTime, longCaptureTime, shortCaptureTime)
+                longEvent := weekLong
+                shortEvent := weekShort
+                longCaptureTime := weekLongTime
+                shortCaptureTime := weekShortTime
+        if seconds < timeframe.in_seconds("D")
+            day := f_requestDayLiquidity()
+            [dayLong, dayShort, dayAudit, dayLongTime, dayShortTime] = f_flowLiquidityEvents(day, "D")
+            higherAudit += dayAudit
+            // День заменяет выбранное событие только при более свежем или равном времени.
+            if f_newerCapture(dayLongTime, dayShortTime, longCaptureTime, shortCaptureTime)
+                longEvent := dayLong
+                shortEvent := dayShort
+                longCaptureTime := dayLongTime
+                shortCaptureTime := dayShortTime
+        if seconds < timeframe.in_seconds("240")
+            h4 := f_requestH4Liquidity()
+            [h4Long, h4Short, h4Audit, h4LongTime, h4ShortTime] = f_flowLiquidityEvents(h4, "H4")
+            higherAudit += h4Audit
+            // H4 — ближайший старший H1; при равном времени его событие приоритетнее.
+            if f_newerCapture(h4LongTime, h4ShortTime, longCaptureTime, shortCaptureTime)
+                longEvent := h4Long
+                shortEvent := h4Short
+                longCaptureTime := h4LongTime
+                shortCaptureTime := h4ShortTime
+    MtfSnapshot previous = na
+    MtfSnapshot current = na
+    if calculateFlow
+        [flowPrevious, flowCurrent, _] = f_flowSnapshot(needsHigher, longEvent, shortEvent, higherAudit, longCaptureTime, shortCaptureTime, false)
+        previous := flowPrevious
+        current := flowCurrent
+    else
+        [fvgPrevious, fvgCurrent] = f_fvgSnapshot()
+        previous := fvgPrevious
+        current := fvgCurrent
+    // Только запрос H1 из старшего графика обслуживает одну таблицу.
+    // main_period остаётся ТФ графика и внутри вложенного request.
+    bool summaryOnly = seconds == 3600 and timeframe.in_seconds(timeframe.main_period) > 3600
+    if summaryOnly
+        previous := f_summarySnapshot(previous)
+        current := f_summarySnapshot(current)
+        if not (barstate.islast or barstate.islastconfirmedhistory)
+            h4 := na
+            day := na
+            week := na
+            month := na
+    [previous, current, h4, day, week, month]
+
+f_mtfSnapshot() =>
+    [previous, current, _, _, _, _] = f_mtfBundle()
+    [previous, current]
+
+f_mtfConfirmed(MtfSnapshot previous, MtfSnapshot current, int cutoff) =>
+    MtfSnapshot result = na
+    if not na(current)
+        if not na(current.closedAt) and current.closedAt <= cutoff
+            result := current
+    if na(result) and not na(previous)
+        if not na(previous.closedAt) and previous.closedAt <= cutoff
+            result := previous
+    result
+
+// На realtime и при загрузке правого края внутри фактически открытого
+// исходного интервала используем текущий поток. Прошлые интервалы не допускаются:
+// lookahead_on не должен подмешивать завершённый позже HTF-снимок на истории.
+// Зоны всегда остаются подтверждёнными; меняются только параметры потока.
+f_liveFlow(MtfSnapshot confirmed, MtfSnapshot developing) =>
+    MtfSnapshot result = confirmed
+    if not na(confirmed) and not na(developing)
+        bool liveInitial = barstate.islast and not na(developing.sourceOpen) and not na(developing.closedAt) and developing.sourceOpen <= time and time <= timenow and developing.sourceOpen <= timenow and timenow < developing.closedAt
+        if (barstate.isrealtime or liveInitial) and developing.direction == confirmed.direction and developing.startTime == confirmed.startTime
+            result := MtfSnapshot.new(confirmed.zones, confirmed.direction, confirmed.direction == -1 ? math.min(confirmed.lo, developing.lo) : confirmed.lo, confirmed.direction == 1 ? math.max(confirmed.hi, developing.hi) : confirmed.hi, confirmed.startTime, confirmed.closedAt, confirmed.sourceOpen, confirmed.prevStart, confirmed.prevEnd, confirmed.prevLo, confirmed.prevHi, confirmed.firstBroken, confirmed.firstTop, confirmed.firstBottom, confirmed.diagnostic, confirmed.workingLeftTime, confirmed.workingImpulseTime)
+    result
+
+f_mtfInFlow(MtfFvg zone, MtfSnapshot snapshot, bool includePrevious = false) =>
+    bool matches = false
+    if not na(snapshot)
+        bool currentFlow = snapshot.direction != 0 and zone.impulseTime >= snapshot.startTime and zone.top >= snapshot.lo and zone.bottom <= snapshot.hi
+        bool previousFlow = includePrevious and not na(snapshot.prevStart) and zone.impulseTime >= snapshot.prevStart and zone.impulseTime < snapshot.prevEnd and zone.top >= snapshot.prevLo and zone.bottom <= snapshot.prevHi
+        matches := currentFlow or previousFlow
+    matches
+
+
+// Для переноса берём только выбранный рабочий FVG, независимо от истории зон.
+f_mtfWorkingZone(MtfSnapshot snapshot) =>
+    MtfFvg result = na
+    if not na(snapshot)
+        bool working = snapshot.direction != 0 and not snapshot.firstBroken and not na(snapshot.firstTop) and not na(snapshot.firstBottom)
+        bool inFlow = snapshot.firstTop >= snapshot.lo and snapshot.firstBottom <= snapshot.hi
+        if working and inFlow and not na(snapshot.workingLeftTime) and not na(snapshot.workingImpulseTime)
+            result := MtfFvg.new(snapshot.workingLeftTime, snapshot.workingImpulseTime, snapshot.firstTop, snapshot.firstBottom, snapshot.direction, true, snapshot.closedAt)
+    result
+
+f_mtfInH1(MtfFvg child, array<MtfFvg> parents) =>
+    bool matches = false
+    for parent in parents
+        bool overlaps = child.bottom < parent.top and child.top > parent.bottom
+        // Старые зоны на тех же ценах не принадлежат более позднему рабочему FVG.
+        bool afterParentStart = not na(child.leftTime) and not na(parent.leftTime) and child.leftTime >= parent.leftTime
+        if parent.active and overlaps and afterParentStart
+            matches := true
+            break
+    matches
+
+f_mtfName() =>
+    float seconds = timeframe.in_seconds()
+    timeframe.isdaily and timeframe.multiplier == 1 ? "D" : timeframe.isweekly and timeframe.multiplier == 1 ? "W" : timeframe.ismonthly and timeframe.multiplier == 1 ? "M" : timeframe.isminutes ? (seconds >= 3600 and seconds % 3600 == 0 ? "H" + str.tostring(int(seconds / 3600)) : "M" + timeframe.period) : timeframe.period
+
+f_mtfDraw(MtfFvg zone, string tfName, array<box> drawings, int rightTime) =>
+    color zoneColor = not zone.active ? fvgFilledColor : zone.side == 1 ? fvgBullColor : fvgBearColor
+    int endTime = zone.active ? rightTime : zone.rightTime
+    string title = "FVG " + tfName
+    string fontSize = switch tfName
+        "M" => fvgFontM
+        "W" => fvgFontW
+        "D" => fvgFontD
+        "H1" => fvgFontH1
+        "H4" => fvgFontH4
+        "M1" => fvgFontM1
+        => fvgFontM5
+    box area = box.new(left = zone.leftTime, top = zone.top, right = endTime, bottom = zone.bottom, xloc = xloc.bar_time, border_color = color.new(zoneColor, 30), border_width = fvgBorderWidth, bgcolor = zoneColor, text = title, text_color = color.new(zoneColor, 0), text_size = fontSize, text_halign = text.align_right, text_valign = text.align_center)
+    float mid = (zone.top + zone.bottom) / 2.0
+    box middle = box.new(left = zone.leftTime, top = mid, right = endTime, bottom = mid, xloc = xloc.bar_time, border_color = color.new(zoneColor, 0), border_width = fvgMiddleWidth, border_style = line.style_dotted, bgcolor = na)
+    array.push(drawings, area)
+    array.push(drawings, middle)
+
+// Потоки: только H1/H4/D/W/M. На M1/M5 — собственные FVG и перенос старших данных.
+float mtfChartSeconds = timeframe.in_seconds()
+bool mtfM1 = mtfChartSeconds == 60
+bool mtfM5 = mtfChartSeconds == 300
+bool mtfLower = mtfM1 or mtfM5
+bool mtfH1 = mtfChartSeconds == 3600
+bool mtfH4 = mtfChartSeconds == 14400
+bool mtfD = timeframe.isdaily and timeframe.multiplier == 1
+bool mtfW = timeframe.isweekly and timeframe.multiplier == 1
+bool showH1OnM5 = input.bool(true, "FVG H1 на M1 / M5", group = FVG_GROUP)
+bool showH4OnM5 = input.bool(true, "FVG H4 на M1 / M5 / H1", group = FVG_GROUP)
+bool showDOnM5 = input.bool(true, "FVG D на M1 / M5 / H1 / H4", group = FVG_GROUP)
+bool showWOnM5 = input.bool(true, "FVG W на M1 / M5 / H1 / H4 / D", group = FVG_GROUP)
+bool showMOnM5 = input.bool(true, "FVG M на M1 / M5 / H1 / H4 / D / W", group = FVG_GROUP)
+bool currentFvgTableEnabled = input.bool(true, "Состояние текущего инструмента H1 / H4 / D / W / M", group = "Сводка инструмента", tooltip = "Цвет ячейки ТФ: зелёный — цена в рабочем лонговом FVG, красный — в шортовом, серый — вне рабочего FVG или нет данных.")
+float currentFvgCellWidth = input.float(3.0, "Текущий инструмент: ширина ячейки (%)", minval = 1, maxval = 10, step = 0.5, group = "Сводка инструмента")
+float currentFvgCellHeight = input.float(0.0, "Текущий инструмент: высота ячейки (%)", minval = 0, maxval = 20, step = 0.5, group = "Сводка инструмента", tooltip = "0 — автоматическая высота по размеру текста.")
+string currentFvgFontSize = input.string(size.normal, "Текущий инструмент: размер текста", options = [size.tiny, size.small, size.normal, size.large, size.huge], group = "Сводка инструмента")
+string currentFlowArrowSize = input.string(size.large, "Текущий инструмент: размер стрелок потока", options = [size.normal, size.large, size.huge], group = "Сводка инструмента")
+[localPrevious, localCurrent, localH4Level, localDayLevel, localWeekLevel, localMonthLevel] = f_mtfBundle()
+// Пять плоских box вместо line: отдельный бюджет, прежние 500 line не затронуты.
+f_drawPreviousFlow(MtfSnapshot snapshot, array<box> drawings) =>
+    if flowShowPrevious and not na(snapshot)
+        if not na(snapshot.prevStart) and not na(snapshot.prevEnd) and not na(snapshot.prevLo) and not na(snapshot.prevHi)
+            array<float> ratios = array.from(0.0, 0.4, 0.5, 0.6, 1.0)
+            for ratio in ratios
+                float price = snapshot.prevLo + (snapshot.prevHi - snapshot.prevLo) * ratio
+                string title = ""
+                box level = box.new(left = snapshot.prevStart, top = price, right = snapshot.prevEnd, bottom = price, xloc = xloc.bar_time, border_color = flowPreviousColor, border_width = flowLineWidth, border_style = line.style_dashed, bgcolor = na, text = title, text_color = flowPreviousColor, text_size = flowFontSize, text_halign = text.align_right, text_valign = text.align_bottom)
+                array.push(drawings, level)
+
+var array<box> flowLevelBoxes = array.new<box>()
+if barstate.islast
+    while array.size(flowLevelBoxes) > 0
+        box.delete(array.pop(flowLevelBoxes))
+    // В Replay календарное timenow позже проигрываемой свечи и ошибочно
+    // подтверждает её предварительный разворот. Используем время самого графика.
+    int chartFlowCutoff = barstate.isconfirmed and not na(time_close) ? time_close : time
+    MtfSnapshot chartFlow = f_liveFlow(f_mtfConfirmed(localPrevious, localCurrent, chartFlowCutoff), localCurrent)
+    if flowOnChart and flowShowLevels and not na(chartFlow)
+        f_drawPreviousFlow(chartFlow, flowLevelBoxes)
+    if flowOnChart and flowShowLevels and not na(chartFlow) and chartFlow.direction != 0
+        array<float> ratios = array.from(0.0, 0.4, 0.5, 0.6, 1.0)
+        int flowRightTime = na(time_close) ? time : time_close
+        for levelIndex = 0 to 4
+            float ratio = array.get(ratios, levelIndex)
+            float levelPrice = chartFlow.lo + (chartFlow.hi - chartFlow.lo) * ratio
+            color levelColor = ratio == 0.0 ? flowColor0 : ratio == 0.4 ? flowColor04 : ratio == 0.5 ? flowColor05 : ratio == 0.6 ? flowColor06 : flowColor1
+            string levelText = flowShowData ? str.tostring(ratio) + " (" + str.tostring(levelPrice, format.mintick) + ")" : ""
+            box levelBox = box.new(left = chartFlow.startTime, top = levelPrice, right = flowRightTime, bottom = levelPrice, xloc = xloc.bar_time, border_color = levelColor, border_width = flowLineWidth, bgcolor = na, text = levelText, text_color = levelColor, text_size = flowFontSize, text_halign = text.align_right, text_valign = text.align_bottom)
+            array.push(flowLevelBoxes, levelBox)
+
+
+MtfSnapshot h1Previous = na
+MtfSnapshot h1Current = na
+FlowLiquidity summaryH4 = localH4Level
+FlowLiquidity summaryDay = localDayLevel
+FlowLiquidity summaryWeek = localWeekLevel
+FlowLiquidity summaryMonth = localMonthLevel
+MtfSnapshot h4Previous = na
+MtfSnapshot h4Current = na
+MtfSnapshot dPrevious = na
+MtfSnapshot dCurrent = na
+MtfSnapshot wPrevious = na
+MtfSnapshot wCurrent = na
+MtfSnapshot monthPrevious = na
+MtfSnapshot monthCurrent = na
+if fvgEnabled and (mtfLower or mtfH1) and showH4OnM5
+    [prev, curr] = request.security(syminfo.tickerid, "240", f_mtfSnapshot(), gaps = barmerge.gaps_off, lookahead = barmerge.lookahead_on)
+    h4Previous := prev
+    h4Current := curr
+if fvgEnabled and (mtfLower or mtfH1 or mtfH4) and showDOnM5
+    [prev, curr] = request.security(syminfo.tickerid, "D", f_mtfSnapshot(), gaps = barmerge.gaps_off, lookahead = barmerge.lookahead_on)
+    dPrevious := prev
+    dCurrent := curr
+if fvgEnabled and (mtfLower or mtfH1 or mtfH4 or mtfD) and showWOnM5
+    [prev, curr] = request.security(syminfo.tickerid, "W", f_mtfSnapshot(), gaps = barmerge.gaps_off, lookahead = barmerge.lookahead_on)
+    wPrevious := prev
+    wCurrent := curr
+if fvgEnabled and (mtfLower or mtfH1 or mtfH4 or mtfD or mtfW) and showMOnM5
+    [prev, curr] = request.security(syminfo.tickerid, "M", f_mtfSnapshot(), gaps = barmerge.gaps_off, lookahead = barmerge.lookahead_on)
+    monthPrevious := prev
+    monthCurrent := curr
+bool needsH1Snapshot = (mtfLower and (fvgEnabled or (flowShowLevels and flowH1OnM5))) or (currentFvgTableEnabled and not mtfH1)
+if needsH1Snapshot
+    // На H4/D/W/M H1 является младшим ТФ: нужен последний доступный H1 внутри бара.
+    // На M1/M5 сохраняем перенос подтверждённых старших зон.
+    [requestedPrevious, requestedCurrent, requestedH4, requestedDay, requestedWeek, requestedMonth] = request.security(syminfo.tickerid, "60", f_mtfBundle(), gaps = barmerge.gaps_off, lookahead = mtfChartSeconds > 3600 ? barmerge.lookahead_off : barmerge.lookahead_on)
+    h1Previous := requestedPrevious
+    h1Current := requestedCurrent
+    summaryH4 := requestedH4
+    summaryDay := requestedDay
+    summaryWeek := requestedWeek
+    summaryMonth := requestedMonth
+
+// Состояние текущего инструмента: используем тот же H1-пакет, что и перенос FVG.
+f_summaryHigherSide(LiquidityView level, float price) =>
+    int side = 0
+    if not na(level)
+        if level.working and level.side != 0 and price >= level.bottom and price <= level.top
+            side := level.side
+    side
+
+// Рабочая зона хранится в снимке независимо от массива отображаемых FVG.
+f_summaryFlowSide(MtfSnapshot snapshot, float price) =>
+    int side = 0
+    if not na(snapshot)
+        bool working = snapshot.direction != 0 and not snapshot.firstBroken and not na(snapshot.firstTop) and not na(snapshot.firstBottom)
+        bool inFlow = snapshot.firstTop >= snapshot.lo and snapshot.firstBottom <= snapshot.hi
+        if working and inFlow and price >= snapshot.firstBottom and price <= snapshot.firstTop
+            side := snapshot.direction
+    side
+
+// Повторно используем H1-снимок FVG: дополнительный request.security не нужен.
+// flowLevelBoxes уже очищены выше на последнем баре.
+if barstate.islast and mtfLower and flowShowLevels and flowH1OnM5
+    int flowCutoff = barstate.isconfirmed and not na(time_close) ? time_close : time
+    MtfSnapshot h1Flow = f_liveFlow(f_mtfConfirmed(h1Previous, h1Current, flowCutoff), h1Current)
+    if not na(h1Flow)
+        f_drawPreviousFlow(h1Flow, flowLevelBoxes)
+        if h1Flow.direction != 0 and not na(h1Flow.lo) and not na(h1Flow.hi) and not na(h1Flow.startTime)
+            array<float> ratios = array.from(0.0, 0.4, 0.5, 0.6, 1.0)
+            int flowRightTime = na(time_close) ? time : time_close
+            for levelIndex = 0 to 4
+                float ratio = array.get(ratios, levelIndex)
+                float levelPrice = h1Flow.lo + (h1Flow.hi - h1Flow.lo) * ratio
+                color levelColor = ratio == 0.0 ? flowColor0 : ratio == 0.4 ? flowColor04 : ratio == 0.5 ? flowColor05 : ratio == 0.6 ? flowColor06 : flowColor1
+                string levelText = flowShowData ? "H1 " + str.tostring(ratio) + " (" + str.tostring(levelPrice, format.mintick) + ")" : ""
+                box levelBox = box.new(left = h1Flow.startTime, top = levelPrice, right = flowRightTime, bottom = levelPrice, xloc = xloc.bar_time, border_color = levelColor, border_width = flowLineWidth, bgcolor = na, text = levelText, text_color = levelColor, text_size = flowFontSize, text_halign = text.align_right, text_valign = text.align_bottom)
+                array.push(flowLevelBoxes, levelBox)
+
+var array<box> mtfDrawings = array.new<box>()
+var table mtfStatus = table.new(position.bottom_center, 1, 1)
+if barstate.islast
+    table.cell(mtfStatus, 0, 0, "", bgcolor = color.new(color.black, 100))
+    while array.size(mtfDrawings) > 0
+        box.delete(array.pop(mtfDrawings))
+    if fvgEnabled
+        int cutoff = barstate.isconfirmed and not na(time_close) ? time_close : time
+        int rightTime = na(time_close) ? time : time_close
+        MtfSnapshot localData = f_liveFlow(f_mtfConfirmed(localPrevious, localCurrent, cutoff), localCurrent)
+        MtfSnapshot h1Data = f_liveFlow(f_mtfConfirmed(h1Previous, h1Current, cutoff), h1Current)
+        array<MtfFvg> h1Parents = array.new<MtfFvg>()
+        int drawn = 0
+        if mtfLower and showH1OnM5 and not na(h1Data)
+            // Родители M1/M5 — только те рабочие старшие FVG, которые рисуем.
+            MtfFvg workingH1 = f_mtfWorkingZone(h1Data)
+            if not na(workingH1) and drawn < fvgMaxZones
+                f_mtfDraw(workingH1, "H1", mtfDrawings, rightTime)
+                array.push(h1Parents, workingH1)
+                drawn += 1
+        if mtfLower or mtfH1 or mtfH4 or mtfD or mtfW
+            array<MtfSnapshot> higherData = array.from(f_liveFlow(f_mtfConfirmed(h4Previous, h4Current, cutoff), h4Current), f_liveFlow(f_mtfConfirmed(dPrevious, dCurrent, cutoff), dCurrent), f_liveFlow(f_mtfConfirmed(wPrevious, wCurrent, cutoff), wCurrent), f_liveFlow(f_mtfConfirmed(monthPrevious, monthCurrent, cutoff), monthCurrent))
+            array<string> higherNames = array.from("H4", "D", "W", "M")
+            for tfIndex = 0 to 3
+                MtfSnapshot snapshot = array.get(higherData, tfIndex)
+                if not na(snapshot)
+                    MtfFvg workingZone = f_mtfWorkingZone(snapshot)
+                    if not na(workingZone) and drawn < fvgMaxZones
+                        f_mtfDraw(workingZone, array.get(higherNames, tfIndex), mtfDrawings, rightTime)
+                        if mtfLower
+                            array.push(h1Parents, workingZone)
+                        drawn += 1
+        if not na(localData)
+            int index = array.size(localData.zones) - 1
+            while index >= 0 and drawn < fvgMaxZones
+                MtfFvg zone = array.get(localData.zones, index)
+                bool allowed = mtfLower ? f_mtfInH1(zone, h1Parents) : (not flowOnChart or not fvgOnlyInFlow or f_mtfInFlow(zone, localData, true))
+                // Как на старших ТФ: пробитая зона рисуется до своей свечи пробоя.
+                if allowed and (not mtfLower or (mtfM1 ? fvgShowM1 : fvgShowM5))
+                    f_mtfDraw(zone, f_mtfName(), mtfDrawings, rightTime)
+                    drawn += 1
+                index -= 1
+        if mtfLower and (fvgMtfDiagnostics or na(h1Data))
+            string diagnostic = "FVG H1: нет подтверждённого снимка"
+            if not na(h1Data)
+                diagnostic := "H1: зон " + str.tostring(array.size(h1Data.zones)) + " | старших зон после фильтра " + str.tostring(array.size(h1Parents)) + " | закрытие " + str.format_time(h1Data.closedAt, "dd.MM HH:mm", syminfo.timezone)
+            diagnostic += " | показано " + str.tostring(drawn)
+            table.cell(mtfStatus, 0, 0, diagnostic, bgcolor = color.new(color.orange, 20), text_color = color.white, text_size = size.small)
+
+
+// Сводка текущего инструмента: пять ТФ, строка FVG и строка потока.
+var table board = table.new(position.top_right, 5, 2, border_width = 1)
+if barstate.islast
+    table.clear(board, 0, 0, 4, 1)
+    if currentFvgTableEnabled
+        // Сводка на старшем графике относится к правому краю, не к началу месяца.
+        // timenow ограничивает текущую незакрытую свечу, time_close — историю/Replay.
+        int summaryCutoff = mtfChartSeconds > 3600 and not na(time_close) ? math.min(timenow, time_close) : barstate.isconfirmed and not na(time_close) ? time_close : time
+        MtfSnapshot summaryH1 = mtfH1 ? f_liveFlow(f_mtfConfirmed(localPrevious, localCurrent, summaryCutoff), localCurrent) : f_liveFlow(f_mtfConfirmed(h1Previous, h1Current, summaryCutoff), h1Current)
+        // Все столбцы относятся к одному правому краю H1-пакета. На начальном
+        // расчёте открытой W/M-свечи её time ещё не допускает свежие D/W-снимки.
+        LiquidityView confirmedH4 = f_confirmedLiquidity(summaryH4, summaryCutoff)
+        LiquidityView confirmedDay = f_confirmedLiquidity(summaryDay, summaryCutoff)
+        LiquidityView confirmedWeek = f_confirmedLiquidity(summaryWeek, summaryCutoff)
+        LiquidityView confirmedMonth = f_confirmedLiquidity(summaryMonth, summaryCutoff)
+        array<int> sides = array.from(f_summaryFlowSide(summaryH1, close), f_summaryHigherSide(confirmedH4, close), f_summaryHigherSide(confirmedDay, close), f_summaryHigherSide(confirmedWeek, close), f_summaryHigherSide(confirmedMonth, close))
+        // Направление потока независимо от нахождения цены в рабочем FVG.
+        array<int> directions = array.from(na(summaryH1) ? 0 : summaryH1.direction, na(confirmedH4) ? 0 : confirmedH4.side, na(confirmedDay) ? 0 : confirmedDay.side, na(confirmedWeek) ? 0 : confirmedWeek.side, na(confirmedMonth) ? 0 : confirmedMonth.side)
+        // Свой ТФ берём из того же подтверждённого расчёта, что и диагностику.
+        // Вложенный H1-пакет может ещё не иметь старшего снимка на короткой истории.
+        int localCutoff = barstate.isconfirmed and not na(time_close) ? time_close : time
+        MtfSnapshot ownFlow = f_mtfConfirmed(localPrevious, localCurrent, localCutoff)
+        int ownColumn = mtfH4 ? 1 : mtfD ? 2 : mtfW ? 3 : timeframe.ismonthly and timeframe.multiplier == 1 ? 4 : -1
+        if ownColumn >= 0
+            array.set(directions, ownColumn, na(ownFlow) ? 0 : ownFlow.direction)
+            array.set(sides, ownColumn, f_summaryFlowSide(ownFlow, close))
+        array<string> names = array.from("H1", "H4", "D", "W", "M")
+        for column = 0 to 4
+            int side = array.get(sides, column)
+            color cellColor = side == 1 ? color.new(#388E3C, 0) : side == -1 ? color.new(#B22833, 0) : color.new(#636363, 0)
+            string stateText = side == 1 ? "Цена в рабочем лонговом FVG" : side == -1 ? "Цена в рабочем шортовом FVG" : "Вне рабочего FVG / нет рабочего FVG или данных"
+            table.cell(board, column, 0, array.get(names, column), bgcolor = cellColor, text_color = color.white, width = currentFvgCellWidth, height = currentFvgCellHeight, text_size = currentFvgFontSize, tooltip = syminfo.ticker + " · " + array.get(names, column) + ": " + stateText)
+            int direction = array.get(directions, column)
+            color arrowColor = direction == 1 ? color.new(#388E3C, 0) : direction == -1 ? color.new(#B22833, 0) : color.new(#636363, 0)
+            string arrowText = direction == 1 ? "⬆" : direction == -1 ? "⬇" : "—"
+            string flowText = direction == 1 ? "Лонговый поток" : direction == -1 ? "Шортовый поток" : column == 0 and na(summaryH1) ? "H1: нет подтверждённого снимка" : "Поток ещё не инициализирован"
+            table.cell(board, column, 1, arrowText, bgcolor = arrowColor, text_color = color.white, width = currentFvgCellWidth, height = currentFvgCellHeight, text_size = currentFlowArrowSize, tooltip = syminfo.ticker + " · " + array.get(names, column) + ": " + flowText)
+
+
+//------------------------------------------------------------------------------
+// VWAP: данные текущего графика, без дополнительных request.*().
+//------------------------------------------------------------------------------
+string VWAP_GROUP = "VWAP"
+bool vwapEnabled = input.bool(true, "Показывать VWAP", group = VWAP_GROUP)
+string vwapAnchor = input.string("Session", "Период", options = ["Session", "Week", "Month", "Quarter", "Year", "Decade", "Century"], group = VWAP_GROUP)
+float vwapSource = input.source(hlc3, "Источник", group = VWAP_GROUP)
+color vwapColor = input.color(#0C3299, "Цвет VWAP", group = VWAP_GROUP)
+int vwapWidth = input.int(3, "Толщина VWAP", minval = 1, maxval = 5, group = VWAP_GROUP)
+bool vwapShowPrevious = input.bool(true, "Продлевать VWAP прошлого периода", group = VWAP_GROUP)
+color vwapPreviousColor = input.color(#0C3299, "Цвет прошлого VWAP", group = VWAP_GROUP)
+int vwapPreviousWidth = input.int(3, "Толщина прошлого VWAP", minval = 1, maxval = 5, group = VWAP_GROUP)
+const int VWAP_PREVIOUS_LIMIT = 50
+
+
+// Сброс сессии — начало дневного бара инструмента (не клиринг МОЕХ).
+bool vwapCalendarReset = switch vwapAnchor
+    "Session" => timeframe.change("D")
+    "Week" => timeframe.change("W")
+    "Month" => timeframe.change("M")
+    "Quarter" => timeframe.change("3M")
+    "Year" => timeframe.change("12M")
+    "Decade" => timeframe.change("12M") and year % 10 == 0
+    "Century" => timeframe.change("12M") and year % 100 == 0
+    => false
+bool vwapReset = barstate.isfirst or vwapCalendarReset or na(vwapSource[1])
+// Вызов на каждой свече сохраняет последовательность расчёта ta.vwap.
+float vwapRaw = ta.vwap(vwapSource, vwapReset)
+// Из рабочих ТФ VWAP показывается только на M1/M5.
+bool vwapVisible = vwapEnabled and mtfLower
+
+// Нет положительного объёма: скрываем только VWAP, остальные блоки работают.
+var float vwapPeriodVolume = 0.0
+if vwapReset
+    vwapPeriodVolume := 0.0
+vwapPeriodVolume += math.max(nz(volume), 0.0)
+bool vwapHasPeriodVolume = vwapPeriodVolume > 0
+float vwapShown = vwapVisible and vwapHasPeriodVolume ? vwapRaw : na
+
+var array<line> vwapPreviousLines = array.new_line()
+var line vwapActivePreviousLine = na
+var float vwapPreviousValue = na
+if vwapCalendarReset and not barstate.isfirst
+    if not na(vwapActivePreviousLine)
+        line.set_x2(vwapActivePreviousLine, time)
+    vwapActivePreviousLine := na
+    // Берём финальное значение именно последнего периода, без подстановки старых.
+    vwapPreviousValue := vwapPeriodVolume[1] > 0 ? vwapRaw[1] : na
+    if vwapVisible and vwapShowPrevious and not na(vwapPreviousValue)
+        if array.size(vwapPreviousLines) >= VWAP_PREVIOUS_LIMIT
+            line.delete(array.shift(vwapPreviousLines))
+        vwapActivePreviousLine := line.new(time, vwapPreviousValue, na(time_close) ? time : time_close, vwapPreviousValue, xloc = xloc.bar_time, color = vwapPreviousColor, width = vwapPreviousWidth, style = line.style_dashed)
+        array.push(vwapPreviousLines, vwapActivePreviousLine)
+else if not na(vwapActivePreviousLine)
+    line.set_x2(vwapActivePreviousLine, na(time_close) ? time : time_close)
+
+plot(vwapShown, title = "VWAP", color = vwapColor, linewidth = vwapWidth)
+plot(vwapVisible and vwapShowPrevious ? vwapPreviousValue : na, title = "VWAP прошлого периода", color = vwapPreviousColor, display = display.price_scale, show_last = 1)
+
+// Диагностика берётся из подтверждённого снимка: работает и в Replay.
+var table flowDiagnosticTable = table.new(position.bottom_left, 1, 2)
+if barstate.islast
+    table.clear(flowDiagnosticTable, 0, 0, 0, 1)
+    if flowDiagnosticEnabled
+        int cutoff = barstate.isconfirmed and not na(time_close) ? time_close : time
+        // На M1/M5 показываем диагностику действующего H1-потока.
+        MtfSnapshot localDiagnostic = f_mtfConfirmed(localPrevious, localCurrent, cutoff)
+        MtfSnapshot h1Diagnostic = f_liveFlow(f_mtfConfirmed(h1Previous, h1Current, cutoff), h1Current)
+        bool useHigherDiagnostic = mtfLower
+        MtfSnapshot diagnosticData = useHigherDiagnostic ? h1Diagnostic : flowOnChart ? localDiagnostic : na
+        string diagnosticText = not mtfLower and not flowOnChart ? "Поток рассчитывается только на H1 / H4 / D / W / M" : na(diagnosticData) ? "Нет подтверждённого снимка потока" : diagnosticData.diagnostic
+        if not na(diagnosticData) and not na(diagnosticData.closedAt)
+            diagnosticText += "\nСнимок на закрытие: " + str.format_time(diagnosticData.closedAt, "yyyy-MM-dd HH:mm", "Europe/Moscow")
+        MtfSnapshot pendingData = useHigherDiagnostic ? h1Current : localCurrent
+        if not na(diagnosticData) and not na(pendingData) and not na(pendingData.closedAt) and pendingData.closedAt > cutoff and pendingData.direction != diagnosticData.direction
+            diagnosticText += "\nНа формирующейся свече: " + (pendingData.direction == 1 ? "ЛОНГ" : "ШОРТ") + "; подтверждение после её закрытия"
+        diagnosticText := "ПОСЛЕДНЯЯ СМЕНА / СТАРТ | " + (useHigherDiagnostic ? "H1" : timeframe.period) + "\n" + diagnosticText
+        table.cell(flowDiagnosticTable, 0, 0, diagnosticText, text_color = color.white, bgcolor = color.new(color.black, 15), text_size = flowDiagnosticFont, text_halign = text.align_left)
+        table.cell(flowDiagnosticTable, 0, 1, "", height = flowDiagnosticBottomOffset, bgcolor = color.new(color.black, 100))

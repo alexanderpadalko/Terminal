@@ -1,0 +1,172 @@
+// Exact FVG excerpts: CC2E1422F6D865C7D4814B7FF7CD4EEA82F87EB89642E8EF5F158A47B85D057F
+
+f_fvgUpdateActive(array<MtfFvg> zones, array<int> activeIndices) =>
+    int cursor = array.size(activeIndices) - 1
+    while cursor >= 0
+        int zoneIndex = array.get(activeIndices, cursor)
+        MtfFvg zone = array.get(zones, zoneIndex)
+        zone.rightTime := time_close
+        if zone.side == 1 ? close <= zone.bottom : close >= zone.top
+            zone.active := false
+            array.remove(activeIndices, cursor)
+        cursor -= 1
+
+f_fvgAppendActive(array<MtfFvg> zones, array<int> activeIndices, MtfFvg zone) =>
+    if array.size(zones) >= fvgMaxZones
+        array.shift(zones)
+        int cursor = array.size(activeIndices) - 1
+        while cursor >= 0
+            int oldIndex = array.get(activeIndices, cursor)
+            if oldIndex == 0
+                array.remove(activeIndices, cursor)
+            else
+                array.set(activeIndices, cursor, oldIndex - 1)
+            cursor -= 1
+    array.push(zones, zone)
+    array.push(activeIndices, array.size(zones) - 1)
+
+f_fvgSnapshot() =>
+    var array<MtfFvg> zones = array.new<MtfFvg>()
+    var array<int> activeZoneIndices = array.new_int()
+    bool exportNow = barstate.islast or barstate.islastconfirmedhistory
+    MtfSnapshot previous = na
+    if exportNow
+        previous := f_mtfCopy(zones, 0, float(na), float(na), int(na), time_close[1], time[1], int(na), int(na), float(na), float(na), false, float(na), float(na), int(na), int(na), "")
+    var float motherHi = na
+    var float motherLo = na
+    bool inside = not na(motherHi) and high <= motherHi and low >= motherLo
+    if not inside
+        motherHi := high
+        motherLo := low
+    // Отображаемым зонам достаточно статуса пробоя и времени окончания.
+    f_fvgUpdateActive(zones, activeZoneIndices)
+    // H1, M5 и M1: FVG создаём только из трёх невнутренних свечей.
+    // На H4/D/W/M FVG разрешены и по внутренним свечам.
+    bool allowInside = timeframe.in_seconds() > timeframe.in_seconds("60")
+    bool allowed = allowInside or (not inside and not inside[1] and not inside[2])
+    bool adjacentGap = low > high[1] or high < low[1] or low[1] > high[2] or high[1] < low[2]
+    bool gapAllowed = not fvgExcludeGaps or not adjacentGap
+    bool bull = not na(high[2]) and low > high[2] and gapAllowed
+    bool bear = not na(low[2]) and high < low[2] and gapAllowed
+    if allowed and (bull or bear)
+        int side = bull ? 1 : -1
+        float top = bull ? low : low[2]
+        float bottom = bull ? high[2] : high
+        f_fvgAppendActive(zones, activeZoneIndices, MtfFvg.new(time[2], time[1], top, bottom, side, true, time_close))
+    MtfSnapshot current = na
+    if exportNow
+        current := f_mtfCopy(zones, 0, float(na), float(na), int(na), time_close, time, int(na), int(na), float(na), float(na), false, float(na), float(na), int(na), int(na), "")
+    [previous, current]
+
+f_mtfConfirmed(MtfSnapshot previous, MtfSnapshot current, int cutoff) =>
+    MtfSnapshot result = na
+    if not na(current)
+        if not na(current.closedAt) and current.closedAt <= cutoff
+            result := current
+    if na(result) and not na(previous)
+        if not na(previous.closedAt) and previous.closedAt <= cutoff
+            result := previous
+    result
+
+f_liveFlow(MtfSnapshot confirmed, MtfSnapshot developing) =>
+    MtfSnapshot result = confirmed
+    if not na(confirmed) and not na(developing)
+        bool liveInitial = barstate.islast and not na(developing.sourceOpen) and not na(developing.closedAt) and developing.sourceOpen <= time and time <= timenow and developing.sourceOpen <= timenow and timenow < developing.closedAt
+        if (barstate.isrealtime or liveInitial) and developing.direction == confirmed.direction and developing.startTime == confirmed.startTime
+            result := MtfSnapshot.new(confirmed.zones, confirmed.direction, confirmed.direction == -1 ? math.min(confirmed.lo, developing.lo) : confirmed.lo, confirmed.direction == 1 ? math.max(confirmed.hi, developing.hi) : confirmed.hi, confirmed.startTime, confirmed.closedAt, confirmed.sourceOpen, confirmed.prevStart, confirmed.prevEnd, confirmed.prevLo, confirmed.prevHi, confirmed.firstBroken, confirmed.firstTop, confirmed.firstBottom, confirmed.diagnostic, confirmed.workingLeftTime, confirmed.workingImpulseTime)
+    result
+
+f_mtfInFlow(MtfFvg zone, MtfSnapshot snapshot, bool includePrevious = false) =>
+    bool matches = false
+    if not na(snapshot)
+        bool currentFlow = snapshot.direction != 0 and zone.impulseTime >= snapshot.startTime and zone.top >= snapshot.lo and zone.bottom <= snapshot.hi
+        bool previousFlow = includePrevious and not na(snapshot.prevStart) and zone.impulseTime >= snapshot.prevStart and zone.impulseTime < snapshot.prevEnd and zone.top >= snapshot.prevLo and zone.bottom <= snapshot.prevHi
+        matches := currentFlow or previousFlow
+    matches
+
+f_mtfWorkingZone(MtfSnapshot snapshot) =>
+    MtfFvg result = na
+    if not na(snapshot)
+        bool working = snapshot.direction != 0 and not snapshot.firstBroken and not na(snapshot.firstTop) and not na(snapshot.firstBottom)
+        bool inFlow = snapshot.firstTop >= snapshot.lo and snapshot.firstBottom <= snapshot.hi
+        if working and inFlow and not na(snapshot.workingLeftTime) and not na(snapshot.workingImpulseTime)
+            result := MtfFvg.new(snapshot.workingLeftTime, snapshot.workingImpulseTime, snapshot.firstTop, snapshot.firstBottom, snapshot.direction, true, snapshot.closedAt)
+    result
+
+f_mtfInH1(MtfFvg child, array<MtfFvg> parents) =>
+    bool matches = false
+    for parent in parents
+        bool overlaps = child.bottom < parent.top and child.top > parent.bottom
+        // Старые зоны на тех же ценах не принадлежат более позднему рабочему FVG.
+        bool afterParentStart = not na(child.leftTime) and not na(parent.leftTime) and child.leftTime >= parent.leftTime
+        if parent.active and overlaps and afterParentStart
+            matches := true
+            break
+    matches
+
+f_mtfDraw(MtfFvg zone, string tfName, array<box> drawings, int rightTime) =>
+    color zoneColor = not zone.active ? fvgFilledColor : zone.side == 1 ? fvgBullColor : fvgBearColor
+    int endTime = zone.active ? rightTime : zone.rightTime
+    string title = "FVG " + tfName
+    string fontSize = switch tfName
+        "M" => fvgFontM
+        "W" => fvgFontW
+        "D" => fvgFontD
+        "H1" => fvgFontH1
+        "H4" => fvgFontH4
+        "M1" => fvgFontM1
+        => fvgFontM5
+    box area = box.new(left = zone.leftTime, top = zone.top, right = endTime, bottom = zone.bottom, xloc = xloc.bar_time, border_color = color.new(zoneColor, 30), border_width = fvgBorderWidth, bgcolor = zoneColor, text = title, text_color = color.new(zoneColor, 0), text_size = fontSize, text_halign = text.align_right, text_valign = text.align_center)
+    float mid = (zone.top + zone.bottom) / 2.0
+    box middle = box.new(left = zone.leftTime, top = mid, right = endTime, bottom = mid, xloc = xloc.bar_time, border_color = color.new(zoneColor, 0), border_width = fvgMiddleWidth, border_style = line.style_dotted, bgcolor = na)
+    array.push(drawings, area)
+    array.push(drawings, middle)
+
+if barstate.islast
+    table.cell(mtfStatus, 0, 0, "", bgcolor = color.new(color.black, 100))
+    while array.size(mtfDrawings) > 0
+        box.delete(array.pop(mtfDrawings))
+    if fvgEnabled
+        int cutoff = barstate.isconfirmed and not na(time_close) ? time_close : time
+        int rightTime = na(time_close) ? time : time_close
+        MtfSnapshot localData = f_liveFlow(f_mtfConfirmed(localPrevious, localCurrent, cutoff), localCurrent)
+        MtfSnapshot h1Data = f_liveFlow(f_mtfConfirmed(h1Previous, h1Current, cutoff), h1Current)
+        array<MtfFvg> h1Parents = array.new<MtfFvg>()
+        int drawn = 0
+        if mtfLower and showH1OnM5 and not na(h1Data)
+            // Родители M1/M5 — только те рабочие старшие FVG, которые рисуем.
+            MtfFvg workingH1 = f_mtfWorkingZone(h1Data)
+            if not na(workingH1) and drawn < fvgMaxZones
+                f_mtfDraw(workingH1, "H1", mtfDrawings, rightTime)
+                array.push(h1Parents, workingH1)
+                drawn += 1
+        if mtfLower or mtfH1 or mtfH4 or mtfD or mtfW
+            array<MtfSnapshot> higherData = array.from(f_liveFlow(f_mtfConfirmed(h4Previous, h4Current, cutoff), h4Current), f_liveFlow(f_mtfConfirmed(dPrevious, dCurrent, cutoff), dCurrent), f_liveFlow(f_mtfConfirmed(wPrevious, wCurrent, cutoff), wCurrent), f_liveFlow(f_mtfConfirmed(monthPrevious, monthCurrent, cutoff), monthCurrent))
+            array<string> higherNames = array.from("H4", "D", "W", "M")
+            for tfIndex = 0 to 3
+                MtfSnapshot snapshot = array.get(higherData, tfIndex)
+                if not na(snapshot)
+                    MtfFvg workingZone = f_mtfWorkingZone(snapshot)
+                    if not na(workingZone) and drawn < fvgMaxZones
+                        f_mtfDraw(workingZone, array.get(higherNames, tfIndex), mtfDrawings, rightTime)
+                        if mtfLower
+                            array.push(h1Parents, workingZone)
+                        drawn += 1
+        if not na(localData)
+            int index = array.size(localData.zones) - 1
+            while index >= 0 and drawn < fvgMaxZones
+                MtfFvg zone = array.get(localData.zones, index)
+                bool allowed = mtfLower ? f_mtfInH1(zone, h1Parents) : (not flowOnChart or not fvgOnlyInFlow or f_mtfInFlow(zone, localData, true))
+                // Как на старших ТФ: пробитая зона рисуется до своей свечи пробоя.
+                if allowed and (not mtfLower or (mtfM1 ? fvgShowM1 : fvgShowM5))
+                    f_mtfDraw(zone, f_mtfName(), mtfDrawings, rightTime)
+                    drawn += 1
+                index -= 1
+        if mtfLower and (fvgMtfDiagnostics or na(h1Data))
+            string diagnostic = "FVG H1: нет подтверждённого снимка"
+            if not na(h1Data)
+                diagnostic := "H1: зон " + str.tostring(array.size(h1Data.zones)) + " | старших зон после фильтра " + str.tostring(array.size(h1Parents)) + " | закрытие " + str.format_time(h1Data.closedAt, "dd.MM HH:mm", syminfo.timezone)
+            diagnostic += " | показано " + str.tostring(drawn)
+            table.cell(mtfStatus, 0, 0, diagnostic, bgcolor = color.new(color.orange, 20), text_color = color.white, text_size = size.small)
+
+
