@@ -25,6 +25,7 @@ async def probe(result,timeout=100,*,symbol='SBER',board='TQBR'):
     queue=asyncio.Queue()
     task=asyncio.create_task(IssPlusClient(symbol,board).run(queue.put_nowait))
     counts=Counter()
+    per_epoch=Counter()
     result.update(symbol=symbol,board=board,statuses=[],counts={},http_market_requests=0)
     deadline=loop.time()+timeout
     ready=False
@@ -38,6 +39,7 @@ async def probe(result,timeout=100,*,symbol='SBER',board='TQBR'):
                     raise RuntimeError(event.detail)
             else:
                 counts[event.timeframe or event.kind]+=1
+                per_epoch[(event.epoch,event.timeframe or event.kind)]+=1
                 result['counts']=dict(counts)
                 if event.timeframe=='M1':
                     result['last_m1']=[c.time.isoformat() for c in event.candles]
@@ -45,7 +47,11 @@ async def probe(result,timeout=100,*,symbol='SBER',board='TQBR'):
                     result['quote_time']=event.quote.get('TIME')
                     result['quote_ticker']=event.quote.get('TICKER')
                     result['trading_status']=event.quote.get('TRADINGSTATUS')
-            if ready and counts['M1']>=2 and counts['quote']>=2:
+            # One M1 snapshot after each reconnect is not an automatic update.
+            # Quotes can remain quiet while delayed closed candles arrive.
+            minute_updates=any(n>=2 for (epoch,kind),n in per_epoch.items() if kind=='M1')
+            result['quote_updates_observed']=any(n>=2 for (epoch,kind),n in per_epoch.items() if kind=='quote')
+            if ready and minute_updates:
                 result['automatic_updates']=True
                 return
         raise TimeoutError('ISS+ snapshots/automatic M1 update not received')
