@@ -3,9 +3,32 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from bisect import bisect_right
+from dataclasses import replace
 
 from .engine import Analysis, analyze
 from .market_data import Candle, TIMEFRAMES, normalize,candle_close_time
+from .liquidity import HIGHER_SOURCES
+
+
+def _closed(source):
+    return (len(source.candles) if source.asof is None else
+            bisect_right(source.candles,source.asof,key=lambda bar:candle_close_time(bar,source.timeframe)))
+
+
+def _reuse(source,bars,tf,asof):
+    """A later clock alone cannot change output inside the same source interval."""
+    if source is None or source.timeframe!=tf or source.asof is None or asof<source.asof or source.candles!=bars:
+        return None
+    if (_closed(source)!=bisect_right(bars,asof,key=lambda bar:candle_close_time(bar,tf)) or
+            bisect_right(bars,source.asof,key=lambda bar:bar.time)!=bisect_right(bars,asof,key=lambda bar:bar.time)):
+        return None
+    return source if source.asof==asof else replace(source,asof=asof)
+
+
+def _same_closed(before,after):
+    if before is None:return False
+    old_count,new_count=_closed(before),_closed(after)
+    return old_count==new_count and before.candles[:old_count]==after.candles[:new_count]
 
 
 def analyze_timeframes(series: dict[str, list[Candle]], display_tf: str,
@@ -31,6 +54,10 @@ def analyze_timeframes(series: dict[str, list[Candle]], display_tf: str,
     analyses: dict[str, Analysis] = {}
     minimum_tick=next((data['minimum_tick'] for data in (provenance or {}).values() if data.get('minimum_tick')), .01)
     limited={}
+    previous_summary={}
+    for saved in (cached or {}).values():
+        previous_summary.update(getattr(saved,'summary_sources',{}))
+    changed_contexts=set()
     if settings is not None:
         for tf in ('MN1','W1','D1','H4'):
             if series.get(tf):
@@ -38,15 +65,27 @@ def analyze_timeframes(series: dict[str, list[Candle]], display_tf: str,
                 known=bars[:bisect_right(bars,asof,key=lambda bar:bar.time)]
                 if not known:
                     continue
-                limited[tf]=analyze(known[-settings.liquidityHistoryBars:],tf,
-                    asof=asof,higher_liquidity=limited,settings=settings,minimum_tick=minimum_tick)
+                bars=known[-settings.liquidityHistoryBars:]
+                old=previous_summary.get(tf)
+                dependency_changed=bool(set(HIGHER_SOURCES.get(tf,()))&changed_contexts)
+                result=None if dependency_changed else _reuse(old,bars,tf,asof)
+                limited[tf]=result or analyze(bars,tf,asof=asof,higher_liquidity=limited,
+                                             settings=settings,minimum_tick=minimum_tick)
+                if dependency_changed or not _same_closed(old,limited[tf]):changed_contexts.add(tf)
+    reused=set()
     for tf in reversed(TIMEFRAMES[TIMEFRAMES.index(display_tf):]):
         if not series.get(tf):
             continue
-        if cached and tf in cached and cached[tf].asof==asof:
-            analyses[tf] = cached[tf]
+        bars=normalize(series[tf])
+        dependency_changed=bool(set(HIGHER_SOURCES.get(tf,()))&changed_contexts)
+        if tf in ('M1','M5') and 'H1' in analyses and 'H1' not in reused:dependency_changed=True
+        saved=(cached or {}).get(tf)
+        result=None if dependency_changed else _reuse(saved,bars,tf,asof)
+        if result is not None:
+            analyses[tf] = result
+            reused.add(tf)
             continue
-        result = analyze(normalize(series[tf]), tf, asof=asof,
+        result = analyze(bars, tf, asof=asof,
                          higher_h1=analyses.get("H1"),
                          higher_liquidity=(limited if settings is not None else analyses) if tf in ("H1", "H4", "D1", "W1", "MN1") else None,
                          settings=settings,minimum_tick=minimum_tick)
@@ -64,7 +103,10 @@ def analyze_timeframes(series: dict[str, list[Candle]], display_tf: str,
             hourly=normalize(series['H1'])
             eligible=hourly[:bisect_right(hourly,asof,key=lambda bar:bar.time)]
             if eligible:
-                summary['H1']=analyze(eligible,'H1',asof=asof,
+                changed=bool(set(HIGHER_SOURCES['H1'])&changed_contexts)
+                old=(cached or {}).get('H1') or previous_summary.get('H1')
+                kept=None if changed else _reuse(old,eligible,'H1',asof)
+                summary['H1']=kept or analyze(eligible,'H1',asof=asof,
                     higher_liquidity=limited,settings=settings,
                     minimum_tick=minimum_tick)
                 summary['H1'].session_info=dict((provenance or {}).get('H1',{}))

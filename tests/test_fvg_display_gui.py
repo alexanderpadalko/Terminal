@@ -28,8 +28,8 @@ class TestFvgDisplayGui(unittest.TestCase):
         chart.resize(1100, 720)
         chart.set_analysis(a, {'H1': source()})
         chart.show_structure = chart.show_flow = False
-        chart.show(); self.app.processEvents()
         with patch.object(chart, '_draw_zone', wraps=chart._draw_zone) as draw:
+            chart.show(); self.app.processEvents()
             chart.grab()
             self.assertEqual([(c.args[7], c.args[6]) for c in draw.call_args_list],
                              [('H1', False), ('M1', True), ('M1', False)])

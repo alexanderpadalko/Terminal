@@ -31,6 +31,7 @@ class StreamController:
 
     def _stop_stream(self):
         self.stream_timer.stop()
+        if hasattr(self,'stream_display_timer'):self.stream_display_timer.stop()
         self.stream_buffer.clear()
         self.stream_ready = False
         self.stream_needs_repair = True
@@ -135,6 +136,8 @@ class StreamController:
                 self.stream_error = ''
         elif event.kind == 'quote':
             self.stream_quote = event.quote
+            if not self.stream_display_timer.isActive():self.stream_display_timer.start()
+            return
         elif event.kind == 'candles':
             for bar in event.candles:
                 self.stream_buffer[(event.timeframe, bar.time)] = (event, bar)

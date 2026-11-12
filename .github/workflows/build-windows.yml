@@ -85,6 +85,7 @@ jobs:
           python -c "from PySide6.QtWidgets import QApplication; from flowdesk.gui import MainWindow; app = QApplication([]); w=MainWindow(); print('GUI constructed:', w.windowTitle()); w.close()"
           python tools/preview_ui.py
           python tools/preview_settings.py
+          python tools/check_chart_performance.py
       - name: Prepare FlowDesk app/taskbar and executable icon
         run: python tools/build_app_icon.py
       - name: Build portable Windows executable
@@ -111,6 +112,7 @@ jobs:
             settings-chart-preview.png
             settings-dialog-preview.png
             settings-ui-result.json
+            chart-performance-result.json
           retention-days: 30
       - uses: actions/upload-artifact@v4
         if: always()

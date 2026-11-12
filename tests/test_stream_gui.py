@@ -133,9 +133,29 @@ class TestStreamGui(unittest.TestCase):
         old = self.window.analysis
         self.window.chart.price_range = (4, 20)
         stream.send(kind='quote', quote={'LAST': 1234, 'TIME': '13:15:00', 'TRADINGSTATUS': 'T'})
+        QTest.qWait(280)
         self.assertIs(self.window.analysis, old)
         self.assertEqual(self.window.chart.price_range, (4, 20))
         self.assertIn('1234', self.window.feed_label.text())
+
+    def test_badge_stays_connected_while_candle_packet_is_processed(self):
+        stream=self.ready()
+        caption=self.window.source_indicator.text()
+        stream.send(kind='candles',timeframe='M1',candles=(Candle(NOW,10,12,9,11),))
+        self.window._flush_stream()
+        self.assertEqual(self.window.source_indicator.text(),caption)
+        self.settle()
+        self.assertEqual(self.window.source_indicator.text(),caption)
+
+    def test_quote_burst_is_coalesced_without_starting_candle_workers(self):
+        from unittest.mock import patch
+        stream=self.ready()
+        with patch.object(self.window,'_update_channel_indicator',wraps=self.window._update_channel_indicator) as update:
+            for i in range(100):stream.send(kind='quote',quote={'LAST':100+i,'TIME':'13:15:00'})
+            self.assertEqual(update.call_count,0)
+            QTest.qWait(280)
+            self.assertEqual(update.call_count,1)
+        self.assertIn('199',self.window.feed_label.text())
 
     def test_tf_switch_keeps_connection_and_stream_batch_uses_worker(self):
         stream = self.ready()
