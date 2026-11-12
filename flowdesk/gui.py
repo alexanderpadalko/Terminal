@@ -26,6 +26,7 @@ from . import __version__
 from .chart_view import ChartView, inside_mother_bars, time_axis_zoom_factor
 from .chart_time import candle_time_text
 from .fvg_display import DisplaySettings, select_fvg_display
+from .flow_display import select_flow_display
 from .runtime_errors import record_exception, last_exception
 from .market_cache import MarketService
 from .stream_worker import StreamWorker
@@ -262,6 +263,7 @@ class CandleChart(QWidget):
         self.indicator_settings=IndicatorSettings()
         self.vwap,self.vwap_previous=[],[]
         self.fvg_plan = None
+        self.flow_plan = None
         self.viewport = ChartView()
         self.price_range = None
         self.last_price_range = None
@@ -295,6 +297,7 @@ class CandleChart(QWidget):
         self.vwap,self.vwap_previous=vwap_series(analysis.candles,cfg.vwapAnchor,cfg.vwapSource)
         self.fvg_plan = select_fvg_display(analysis, self.parents,
                                            replace(self.fvg_settings, enabled=self.show_fvg))
+        self.flow_plan=select_flow_display(analysis,self.parents,cfg)
         self.times = [c.time.timestamp() for c in analysis.candles]
         self.inside_bars = inside_mother_bars(analysis.candles)
         self.viewport.count = min(self.viewport.count, max(1, len(analysis.candles)))
@@ -544,8 +547,8 @@ class CandleChart(QWidget):
             if cfg.vwapShowPrevious:
                 plotted.extend(value for start,end,value in self.vwap_previous if start<last and end>=first)
             if plotted:lowest,highest=min(lowest,min(plotted)),max(highest,max(plotted))
-        if self.include_flow_in_scale and self.analysis.flows:
-            st = self.analysis.flows[last - 1]
+        if self.include_flow_in_scale and self.flow_plan.state is not None:
+            st = self.flow_plan.state
             if st.lo is not None:
                 lowest, highest = min(lowest, st.lo), max(highest, st.hi)
         gap = max(0.001, (highest - lowest) * 0.075)
@@ -650,33 +653,26 @@ class CandleChart(QWidget):
                 p.setPen(QPen(outline, 1.0))
                 p.drawRect(body)
         # Current and previous flow 0, 0.4, 0.5, 0.6, 1.0.
-        if self.show_flow and self.analysis.flows and (self.analysis.timeframe not in ('M1','M5') or cfg.flowH1OnM5):
-            st = self.analysis.flows[-1]
-            if st.side and st.lo is not None and st.hi is not None:
-                starts = max(first, st.start or first)
-                for t, color in zip((0.0, 0.4, 0.5, 0.6, 1.0),
-                                    colors["flow_lines"]):
-                    price = st.lo + (st.hi - st.lo) * t
-                    p.setPen(QPen(color, cfg.flowLineWidth))
-                    Y = y(price)
-                    right_edge=x(len(candles)-.5)
-                    p.drawLine(QPointF(x(starts), Y), QPointF(right_edge, Y))
+        if self.show_flow:
+            for level in self.flow_plan.levels:
+                if level.previous and not self.show_previous:continue
+                a=bisect.bisect_left(self.times,level.start.timestamp())
+                b=bisect.bisect_left(self.times,level.end.timestamp())
+                if b<=first or a>=last or b<=a:continue
+                color=colors['previous'] if level.previous else colors['flow_lines'][(0.0,0.4,0.5,0.6,1.0).index(level.ratio)]
+                pen=QPen(color,cfg.flowLineWidth)
+                if level.previous:pen.setStyle(Qt.PenStyle.DashLine)
+                p.setPen(pen)
+                left_x=self.x0+(a-left_edge)*stride
+                right_x=self.x0+(b-left_edge)*stride
+                Y=y(level.price)
+                p.drawLine(QPointF(left_x,Y),QPointF(right_x,Y))
+                if cfg.flowShowData and not level.previous:
                     p.setFont(indicator_font(cfg.flowFontSize))
-                    caption = (f"{t:g} ({self.format_price(price)})"
-                               if self.visual_theme == "tv" else str(t))
-                    if cfg.flowShowData:
-                        prefix='H1 ' if self.analysis.timeframe in ('M1','M5') else ''
-                        p.drawText(QRectF(right_edge - 190, Y - p.fontMetrics().height()-3, 184, p.fontMetrics().height()),
-                                   int(Qt.AlignmentFlag.AlignRight), prefix+caption)
-            if self.show_previous and st.previous:
-                old_start, old_end, old_lo, old_hi, _ = st.previous
-                if old_lo is not None and old_hi is not None:
-                    for r in (0.0, 0.4, 0.5, 0.6, 1.0):
-                        Y = y(old_lo + (old_hi - old_lo) * r)
-                        pen = QPen(colors["previous"], cfg.flowLineWidth)
-                        pen.setStyle(Qt.PenStyle.DashLine)
-                        p.setPen(pen)
-                        p.drawLine(QPointF(x(max(first, old_start)), Y), QPointF(x(min(last - 1, max(first, old_end))), Y))
+                    prefix='H1 ' if self.analysis.timeframe in ('M1','M5') else ''
+                    caption=f'{prefix}{level.ratio:g} ({self.format_price(level.price)})'
+                    p.drawText(QRectF(right_x-190,Y-p.fontMetrics().height()-3,184,p.fontMetrics().height()),
+                               int(Qt.AlignmentFlag.AlignRight),caption)
         draw_market(self,p,x,y,first,last)
         draw_vwap(self,p,x,y,first,last)
         p.restore()

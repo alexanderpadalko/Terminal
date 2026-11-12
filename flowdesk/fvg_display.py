@@ -121,7 +121,8 @@ def _flow_view(source, state):
     previous = None
     if state.previous is not None:
         start, end, lo, hi, _ = state.previous
-        previous = (_at(source, start), _at(source, end, close=True), lo, hi)
+        previous = (state.previous_start_at or _at(source,start),
+                    state.previous_end_at or _at(source,end,close=True),lo,hi)
     return FlowView(state.side, state.lo, state.hi,
                     state.range_start_at or _at(source, state.start), previous)
 

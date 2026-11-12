@@ -93,8 +93,7 @@ def draw_overlays(chart,p):
                 text={'D1':'D','W1':'W','MN1':'M'}.get(row['timeframe'],row['timeframe']) if row_index==0 else '↑' if side==1 else '↓' if side==-1 else '—'
                 p.drawText(rect,Qt.AlignmentFlag.AlignCenter,text)
     if cfg.flowDiagnosticEnabled and chart.analysis.flows:
-        flow=chart.analysis.flows[-1]
-        text='ПОСЛЕДНЯЯ СМЕНА / СТАРТ | '+('H1' if chart.analysis.timeframe in ('M1','M5') else chart.analysis.timeframe)+'\n'+flow.diagnosis
+        text=chart.flow_plan.diagnostic
         p.setFont(font(cfg.flowDiagnosticFont))
         width=min(chart.x1-chart.x0-12,p.fontMetrics().horizontalAdvance(max(text.splitlines(),key=len))+16)
         height=min(chart.bottom-chart.top-12,p.fontMetrics().lineSpacing()*len(text.splitlines())+16)

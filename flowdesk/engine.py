@@ -1,6 +1,6 @@
 """Candle-by-candle analysis core; no broker/orders.
 
-The *structure* state machine follows the v2.04 H1 Pine structure/mother-bar
+The *structure* state machine follows the pinned v2.11 Pine structure/mother-bar
 rules. FVG creation and invalidation follow Pine's three-candle conditions.
 Flow applies Rules 2 > 1 > 3 with closed-source higher liquidity. Complete
 Pine parity still requires verification. This is a visualization/diagnostic port, NOT a trading
@@ -356,6 +356,9 @@ class FlowState:
     live_range: bool = False
     rule1_check: dict = field(default_factory=dict)
     change_evidence: dict = field(default_factory=dict)
+    previous_start_at: Optional[datetime] = None
+    previous_end_at: Optional[datetime] = None
+    pending_side: int = 0
 
 
 class FlowEngine:
@@ -625,17 +628,16 @@ def _project_h1_flows(
         raise ValueError("Для M1/M5 необходим именно ряд H1")
     if h1 is not None and len(h1.candles) != len(h1.flows):
         raise ValueError("История H1 повреждена: число свечей и потоков отличается")
-    step = timedelta(minutes=1 if lower_tf == "M1" else 5)
     flows: list[FlowState] = []
     if h1 is None or not h1.candles:
         return [FlowState(i, diagnosis="НЕТ H1: поток не рассчитывается на M1/M5",
                           source_tf="H1") for i in range(len(lower))]
-    h1_ends = [b.time + timedelta(hours=1) for b in h1.candles]
+    h1_ends = [candle_close_time(b,'H1') for b in h1.candles]
     h1_starts = [b.time for b in h1.candles]
     lower_starts = [b.time for b in lower]
     prior_close = None
     for i, candle in enumerate(lower):
-        chart_close = candle.time + step
+        chart_close = candle_close_time(candle,lower_tf)
         # The current unfinished lower candle may exist in ISS: it must not
         # unlock a future H1 snapshot merely because its nominal close is later.
         eligible_until = min(chart_close, asof) if asof is not None else chart_close
@@ -694,6 +696,8 @@ def _project_h1_flows(
             guard_balanced=h.guard_balanced,
             rule1_check={**h.rule1_check, "applied": event_now and h.rule == 1},
             change_evidence=h.change_evidence,
+            previous_start_at=h.previous_start_at,previous_end_at=h.previous_end_at,
+            pending_side=h.pending_side,
         ))
         prior_close = chart_close
     return flows
@@ -766,6 +770,7 @@ def analyze(
                     developing = preview.step(bar, i, sp, zone, candles, ps,
                                               capture=capture_audit[i].selected if capture_audit else None,
                                               higher_audit=capture_audit[i].audit_text if capture_audit else '')
+                    snapshot.pending_side=developing.side
                     if developing.side == previous.side and developing.start == previous.start:
                         if previous.side == 1 and developing.hi > previous.hi:
                             snapshot.hi = developing.hi

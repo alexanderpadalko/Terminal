@@ -66,6 +66,7 @@ class PinnedFlowEngine:
             range_high_at=stamp(state.get('flowHiTime')),last_change_at=candles[self.last_change_i].time if self.last_change_i is not None else None,
             last_change_rule=self.last_change_rule,range_origin=state.get('flowDiagnostic',''),
             guard_balanced=state.get('guardBalanced',False),
+            previous_start_at=stamp(current.prevStart),previous_end_at=stamp(current.prevEnd),
             rule1_check=evidence,change_evidence=deepcopy(evidence) if rule==1 else {})
         self.history.append(result)
         return result
