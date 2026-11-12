@@ -8,6 +8,7 @@ on:
       - flowdesk/assets/flowdesk_icon.png.base64
       - tools/build_app_icon.py
       - tests/test_app_icon.py
+      - tests/test_clean_header.py
       - build_windows.bat
       - tests/test_tv_chart_theme.py
       - .github/workflows/flowdesk-tv-style-qa.yml
