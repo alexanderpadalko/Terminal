@@ -1,0 +1,2960 @@
+{
+  "date": "2026-11-12",
+  "application_version": "0.2.24",
+  "application_commit": "a6a20667930c24307aaf2831181da26481e9b8c1",
+  "source_hashes": {
+    "v2.04": "4207265E114CC2129E8F4F89FA6091935F411B6213DECE703C54EDFB100085A2",
+    "v2.11": "CC2E1422F6D865C7D4814B7FF7CD4EEA82F87EB89642E8EF5F158A47B85D057F"
+  },
+  "counts": {
+    "v204_inputs": 91,
+    "v211_inputs": 74,
+    "unique": 93,
+    "current_statuses": {
+      "Доступно": 4,
+      "Фиксировано": 17,
+      "Отличается": 22,
+      "Исключено": 19,
+      "Нет": 10,
+      "Частично": 2
+    }
+  },
+  "scope": "Source defaults and available controls; actual saved TradingView input values were not provided.",
+  "application_files": {
+    "cancellation.py": "AD9595552035FD4F74EA65373F39FFAA89FE263AE30A5F469E4D92824D9B9965",
+    "chart_time.py": "76C957C9FC341777A7376F387C1612E8C6DD3BF49643911982EE61E186498B44",
+    "chart_view.py": "A9357339B2E3CADEF00BB8E09C14B71C03D3657AC499F811E45BBEA9CC62EE59",
+    "engine.py": "5BFBF0214147B5DADC40786DD623659FA4F8AE687D81179AE5DF42ACFF9F3090",
+    "futures_data.py": "90495BFBB47AC4BBE6F49D009B932A2C91EDF297C21A4CE78EDC3B7946E52777",
+    "fvg_display.py": "994705374FDB61A27B91853749F791990D7B8AB96CC84A7BC630AFB294AD9C25",
+    "gui.py": "4DCC34325E7E52021E867754301B0B4CD58C3239718A8BF8EC1C9465AEE686B6",
+    "iss_plus.py": "7ABB90351C277B7E23777933BBA032D3F849D8FE163EA27C1B0F3AB571930418",
+    "lifecycle.py": "48164214355C20E07650F7E379C7055AC2DEF13853EF4BF61812818031B599B2",
+    "liquidity.py": "B7946DE71AFB70465E7896FF350969B624DDD674F700AC74106B95237620CBC9",
+    "market_cache.py": "5F3B153A616EFAE9E485415423BE8019F4F27A0D57AA455B5D35309E58F18667",
+    "market_data.py": "C332F3D43A11E0F2C2C2053BCBD2F9210F3FB2DA4E79C9570B9B7641FD31115F",
+    "moex_calendar.py": "A5A132B6FC450513647345E64FB17E0FB113B0A554B8772E3AB262517E2E9C08",
+    "pipeline.py": "D725FECA458481037450E90CC22F2F2FAFD0A02E09EB77191F219A0C23F7F96F",
+    "preferences.py": "40EAD52F1E68ADF149943FC5F16AC9B652B870C3431F57067021A62F9C4868E9",
+    "rule1.py": "A614C06849A58AB2CECACB56A147831C18133C7491188DC129A4D37296750F6C",
+    "rule1_shadow.py": "B7FB30E9C51E50A91261F9EE5957DF5FBC8B2F0ED27676638E96529CDFDEBD67",
+    "runtime_errors.py": "224C5245760D7E09172239D035EA33DED33C279DD18CD8C9994C771373AC015B",
+    "stream_cache.py": "AB8777A4F5B3EB3D5B3A68B9442401140F54E3587D4E824482923EA25B9099CF",
+    "stream_ui.py": "2BF88EC6095550B84CCBC5AB832E2E86D3D1491388D6DF31C73E6D14FA466F6E",
+    "stream_worker.py": "CC9BB7C55C31C58D8FAFAB795CFBE588E9011472E9E22C701ADB7D15001487CC",
+    "watchlist.py": "42D07C1FAEEF3F477EEE247079340E711003E4A6A95C91BF2D27EB0F73ACBCDE",
+    "watchlist_ui.py": "FCA32A4A59FB21B3C7E55CD172C151A03375AC7D749DC9A98FDDDCAFBC4D3BDD",
+    "__init__.py": "C3C7D9CB05B1B8208602308FCAB173B4EA076FB894A7A01ED9A3B94DF33DB405"
+  },
+  "settings": [
+    {
+      "variable": "showStructure",
+      "pine_v204": {
+        "variable": "showStructure",
+        "type": "bool",
+        "title": "Структурная ломаная",
+        "default": "true",
+        "group": "Структурное движение",
+        "line": 37,
+        "arguments": {
+          "group": "GROUP_VIEW"
+        },
+        "limits": {}
+      },
+      "pine_v211": {
+        "variable": "showStructure",
+        "type": "bool",
+        "title": "Структурная ломаная",
+        "default": "true",
+        "group": "Структурное движение",
+        "line": 37,
+        "arguments": {
+          "group": "GROUP_VIEW"
+        },
+        "limits": {}
+      },
+      "status": "Доступно",
+      "application": "Флажок «Структурная ломаная» в скрытой по умолчанию панели; включён.",
+      "evidence": "gui.py:245,864"
+    },
+    {
+      "variable": "showDevelopingLeg",
+      "pine_v204": {
+        "variable": "showDevelopingLeg",
+        "type": "bool",
+        "title": "Последнее формирующееся плечо",
+        "default": "true",
+        "group": "Структурное движение",
+        "line": 38,
+        "arguments": {
+          "group": "GROUP_VIEW"
+        },
+        "limits": {}
+      },
+      "pine_v211": {
+        "variable": "showDevelopingLeg",
+        "type": "bool",
+        "title": "Последнее формирующееся плечо",
+        "default": "true",
+        "group": "Структурное движение",
+        "line": 38,
+        "arguments": {
+          "group": "GROUP_VIEW"
+        },
+        "limits": {}
+      },
+      "status": "Фиксировано",
+      "application": "Формирующиеся отрезки добавляются всегда; отдельного выключателя нет.",
+      "evidence": "engine.py:150; gui.py:553"
+    },
+    {
+      "variable": "maxSegments",
+      "pine_v204": {
+        "variable": "maxSegments",
+        "type": "int",
+        "title": "Хранить подтверждённых отрезков",
+        "default": "100",
+        "group": "Структурное движение",
+        "line": 39,
+        "arguments": {
+          "minval": "10",
+          "maxval": "STRUCTURE_HISTORY_LIMIT",
+          "tooltip": "\"До 390 отрезков структуры. Отдельный запас оставлен для уровней IDM и формирующихся отрезков.\"",
+          "group": "GROUP_VIEW"
+        },
+        "limits": {
+          "minval": "10",
+          "maxval": "390"
+        }
+      },
+      "pine_v211": {
+        "variable": "maxSegments",
+        "type": "int",
+        "title": "Хранить подтверждённых отрезков",
+        "default": "100",
+        "group": "Структурное движение",
+        "line": 39,
+        "arguments": {
+          "minval": "10",
+          "maxval": "STRUCTURE_HISTORY_LIMIT",
+          "tooltip": "\"До 390 отрезков структуры. Отдельный запас оставлен для уровней IDM и формирующихся отрезков.\"",
+          "group": "GROUP_VIEW"
+        },
+        "limits": {
+          "minval": "10",
+          "maxval": "390"
+        }
+      },
+      "status": "Отличается",
+      "application": "Отдельного лимита 100/390 нет: сохраняются отрезки всей загруженной истории, на экран попадают видимые.",
+      "evidence": "engine.py:59,150; gui.py:554"
+    },
+    {
+      "variable": "structureWidth",
+      "pine_v204": {
+        "variable": "structureWidth",
+        "type": "int",
+        "title": "Толщина структурной линии",
+        "default": "3",
+        "group": "Структурное движение",
+        "line": 40,
+        "arguments": {
+          "minval": "1",
+          "maxval": "5",
+          "group": "GROUP_VIEW"
+        },
+        "limits": {
+          "minval": "1",
+          "maxval": "5"
+        }
+      },
+      "pine_v211": {
+        "variable": "structureWidth",
+        "type": "int",
+        "title": "Толщина структурной линии",
+        "default": "3",
+        "group": "Структурное движение",
+        "line": 40,
+        "arguments": {
+          "minval": "1",
+          "maxval": "5",
+          "group": "GROUP_VIEW"
+        },
+        "limits": {
+          "minval": "1",
+          "maxval": "5"
+        }
+      },
+      "status": "Отличается",
+      "application": "В стандартной теме линия 1,6; в служебной dark — 2,2. Настройки толщины нет.",
+      "evidence": "gui.py:566"
+    },
+    {
+      "variable": "upColor",
+      "pine_v204": {
+        "variable": "upColor",
+        "type": "color",
+        "title": "Восходящее плечо",
+        "default": "#056656",
+        "group": "Структурное движение",
+        "line": 42,
+        "arguments": {
+          "group": "GROUP_VIEW"
+        },
+        "limits": {}
+      },
+      "pine_v211": {
+        "variable": "upColor",
+        "type": "color",
+        "title": "Восходящее плечо",
+        "default": "#056656",
+        "group": "Структурное движение",
+        "line": 42,
+        "arguments": {
+          "group": "GROUP_VIEW"
+        },
+        "limits": {}
+      },
+      "status": "Отличается",
+      "application": "В стандартной теме #008476; выбора цвета нет.",
+      "evidence": "gui.py:60"
+    },
+    {
+      "variable": "downColor",
+      "pine_v204": {
+        "variable": "downColor",
+        "type": "color",
+        "title": "Нисходящее плечо",
+        "default": "#B22833",
+        "group": "Структурное движение",
+        "line": 43,
+        "arguments": {
+          "group": "GROUP_VIEW"
+        },
+        "limits": {}
+      },
+      "pine_v211": {
+        "variable": "downColor",
+        "type": "color",
+        "title": "Нисходящее плечо",
+        "default": "#B22833",
+        "group": "Структурное движение",
+        "line": 43,
+        "arguments": {
+          "group": "GROUP_VIEW"
+        },
+        "limits": {}
+      },
+      "status": "Отличается",
+      "application": "В стандартной теме #B21F34; выбора цвета нет.",
+      "evidence": "gui.py:61"
+    },
+    {
+      "variable": "showMarketOnlyOnH1",
+      "pine_v204": {
+        "variable": "showMarketOnlyOnH1",
+        "type": "bool",
+        "title": "Показывать структуру рынка только на H1",
+        "default": "true",
+        "group": "Структура рынка",
+        "line": 45,
+        "arguments": {
+          "group": "GROUP_MARKET"
+        },
+        "limits": {}
+      },
+      "pine_v211": {
+        "variable": "showMarketOnlyOnH1",
+        "type": "bool",
+        "title": "Показывать структуру рынка только на H1 / H4",
+        "default": "true",
+        "group": "Структура рынка",
+        "line": 45,
+        "arguments": {
+          "group": "GROUP_MARKET"
+        },
+        "limits": {}
+      },
+      "status": "Исключено",
+      "application": "Отдельный блок BOS/CHOCH/MAX/MIN и его оформление не перенесены по ранее согласованному отказу от этого блока.",
+      "evidence": "gui.py:540-635; engine.py:249"
+    },
+    {
+      "variable": "enableMarketStructureInput",
+      "pine_v204": {
+        "variable": "enableMarketStructureInput",
+        "type": "bool",
+        "title": "BOS / CHOCH / MAX / MIN",
+        "default": "true",
+        "group": "Структура рынка",
+        "line": 46,
+        "arguments": {
+          "group": "GROUP_MARKET"
+        },
+        "limits": {}
+      },
+      "pine_v211": {
+        "variable": "enableMarketStructureInput",
+        "type": "bool",
+        "title": "BOS / CHOCH / MAX / MIN",
+        "default": "true",
+        "group": "Структура рынка",
+        "line": 46,
+        "arguments": {
+          "group": "GROUP_MARKET"
+        },
+        "limits": {}
+      },
+      "status": "Исключено",
+      "application": "Отдельный блок BOS/CHOCH/MAX/MIN и его оформление не перенесены по ранее согласованному отказу от этого блока.",
+      "evidence": "gui.py:540-635; engine.py:249"
+    },
+    {
+      "variable": "showMarketIdmInput",
+      "pine_v204": {
+        "variable": "showMarketIdmInput",
+        "type": "bool",
+        "title": "Показывать IDM уровней",
+        "default": "true",
+        "group": "Структура рынка",
+        "line": 47,
+        "arguments": {
+          "group": "GROUP_MARKET"
+        },
+        "limits": {}
+      },
+      "pine_v211": {
+        "variable": "showMarketIdmInput",
+        "type": "bool",
+        "title": "Показывать IDM уровней",
+        "default": "true",
+        "group": "Структура рынка",
+        "line": 47,
+        "arguments": {
+          "group": "GROUP_MARKET"
+        },
+        "limits": {}
+      },
+      "status": "Нет",
+      "application": "Расчёт пары IDM сохранён и показан числом в панели; отдельные линии IDM на графике не рисуются. Это не доказательство отсутствия IDM в расчёте.",
+      "evidence": "engine.py:249; gui.py:1280,1309"
+    },
+    {
+      "variable": "showMarketStatusInput",
+      "pine_v204": {
+        "variable": "showMarketStatusInput",
+        "type": "bool",
+        "title": "Показывать состояние инициализации",
+        "default": "false",
+        "group": "Структура рынка",
+        "line": 48,
+        "arguments": {
+          "group": "GROUP_MARKET"
+        },
+        "limits": {}
+      },
+      "pine_v211": {
+        "variable": "showMarketStatusInput",
+        "type": "bool",
+        "title": "Показывать состояние инициализации",
+        "default": "false",
+        "group": "Структура рынка",
+        "line": 48,
+        "arguments": {
+          "group": "GROUP_MARKET"
+        },
+        "limits": {}
+      },
+      "status": "Исключено",
+      "application": "Отдельный блок BOS/CHOCH/MAX/MIN и его оформление не перенесены по ранее согласованному отказу от этого блока.",
+      "evidence": "gui.py:540-635; engine.py:249"
+    },
+    {
+      "variable": "marketBosColor",
+      "pine_v204": {
+        "variable": "marketBosColor",
+        "type": "color",
+        "title": "BOS",
+        "default": "#512DA8",
+        "group": "Структура рынка",
+        "line": 60,
+        "arguments": {
+          "group": "GROUP_MARKET"
+        },
+        "limits": {}
+      },
+      "pine_v211": {
+        "variable": "marketBosColor",
+        "type": "color",
+        "title": "BOS",
+        "default": "#512DA8",
+        "group": "Структура рынка",
+        "line": 61,
+        "arguments": {
+          "group": "GROUP_MARKET"
+        },
+        "limits": {}
+      },
+      "status": "Исключено",
+      "application": "Отдельный блок BOS/CHOCH/MAX/MIN и его оформление не перенесены по ранее согласованному отказу от этого блока.",
+      "evidence": "gui.py:540-635; engine.py:249"
+    },
+    {
+      "variable": "marketChochColor",
+      "pine_v204": {
+        "variable": "marketChochColor",
+        "type": "color",
+        "title": "CHOCH",
+        "default": "#7B1FA2",
+        "group": "Структура рынка",
+        "line": 61,
+        "arguments": {
+          "group": "GROUP_MARKET"
+        },
+        "limits": {}
+      },
+      "pine_v211": {
+        "variable": "marketChochColor",
+        "type": "color",
+        "title": "CHOCH",
+        "default": "#7B1FA2",
+        "group": "Структура рынка",
+        "line": 62,
+        "arguments": {
+          "group": "GROUP_MARKET"
+        },
+        "limits": {}
+      },
+      "status": "Исключено",
+      "application": "Отдельный блок BOS/CHOCH/MAX/MIN и его оформление не перенесены по ранее согласованному отказу от этого блока.",
+      "evidence": "gui.py:540-635; engine.py:249"
+    },
+    {
+      "variable": "marketMaxColor",
+      "pine_v204": {
+        "variable": "marketMaxColor",
+        "type": "color",
+        "title": "MAX",
+        "default": "#056656",
+        "group": "Структура рынка",
+        "line": 62,
+        "arguments": {
+          "group": "GROUP_MARKET"
+        },
+        "limits": {}
+      },
+      "pine_v211": {
+        "variable": "marketMaxColor",
+        "type": "color",
+        "title": "MAX",
+        "default": "#056656",
+        "group": "Структура рынка",
+        "line": 63,
+        "arguments": {
+          "group": "GROUP_MARKET"
+        },
+        "limits": {}
+      },
+      "status": "Исключено",
+      "application": "Отдельный блок BOS/CHOCH/MAX/MIN и его оформление не перенесены по ранее согласованному отказу от этого блока.",
+      "evidence": "gui.py:540-635; engine.py:249"
+    },
+    {
+      "variable": "marketMinColor",
+      "pine_v204": {
+        "variable": "marketMinColor",
+        "type": "color",
+        "title": "MIN",
+        "default": "#B22833",
+        "group": "Структура рынка",
+        "line": 63,
+        "arguments": {
+          "group": "GROUP_MARKET"
+        },
+        "limits": {}
+      },
+      "pine_v211": {
+        "variable": "marketMinColor",
+        "type": "color",
+        "title": "MIN",
+        "default": "#B22833",
+        "group": "Структура рынка",
+        "line": 64,
+        "arguments": {
+          "group": "GROUP_MARKET"
+        },
+        "limits": {}
+      },
+      "status": "Исключено",
+      "application": "Отдельный блок BOS/CHOCH/MAX/MIN и его оформление не перенесены по ранее согласованному отказу от этого блока.",
+      "evidence": "gui.py:540-635; engine.py:249"
+    },
+    {
+      "variable": "marketIdmColor",
+      "pine_v204": {
+        "variable": "marketIdmColor",
+        "type": "color",
+        "title": "IDM",
+        "default": "#0097A7",
+        "group": "Структура рынка",
+        "line": 64,
+        "arguments": {
+          "group": "GROUP_MARKET"
+        },
+        "limits": {}
+      },
+      "pine_v211": {
+        "variable": "marketIdmColor",
+        "type": "color",
+        "title": "IDM",
+        "default": "#0097A7",
+        "group": "Структура рынка",
+        "line": 65,
+        "arguments": {
+          "group": "GROUP_MARKET"
+        },
+        "limits": {}
+      },
+      "status": "Нет",
+      "application": "Цвет отдельных линий IDM не задан: самих линий на графике нет.",
+      "evidence": "gui.py:540-635"
+    },
+    {
+      "variable": "marketBosWidth",
+      "pine_v204": {
+        "variable": "marketBosWidth",
+        "type": "int",
+        "title": "Толщина BOS",
+        "default": "3",
+        "group": "Структура рынка",
+        "line": 66,
+        "arguments": {
+          "minval": "1",
+          "maxval": "5",
+          "group": "GROUP_MARKET"
+        },
+        "limits": {
+          "minval": "1",
+          "maxval": "5"
+        }
+      },
+      "pine_v211": {
+        "variable": "marketBosWidth",
+        "type": "int",
+        "title": "Толщина BOS",
+        "default": "3",
+        "group": "Структура рынка",
+        "line": 67,
+        "arguments": {
+          "minval": "1",
+          "maxval": "5",
+          "group": "GROUP_MARKET"
+        },
+        "limits": {
+          "minval": "1",
+          "maxval": "5"
+        }
+      },
+      "status": "Исключено",
+      "application": "Отдельный блок BOS/CHOCH/MAX/MIN и его оформление не перенесены по ранее согласованному отказу от этого блока.",
+      "evidence": "gui.py:540-635; engine.py:249"
+    },
+    {
+      "variable": "marketChochWidth",
+      "pine_v204": {
+        "variable": "marketChochWidth",
+        "type": "int",
+        "title": "Толщина CHOCH",
+        "default": "3",
+        "group": "Структура рынка",
+        "line": 67,
+        "arguments": {
+          "minval": "1",
+          "maxval": "5",
+          "group": "GROUP_MARKET"
+        },
+        "limits": {
+          "minval": "1",
+          "maxval": "5"
+        }
+      },
+      "pine_v211": {
+        "variable": "marketChochWidth",
+        "type": "int",
+        "title": "Толщина CHOCH",
+        "default": "3",
+        "group": "Структура рынка",
+        "line": 68,
+        "arguments": {
+          "minval": "1",
+          "maxval": "5",
+          "group": "GROUP_MARKET"
+        },
+        "limits": {
+          "minval": "1",
+          "maxval": "5"
+        }
+      },
+      "status": "Исключено",
+      "application": "Отдельный блок BOS/CHOCH/MAX/MIN и его оформление не перенесены по ранее согласованному отказу от этого блока.",
+      "evidence": "gui.py:540-635; engine.py:249"
+    },
+    {
+      "variable": "marketMaxWidth",
+      "pine_v204": {
+        "variable": "marketMaxWidth",
+        "type": "int",
+        "title": "Толщина MAX",
+        "default": "3",
+        "group": "Структура рынка",
+        "line": 68,
+        "arguments": {
+          "minval": "1",
+          "maxval": "5",
+          "group": "GROUP_MARKET"
+        },
+        "limits": {
+          "minval": "1",
+          "maxval": "5"
+        }
+      },
+      "pine_v211": {
+        "variable": "marketMaxWidth",
+        "type": "int",
+        "title": "Толщина MAX",
+        "default": "3",
+        "group": "Структура рынка",
+        "line": 69,
+        "arguments": {
+          "minval": "1",
+          "maxval": "5",
+          "group": "GROUP_MARKET"
+        },
+        "limits": {
+          "minval": "1",
+          "maxval": "5"
+        }
+      },
+      "status": "Исключено",
+      "application": "Отдельный блок BOS/CHOCH/MAX/MIN и его оформление не перенесены по ранее согласованному отказу от этого блока.",
+      "evidence": "gui.py:540-635; engine.py:249"
+    },
+    {
+      "variable": "marketMinWidth",
+      "pine_v204": {
+        "variable": "marketMinWidth",
+        "type": "int",
+        "title": "Толщина MIN",
+        "default": "3",
+        "group": "Структура рынка",
+        "line": 69,
+        "arguments": {
+          "minval": "1",
+          "maxval": "5",
+          "group": "GROUP_MARKET"
+        },
+        "limits": {
+          "minval": "1",
+          "maxval": "5"
+        }
+      },
+      "pine_v211": {
+        "variable": "marketMinWidth",
+        "type": "int",
+        "title": "Толщина MIN",
+        "default": "3",
+        "group": "Структура рынка",
+        "line": 70,
+        "arguments": {
+          "minval": "1",
+          "maxval": "5",
+          "group": "GROUP_MARKET"
+        },
+        "limits": {
+          "minval": "1",
+          "maxval": "5"
+        }
+      },
+      "status": "Исключено",
+      "application": "Отдельный блок BOS/CHOCH/MAX/MIN и его оформление не перенесены по ранее согласованному отказу от этого блока.",
+      "evidence": "gui.py:540-635; engine.py:249"
+    },
+    {
+      "variable": "marketIdmWidth",
+      "pine_v204": {
+        "variable": "marketIdmWidth",
+        "type": "int",
+        "title": "Толщина IDM",
+        "default": "2",
+        "group": "Структура рынка",
+        "line": 70,
+        "arguments": {
+          "minval": "1",
+          "maxval": "5",
+          "group": "GROUP_MARKET"
+        },
+        "limits": {
+          "minval": "1",
+          "maxval": "5"
+        }
+      },
+      "pine_v211": {
+        "variable": "marketIdmWidth",
+        "type": "int",
+        "title": "Толщина IDM",
+        "default": "2",
+        "group": "Структура рынка",
+        "line": 71,
+        "arguments": {
+          "minval": "1",
+          "maxval": "5",
+          "group": "GROUP_MARKET"
+        },
+        "limits": {
+          "minval": "1",
+          "maxval": "5"
+        }
+      },
+      "status": "Нет",
+      "application": "Толщина отдельных линий IDM не задана: самих линий на графике нет.",
+      "evidence": "gui.py:540-635"
+    },
+    {
+      "variable": "ibEnabled",
+      "pine_v204": {
+        "variable": "ibEnabled",
+        "type": "bool",
+        "title": "Пустые внутренние свечи",
+        "default": "true",
+        "group": "Структурное движение",
+        "line": 1511,
+        "arguments": {
+          "tooltip": "\"Убирает заливку тела, включая последнюю внутреннюю свечу. Если стандартная линия цены становится невидимой, задайте ей непрозрачный цвет в настройках графика TradingView.\"",
+          "group": "GROUP_VIEW"
+        },
+        "limits": {}
+      },
+      "pine_v211": {
+        "variable": "ibEnabled",
+        "type": "bool",
+        "title": "Пустые внутренние свечи",
+        "default": "true",
+        "group": "Структурное движение",
+        "line": 1589,
+        "arguments": {
+          "tooltip": "\"Убирает заливку тела, включая последнюю внутреннюю свечу. Если стандартная линия цены становится невидимой, задайте ей непрозрачный цвет в настройках графика TradingView.\"",
+          "group": "GROUP_VIEW"
+        },
+        "limits": {}
+      },
+      "status": "Фиксировано",
+      "application": "В стандартной теме внутренние свечи всегда пустые; отключение через интерфейс не предусмотрено.",
+      "evidence": "gui.py:585; chart_view.py:17"
+    },
+    {
+      "variable": "flowShowLevels",
+      "pine_v204": {
+        "variable": "flowShowLevels",
+        "type": "bool",
+        "title": "Уровни последнего потока",
+        "default": "true",
+        "group": "Последний поток приказов",
+        "line": 1549,
+        "arguments": {
+          "group": "\"Последний поток приказов\"",
+          "tooltip": "\"На H1/D/W/M — собственные уровни. На M1/M5 переносятся уровни потока H1, если включён перенос ниже. Фильтр FVG действует и при скрытых уровнях. 0 — минимум, 1 — максимум; начало потока задаёт пробившее плечо.\""
+        },
+        "limits": {}
+      },
+      "pine_v211": {
+        "variable": "flowShowLevels",
+        "type": "bool",
+        "title": "Уровни последнего потока",
+        "default": "true",
+        "group": "Последний поток приказов",
+        "line": 1627,
+        "arguments": {
+          "group": "\"Последний поток приказов\"",
+          "tooltip": "\"На H1/H4/D/W/M — собственные уровни. На M1/M5 переносятся уровни потока H1, если включён перенос ниже. Фильтр FVG действует и при скрытых уровнях. 0 — минимум, 1 — максимум; начало потока задаёт пробившее плечо.\""
+        },
+        "limits": {}
+      },
+      "status": "Доступно",
+      "application": "Флажок «Уровни потока 0–1»; включён. Скрывает линии, расчёт остаётся.",
+      "evidence": "gui.py:247,612,866"
+    },
+    {
+      "variable": "flowH1OnM5",
+      "pine_v204": {
+        "variable": "flowH1OnM5",
+        "type": "bool",
+        "title": "Показывать поток H1 на M1 / M5",
+        "default": "true",
+        "group": "Последний поток приказов",
+        "line": 1550,
+        "arguments": {
+          "group": "\"Последний поток приказов\"",
+          "tooltip": "\"Те же уровни 0 / 0,4 / 0,5 / 0,6 / 1, рассчитанные по H1. На открытой H1-свече диапазон может изменяться.\""
+        },
+        "limits": {}
+      },
+      "pine_v211": {
+        "variable": "flowH1OnM5",
+        "type": "bool",
+        "title": "Показывать поток H1 на M1 / M5",
+        "default": "true",
+        "group": "Последний поток приказов",
+        "line": 1628,
+        "arguments": {
+          "group": "\"Последний поток приказов\"",
+          "tooltip": "\"Те же уровни 0 / 0,4 / 0,5 / 0,6 / 1, рассчитанные по H1. На открытой H1-свече диапазон может изменяться.\""
+        },
+        "limits": {}
+      },
+      "status": "Отличается",
+      "application": "Перенос H1 включён без отдельной настройки. На M1/M5 берётся последняя закрытая H1; live-расширение открытой H1, предусмотренное Pine f_liveFlow, этим путём не переносится.",
+      "evidence": "engine.py:600-684; gui.py:612"
+    },
+    {
+      "variable": "flowShowPrevious",
+      "pine_v204": {
+        "variable": "flowShowPrevious",
+        "type": "bool",
+        "title": "Показывать предыдущий поток",
+        "default": "true",
+        "group": "Последний поток приказов",
+        "line": 1551,
+        "arguments": {
+          "group": "\"Последний поток приказов\"",
+          "tooltip": "\"Пунктирные уровни предыдущего потока от его начала до свечи подтверждения смены. На M1/M5 — предыдущий поток H1.\""
+        },
+        "limits": {}
+      },
+      "pine_v211": {
+        "variable": "flowShowPrevious",
+        "type": "bool",
+        "title": "Показывать предыдущий поток",
+        "default": "true",
+        "group": "Последний поток приказов",
+        "line": 1629,
+        "arguments": {
+          "group": "\"Последний поток приказов\"",
+          "tooltip": "\"Пунктирные уровни предыдущего потока от его начала до свечи подтверждения смены. На M1/M5 — предыдущий поток H1.\""
+        },
+        "limits": {}
+      },
+      "status": "Доступно",
+      "application": "Флажок «Предыдущий поток»; включён. Линии видны при включённых уровнях потока.",
+      "evidence": "gui.py:248,627,867"
+    },
+    {
+      "variable": "flowShowData",
+      "pine_v204": {
+        "variable": "flowShowData",
+        "type": "bool",
+        "title": "Отображать данные действующего потока",
+        "default": "false",
+        "group": "Последний поток приказов",
+        "line": 1552,
+        "arguments": {
+          "group": "\"Последний поток приказов\"",
+          "tooltip": "\"Показывать значения уровней и цены действующего потока, включая H1 на M1/M5. Предыдущий поток всегда без подписей.\""
+        },
+        "limits": {}
+      },
+      "pine_v211": {
+        "variable": "flowShowData",
+        "type": "bool",
+        "title": "Отображать данные действующего потока",
+        "default": "false",
+        "group": "Последний поток приказов",
+        "line": 1630,
+        "arguments": {
+          "group": "\"Последний поток приказов\"",
+          "tooltip": "\"Показывать значения уровней и цены действующего потока, включая H1 на M1/M5. Предыдущий поток всегда без подписей.\""
+        },
+        "limits": {}
+      },
+      "status": "Отличается",
+      "application": "Подписи значений текущих уровней всегда рисуются при видимых уровнях; соответствующего выключателя нет. Pine по умолчанию скрывает подписи.",
+      "evidence": "gui.py:621-626"
+    },
+    {
+      "variable": "flowDiagnosticEnabled",
+      "pine_v204": {
+        "variable": "flowDiagnosticEnabled",
+        "type": "bool",
+        "title": "Диагностика смены потока",
+        "default": "false",
+        "group": "Последний поток приказов",
+        "line": 1553,
+        "arguments": {
+          "group": "\"Последний поток приказов\""
+        },
+        "limits": {}
+      },
+      "pine_v211": {
+        "variable": "flowDiagnosticEnabled",
+        "type": "bool",
+        "title": "Диагностика смены потока",
+        "default": "false",
+        "group": "Последний поток приказов",
+        "line": 1631,
+        "arguments": {
+          "group": "\"Последний поток приказов\""
+        },
+        "limits": {}
+      },
+      "status": "Частично",
+      "application": "«Панель» по умолчанию скрыта: содержит состояние, пару IDM и последние 18 событий. Это другой состав вывода, а не полный блок диагностики Pine.",
+      "evidence": "gui.py:823,848-906,1273-1285"
+    },
+    {
+      "variable": "flowDiagnosticFont",
+      "pine_v204": {
+        "variable": "flowDiagnosticFont",
+        "type": "string",
+        "title": "Размер шрифта диагностики",
+        "default": "size.large",
+        "group": "Последний поток приказов",
+        "line": 1554,
+        "arguments": {
+          "options": "[size.small, size.normal, size.large, size.huge]",
+          "group": "\"Последний поток приказов\""
+        },
+        "limits": {
+          "options": "[size.small, size.normal, size.large, size.huge]"
+        }
+      },
+      "pine_v211": {
+        "variable": "flowDiagnosticFont",
+        "type": "string",
+        "title": "Размер шрифта диагностики",
+        "default": "size.large",
+        "group": "Последний поток приказов",
+        "line": 1632,
+        "arguments": {
+          "options": "[size.small, size.normal, size.large, size.huge]",
+          "group": "\"Последний поток приказов\""
+        },
+        "limits": {
+          "options": "[size.small, size.normal, size.large, size.huge]"
+        }
+      },
+      "status": "Нет",
+      "application": "Отдельной настройки шрифта диагностики нет; используются шрифты Qt/общие стили окна.",
+      "evidence": "gui.py:847-903,919"
+    },
+    {
+      "variable": "flowDiagnosticBottomOffset",
+      "pine_v204": {
+        "variable": "flowDiagnosticBottomOffset",
+        "type": "float",
+        "title": "Отступ диагностики снизу (%)",
+        "default": "6.0",
+        "group": "Последний поток приказов",
+        "line": 1555,
+        "arguments": {
+          "minval": "0",
+          "maxval": "40",
+          "step": "1",
+          "group": "\"Последний поток приказов\""
+        },
+        "limits": {
+          "minval": "0",
+          "maxval": "40",
+          "step": "1"
+        }
+      },
+      "pine_v211": {
+        "variable": "flowDiagnosticBottomOffset",
+        "type": "float",
+        "title": "Отступ диагностики снизу (%)",
+        "default": "6.0",
+        "group": "Последний поток приказов",
+        "line": 1633,
+        "arguments": {
+          "minval": "0",
+          "maxval": "40",
+          "step": "1",
+          "group": "\"Последний поток приказов\""
+        },
+        "limits": {
+          "minval": "0",
+          "maxval": "40",
+          "step": "1"
+        }
+      },
+      "status": "Нет",
+      "application": "Диагностика вынесена в боковую панель; отступа наложенной на график таблицы в процентах нет.",
+      "evidence": "gui.py:842-906"
+    },
+    {
+      "variable": "flowPreviousColor",
+      "pine_v204": {
+        "variable": "flowPreviousColor",
+        "type": "color",
+        "title": "Цвет предыдущего потока",
+        "default": "color.new(#000000, 80)",
+        "group": "Последний поток приказов",
+        "line": 1556,
+        "arguments": {
+          "group": "\"Последний поток приказов\""
+        },
+        "limits": {}
+      },
+      "pine_v211": {
+        "variable": "flowPreviousColor",
+        "type": "color",
+        "title": "Цвет предыдущего потока",
+        "default": "color.new(#000000, 80)",
+        "group": "Последний поток приказов",
+        "line": 1634,
+        "arguments": {
+          "group": "\"Последний поток приказов\""
+        },
+        "limits": {}
+      },
+      "status": "Отличается",
+      "application": "Предыдущий поток RGB(62,62,62), alpha=105; Pine — чёрный с прозрачностью 80% (alpha около 51).",
+      "evidence": "gui.py:72,627-635"
+    },
+    {
+      "variable": "flowColor0",
+      "pine_v204": {
+        "variable": "flowColor0",
+        "type": "color",
+        "title": "Цвет уровня 0",
+        "default": "#388E3C",
+        "group": "Последний поток приказов",
+        "line": 1557,
+        "arguments": {
+          "group": "\"Последний поток приказов\""
+        },
+        "limits": {}
+      },
+      "pine_v211": {
+        "variable": "flowColor0",
+        "type": "color",
+        "title": "Цвет уровня 0",
+        "default": "#388E3C",
+        "group": "Последний поток приказов",
+        "line": 1635,
+        "arguments": {
+          "group": "\"Последний поток приказов\""
+        },
+        "limits": {}
+      },
+      "status": "Отличается",
+      "application": "Уровень 0: фиксированный #205B28; выбора цвета нет.",
+      "evidence": "gui.py:70-71,616"
+    },
+    {
+      "variable": "flowColor04",
+      "pine_v204": {
+        "variable": "flowColor04",
+        "type": "color",
+        "title": "Цвет уровня 0,4",
+        "default": "#388E3C",
+        "group": "Последний поток приказов",
+        "line": 1558,
+        "arguments": {
+          "group": "\"Последний поток приказов\""
+        },
+        "limits": {}
+      },
+      "pine_v211": {
+        "variable": "flowColor04",
+        "type": "color",
+        "title": "Цвет уровня 0,4",
+        "default": "#388E3C",
+        "group": "Последний поток приказов",
+        "line": 1636,
+        "arguments": {
+          "group": "\"Последний поток приказов\""
+        },
+        "limits": {}
+      },
+      "status": "Отличается",
+      "application": "Уровень 0,4: фиксированный #205B28; выбора цвета нет.",
+      "evidence": "gui.py:70-71,616"
+    },
+    {
+      "variable": "flowColor05",
+      "pine_v204": {
+        "variable": "flowColor05",
+        "type": "color",
+        "title": "Цвет уровня 0,5",
+        "default": "#636363",
+        "group": "Последний поток приказов",
+        "line": 1559,
+        "arguments": {
+          "group": "\"Последний поток приказов\""
+        },
+        "limits": {}
+      },
+      "pine_v211": {
+        "variable": "flowColor05",
+        "type": "color",
+        "title": "Цвет уровня 0,5",
+        "default": "#636363",
+        "group": "Последний поток приказов",
+        "line": 1637,
+        "arguments": {
+          "group": "\"Последний поток приказов\""
+        },
+        "limits": {}
+      },
+      "status": "Отличается",
+      "application": "Уровень 0,5: фиксированный #666666; выбора цвета нет.",
+      "evidence": "gui.py:70-71,616"
+    },
+    {
+      "variable": "flowColor06",
+      "pine_v204": {
+        "variable": "flowColor06",
+        "type": "color",
+        "title": "Цвет уровня 0,6",
+        "default": "#B22833",
+        "group": "Последний поток приказов",
+        "line": 1560,
+        "arguments": {
+          "group": "\"Последний поток приказов\""
+        },
+        "limits": {}
+      },
+      "pine_v211": {
+        "variable": "flowColor06",
+        "type": "color",
+        "title": "Цвет уровня 0,6",
+        "default": "#B22833",
+        "group": "Последний поток приказов",
+        "line": 1638,
+        "arguments": {
+          "group": "\"Последний поток приказов\""
+        },
+        "limits": {}
+      },
+      "status": "Отличается",
+      "application": "Уровень 0,6: фиксированный #C32238; выбора цвета нет.",
+      "evidence": "gui.py:70-71,616"
+    },
+    {
+      "variable": "flowColor1",
+      "pine_v204": {
+        "variable": "flowColor1",
+        "type": "color",
+        "title": "Цвет уровня 1",
+        "default": "#B22833",
+        "group": "Последний поток приказов",
+        "line": 1561,
+        "arguments": {
+          "group": "\"Последний поток приказов\""
+        },
+        "limits": {}
+      },
+      "pine_v211": {
+        "variable": "flowColor1",
+        "type": "color",
+        "title": "Цвет уровня 1",
+        "default": "#B22833",
+        "group": "Последний поток приказов",
+        "line": 1639,
+        "arguments": {
+          "group": "\"Последний поток приказов\""
+        },
+        "limits": {}
+      },
+      "status": "Отличается",
+      "application": "Уровень 1: фиксированный #C32238; выбора цвета нет.",
+      "evidence": "gui.py:70-71,616"
+    },
+    {
+      "variable": "flowLineWidth",
+      "pine_v204": {
+        "variable": "flowLineWidth",
+        "type": "int",
+        "title": "Толщина линий",
+        "default": "3",
+        "group": "Последний поток приказов",
+        "line": 1562,
+        "arguments": {
+          "minval": "1",
+          "maxval": "5",
+          "group": "\"Последний поток приказов\""
+        },
+        "limits": {
+          "minval": "1",
+          "maxval": "5"
+        }
+      },
+      "pine_v211": {
+        "variable": "flowLineWidth",
+        "type": "int",
+        "title": "Толщина линий",
+        "default": "3",
+        "group": "Последний поток приказов",
+        "line": 1640,
+        "arguments": {
+          "minval": "1",
+          "maxval": "5",
+          "group": "\"Последний поток приказов\""
+        },
+        "limits": {
+          "minval": "1",
+          "maxval": "5"
+        }
+      },
+      "status": "Отличается",
+      "application": "Текущие уровни 1,25, предыдущие 0,9 в стандартной теме; Pine применяет одну ширину, по умолчанию 3.",
+      "evidence": "gui.py:618,632"
+    },
+    {
+      "variable": "flowFontSize",
+      "pine_v204": {
+        "variable": "flowFontSize",
+        "type": "string",
+        "title": "Размер шрифта",
+        "default": "size.normal",
+        "group": "Последний поток приказов",
+        "line": 1563,
+        "arguments": {
+          "options": "[size.tiny, size.small, size.normal, size.large, size.huge]",
+          "group": "\"Последний поток приказов\""
+        },
+        "limits": {
+          "options": "[size.tiny, size.small, size.normal, size.large, size.huge]"
+        }
+      },
+      "pine_v211": {
+        "variable": "flowFontSize",
+        "type": "string",
+        "title": "Размер шрифта",
+        "default": "size.normal",
+        "group": "Последний поток приказов",
+        "line": 1641,
+        "arguments": {
+          "options": "[size.tiny, size.small, size.normal, size.large, size.huge]",
+          "group": "\"Последний поток приказов\""
+        },
+        "limits": {
+          "options": "[size.tiny, size.small, size.normal, size.large, size.huge]"
+        }
+      },
+      "status": "Отличается",
+      "application": "Подписи уровней Segoe UI, 8 пунктов для всех ТФ; выбора размера нет. Pine size.normal не является тем же числовым значением Qt.",
+      "evidence": "gui.py:621"
+    },
+    {
+      "variable": "fvgEnabled",
+      "pine_v204": {
+        "variable": "fvgEnabled",
+        "type": "bool",
+        "title": "Показывать FVG",
+        "default": "true",
+        "group": "FVG",
+        "line": 1568,
+        "arguments": {
+          "group": "FVG_GROUP"
+        },
+        "limits": {}
+      },
+      "pine_v211": {
+        "variable": "fvgEnabled",
+        "type": "bool",
+        "title": "Показывать FVG",
+        "default": "true",
+        "group": "FVG",
+        "line": 1646,
+        "arguments": {
+          "group": "FVG_GROUP"
+        },
+        "limits": {}
+      },
+      "status": "Доступно",
+      "application": "Флажок «FVG и зоны старших ТФ»; включён. Не выключает расчёт FVG в ядре.",
+      "evidence": "gui.py:246,865,956; fvg_display.py:21"
+    },
+    {
+      "variable": "fvgShowM1",
+      "pine_v204": {
+        "variable": "fvgShowM1",
+        "type": "bool",
+        "title": "Показывать FVG M1",
+        "default": "true",
+        "group": "FVG",
+        "line": 1569,
+        "arguments": {
+          "group": "FVG_GROUP",
+          "tooltip": "\"На M1 показываются зоны, пересекающие отображаемый рабочий FVG H1/D/W/M и начинающиеся не раньше него. Достаточно частичного пересечения по цене. Это правило действует и для пробитых зон: они сохраняют цвет пробоя и заканчиваются на свече пробоя. На FVG старших таймфреймов и скринер не влияет.\""
+        },
+        "limits": {}
+      },
+      "pine_v211": {
+        "variable": "fvgShowM1",
+        "type": "bool",
+        "title": "Показывать FVG M1",
+        "default": "true",
+        "group": "FVG",
+        "line": 1647,
+        "arguments": {
+          "group": "FVG_GROUP",
+          "tooltip": "\"На M1 показываются зоны, пересекающие отображаемый рабочий FVG H1/H4/D/W/M и начинающиеся не раньше него. Достаточно частичного пересечения по цене. Это правило действует и для пробитых зон: они сохраняют цвет пробоя и заканчиваются на свече пробоя. На FVG старших таймфреймов не влияет.\""
+        },
+        "limits": {}
+      },
+      "status": "Фиксировано",
+      "application": "Показ собственных младших FVG включён; отдельного флажка M1/M5 нет. Действуют фильтры рабочих старших зон.",
+      "evidence": "fvg_display.py:24,179-225"
+    },
+    {
+      "variable": "fvgShowM5",
+      "pine_v204": {
+        "variable": "fvgShowM5",
+        "type": "bool",
+        "title": "Показывать FVG M5",
+        "default": "true",
+        "group": "FVG",
+        "line": 1570,
+        "arguments": {
+          "group": "FVG_GROUP",
+          "tooltip": "\"На M5 показываются зоны, пересекающие отображаемый рабочий FVG H1/D/W/M и начинающиеся не раньше него. Достаточно частичного пересечения по цене. Это правило действует и для пробитых зон: они сохраняют цвет пробоя и заканчиваются на свече пробоя. На FVG старших таймфреймов и скринер не влияет.\""
+        },
+        "limits": {}
+      },
+      "pine_v211": {
+        "variable": "fvgShowM5",
+        "type": "bool",
+        "title": "Показывать FVG M5",
+        "default": "true",
+        "group": "FVG",
+        "line": 1648,
+        "arguments": {
+          "group": "FVG_GROUP",
+          "tooltip": "\"На M5 показываются зоны, пересекающие отображаемый рабочий FVG H1/H4/D/W/M и начинающиеся не раньше него. Достаточно частичного пересечения по цене. Это правило действует и для пробитых зон: они сохраняют цвет пробоя и заканчиваются на свече пробоя. На FVG старших таймфреймов не влияет.\""
+        },
+        "limits": {}
+      },
+      "status": "Фиксировано",
+      "application": "Показ собственных младших FVG включён; отдельного флажка M1/M5 нет. Действуют фильтры рабочих старших зон.",
+      "evidence": "fvg_display.py:24,179-225"
+    },
+    {
+      "variable": "fvgExcludeGaps",
+      "pine_v204": {
+        "variable": "fvgExcludeGaps",
+        "type": "bool",
+        "title": "Исключать FVG с гэпами",
+        "default": "true",
+        "group": "FVG",
+        "line": 1571,
+        "arguments": {
+          "group": "FVG_GROUP",
+          "tooltip": "\"Не создавать FVG, если диапазоны по теням любой пары соседних свечей в тройке не пересекаются. Касание границ допускается. Проверка на исходном таймфрейме зоны; разница открытия и предыдущего закрытия сама по себе не считается гэпом.\""
+        },
+        "limits": {}
+      },
+      "pine_v211": {
+        "variable": "fvgExcludeGaps",
+        "type": "bool",
+        "title": "Исключать FVG с гэпами",
+        "default": "true",
+        "group": "FVG",
+        "line": 1649,
+        "arguments": {
+          "group": "FVG_GROUP",
+          "tooltip": "\"Не создавать FVG, если диапазоны по теням любой пары соседних свечей в тройке не пересекаются. Касание границ допускается. Проверка на исходном таймфрейме зоны; разница открытия и предыдущего закрытия сама по себе не считается гэпом.\""
+        },
+        "limits": {}
+      },
+      "status": "Фиксировано",
+      "application": "Исключение гэпов включено через аргумент exclude_gaps=True; интерфейс не позволяет его менять.",
+      "evidence": "engine.py:187-218,687-698; pipeline.py:30"
+    },
+    {
+      "variable": "fvgMtfDiagnostics",
+      "pine_v204": {
+        "variable": "fvgMtfDiagnostics",
+        "type": "bool",
+        "title": "Диагностика FVG H1 / M1 / M5",
+        "default": "false",
+        "group": "FVG",
+        "line": 1572,
+        "arguments": {
+          "tooltip": "\"На M1/M5 показывает доступность снимка H1, число зон H1, отображаемых рабочих старших зон и показанных FVG.\"",
+          "group": "FVG_GROUP"
+        },
+        "limits": {}
+      },
+      "pine_v211": {
+        "variable": "fvgMtfDiagnostics",
+        "type": "bool",
+        "title": "Диагностика FVG H1 / M1 / M5",
+        "default": "false",
+        "group": "FVG",
+        "line": 1650,
+        "arguments": {
+          "tooltip": "\"На M1/M5 показывает доступность снимка H1, число зон H1, отображаемых рабочих старших зон и показанных FVG.\"",
+          "group": "FVG_GROUP"
+        },
+        "limits": {}
+      },
+      "status": "Частично",
+      "application": "В экспорт включён fvg_display: исходные зоны, показанные зоны, родители, причины отказа, cutoff. Отдельного переключателя и таблицы MTF-диагностики Pine на графике нет.",
+      "evidence": "fvg_display.py:74-79; gui.py:1337"
+    },
+    {
+      "variable": "fvgOnlyInFlow",
+      "pine_v204": {
+        "variable": "fvgOnlyInFlow",
+        "type": "bool",
+        "title": "FVG текущего и предыдущего потоков",
+        "default": "true",
+        "group": "FVG",
+        "line": 1573,
+        "arguments": {
+          "tooltip": "\"На родном ТФ показываем зоны текущего и предыдущего потоков. На младшие ТФ переносим только один рабочий FVG каждого старшего ТФ. Встроенный скринер независимо ищет цену в любом непробитом FVG H1 или D; этот фильтр его отбор не меняет. После пробоя ждём новый FVG ближе к конечному экстремуму потока.\"",
+          "group": "FVG_GROUP"
+        },
+        "limits": {}
+      },
+      "pine_v211": {
+        "variable": "fvgOnlyInFlow",
+        "type": "bool",
+        "title": "FVG текущего и предыдущего потоков",
+        "default": "true",
+        "group": "FVG",
+        "line": 1651,
+        "arguments": {
+          "tooltip": "\"На родном ТФ показываем зоны текущего и предыдущего потоков. На младшие ТФ переносим только один рабочий FVG каждого старшего ТФ. После пробоя ждём новый FVG ближе к конечному экстремуму потока.\"",
+          "group": "FVG_GROUP"
+        },
+        "limits": {}
+      },
+      "status": "Фиксировано",
+      "application": "Фильтр текущего/предыдущего потока включён. Dataclass содержит параметр, но органа управления в приложении нет.",
+      "evidence": "fvg_display.py:23,210-225"
+    },
+    {
+      "variable": "fvgMaxZones",
+      "pine_v204": {
+        "variable": "fvgMaxZones",
+        "type": "int",
+        "title": "Хранить последних зон",
+        "default": "20",
+        "group": "FVG",
+        "line": 1574,
+        "arguments": {
+          "minval": "1",
+          "maxval": "200",
+          "tooltip": "\"Лимит отображаемых зон суммарно: на M1/M5 сначала H1/D/W/M, затем зоны своего ТФ. На каждом исходном таймфрейме хранится до этого количества последних зон.\"",
+          "group": "FVG_GROUP"
+        },
+        "limits": {
+          "minval": "1",
+          "maxval": "200"
+        }
+      },
+      "pine_v211": {
+        "variable": "fvgMaxZones",
+        "type": "int",
+        "title": "Хранить последних зон",
+        "default": "20",
+        "group": "FVG",
+        "line": 1652,
+        "arguments": {
+          "minval": "1",
+          "maxval": "200",
+          "tooltip": "\"Лимит отображаемых зон суммарно: на M1/M5 сначала H1/H4/D/W/M, затем зоны своего ТФ. На каждом исходном таймфрейме хранится до этого количества последних зон.\"",
+          "group": "FVG_GROUP"
+        },
+        "limits": {
+          "minval": "1",
+          "maxval": "200"
+        }
+      },
+      "status": "Фиксировано",
+      "application": "20: общий бюджет отрисовки и последние 20 собственных зон перед фильтром. Диапазон 1–200 проверяется в коде, в интерфейсе лимит не меняется; расчётный архив ядра отдельно не обрезается.",
+      "evidence": "fvg_display.py:22,27,201-224; engine.py:217"
+    },
+    {
+      "variable": "fvgFilledColor",
+      "pine_v204": {
+        "variable": "fvgFilledColor",
+        "type": "color",
+        "title": "Цвет пробитого FVG",
+        "default": "color.new(#F57F17, 85)",
+        "group": "FVG",
+        "line": 1575,
+        "arguments": {
+          "group": "FVG_GROUP"
+        },
+        "limits": {}
+      },
+      "pine_v211": {
+        "variable": "fvgFilledColor",
+        "type": "color",
+        "title": "Цвет пробитого FVG",
+        "default": "color.new(#F57F17, 85)",
+        "group": "FVG",
+        "line": 1653,
+        "arguments": {
+          "group": "FVG_GROUP"
+        },
+        "limits": {}
+      },
+      "status": "Фиксировано",
+      "application": "Цвет пробитого FVG в стандартной теме #F57F17: фон alpha=38, граница 179, текст/середина 255. Соответствует исходным умолчаниям с округлением alpha; настроек цвета и прозрачности нет.",
+      "evidence": "gui.py:689-708"
+    },
+    {
+      "variable": "fvgBullColor",
+      "pine_v204": {
+        "variable": "fvgBullColor",
+        "type": "color",
+        "title": "Бычий FVG",
+        "default": "color.new(#00332A, 85)",
+        "group": "FVG",
+        "line": 1576,
+        "arguments": {
+          "group": "FVG_GROUP"
+        },
+        "limits": {}
+      },
+      "pine_v211": {
+        "variable": "fvgBullColor",
+        "type": "color",
+        "title": "Бычий FVG",
+        "default": "color.new(#00332A, 85)",
+        "group": "FVG",
+        "line": 1654,
+        "arguments": {
+          "group": "FVG_GROUP"
+        },
+        "limits": {}
+      },
+      "status": "Фиксировано",
+      "application": "Цвет бычьего FVG в стандартной теме #00332A: фон alpha=38, граница 179, текст/середина 255. Соответствует исходным умолчаниям с округлением alpha; настроек цвета и прозрачности нет.",
+      "evidence": "gui.py:689-708"
+    },
+    {
+      "variable": "fvgBearColor",
+      "pine_v204": {
+        "variable": "fvgBearColor",
+        "type": "color",
+        "title": "Медвежий FVG",
+        "default": "color.new(#801922, 85)",
+        "group": "FVG",
+        "line": 1577,
+        "arguments": {
+          "group": "FVG_GROUP"
+        },
+        "limits": {}
+      },
+      "pine_v211": {
+        "variable": "fvgBearColor",
+        "type": "color",
+        "title": "Медвежий FVG",
+        "default": "color.new(#801922, 85)",
+        "group": "FVG",
+        "line": 1655,
+        "arguments": {
+          "group": "FVG_GROUP"
+        },
+        "limits": {}
+      },
+      "status": "Фиксировано",
+      "application": "Цвет медвежьего FVG в стандартной теме #801922: фон alpha=38, граница 179, текст/середина 255. Соответствует исходным умолчаниям с округлением alpha; настроек цвета и прозрачности нет.",
+      "evidence": "gui.py:689-708"
+    },
+    {
+      "variable": "fvgBorderWidth",
+      "pine_v204": {
+        "variable": "fvgBorderWidth",
+        "type": "int",
+        "title": "Толщина границ FVG",
+        "default": "1",
+        "group": "FVG",
+        "line": 1579,
+        "arguments": {
+          "minval": "1",
+          "maxval": "5",
+          "group": "FVG_GROUP"
+        },
+        "limits": {
+          "minval": "1",
+          "maxval": "5"
+        }
+      },
+      "pine_v211": {
+        "variable": "fvgBorderWidth",
+        "type": "int",
+        "title": "Толщина границ FVG",
+        "default": "1",
+        "group": "FVG",
+        "line": 1657,
+        "arguments": {
+          "minval": "1",
+          "maxval": "5",
+          "group": "FVG_GROUP"
+        },
+        "limits": {
+          "minval": "1",
+          "maxval": "5"
+        }
+      },
+      "status": "Фиксировано",
+      "application": "Фиксированная ширина границ 1 в стандартной теме; диапазон 1–5 не выведен в интерфейс.",
+      "evidence": "gui.py:704"
+    },
+    {
+      "variable": "fvgFontM1",
+      "pine_v204": {
+        "variable": "fvgFontM1",
+        "type": "string",
+        "title": "Шрифт FVG M1",
+        "default": "size.tiny",
+        "group": "FVG",
+        "line": 1580,
+        "arguments": {
+          "options": "[size.tiny, size.small, size.normal, size.large, size.huge]",
+          "group": "FVG_GROUP"
+        },
+        "limits": {
+          "options": "[size.tiny, size.small, size.normal, size.large, size.huge]"
+        }
+      },
+      "pine_v211": {
+        "variable": "fvgFontM1",
+        "type": "string",
+        "title": "Шрифт FVG M1",
+        "default": "size.tiny",
+        "group": "FVG",
+        "line": 1658,
+        "arguments": {
+          "options": "[size.tiny, size.small, size.normal, size.large, size.huge]",
+          "group": "FVG_GROUP"
+        },
+        "limits": {
+          "options": "[size.tiny, size.small, size.normal, size.large, size.huge]"
+        }
+      },
+      "status": "Отличается",
+      "application": "Один Segoe UI, 8 пунктов для всех ТФ; независимых размеров по таймфреймам нет. Подпись также скрывается при малой зоне или пересечении подписей.",
+      "evidence": "gui.py:710-721"
+    },
+    {
+      "variable": "fvgFontM5",
+      "pine_v204": {
+        "variable": "fvgFontM5",
+        "type": "string",
+        "title": "Шрифт FVG M5",
+        "default": "size.tiny",
+        "group": "FVG",
+        "line": 1581,
+        "arguments": {
+          "options": "[size.tiny, size.small, size.normal, size.large, size.huge]",
+          "group": "FVG_GROUP"
+        },
+        "limits": {
+          "options": "[size.tiny, size.small, size.normal, size.large, size.huge]"
+        }
+      },
+      "pine_v211": {
+        "variable": "fvgFontM5",
+        "type": "string",
+        "title": "Шрифт FVG M5",
+        "default": "size.tiny",
+        "group": "FVG",
+        "line": 1659,
+        "arguments": {
+          "options": "[size.tiny, size.small, size.normal, size.large, size.huge]",
+          "group": "FVG_GROUP"
+        },
+        "limits": {
+          "options": "[size.tiny, size.small, size.normal, size.large, size.huge]"
+        }
+      },
+      "status": "Отличается",
+      "application": "Один Segoe UI, 8 пунктов для всех ТФ; независимых размеров по таймфреймам нет. Подпись также скрывается при малой зоне или пересечении подписей.",
+      "evidence": "gui.py:710-721"
+    },
+    {
+      "variable": "fvgFontH1",
+      "pine_v204": {
+        "variable": "fvgFontH1",
+        "type": "string",
+        "title": "Шрифт FVG H1",
+        "default": "size.small",
+        "group": "FVG",
+        "line": 1582,
+        "arguments": {
+          "options": "[size.tiny, size.small, size.normal, size.large, size.huge]",
+          "group": "FVG_GROUP"
+        },
+        "limits": {
+          "options": "[size.tiny, size.small, size.normal, size.large, size.huge]"
+        }
+      },
+      "pine_v211": {
+        "variable": "fvgFontH1",
+        "type": "string",
+        "title": "Шрифт FVG H1",
+        "default": "size.small",
+        "group": "FVG",
+        "line": 1660,
+        "arguments": {
+          "options": "[size.tiny, size.small, size.normal, size.large, size.huge]",
+          "group": "FVG_GROUP"
+        },
+        "limits": {
+          "options": "[size.tiny, size.small, size.normal, size.large, size.huge]"
+        }
+      },
+      "status": "Отличается",
+      "application": "Один Segoe UI, 8 пунктов для всех ТФ; независимых размеров по таймфреймам нет. Подпись также скрывается при малой зоне или пересечении подписей.",
+      "evidence": "gui.py:710-721"
+    },
+    {
+      "variable": "fvgFontH4",
+      "pine_v204": null,
+      "pine_v211": {
+        "variable": "fvgFontH4",
+        "type": "string",
+        "title": "Шрифт FVG H4",
+        "default": "size.normal",
+        "group": "FVG",
+        "line": 1661,
+        "arguments": {
+          "options": "[size.tiny, size.small, size.normal, size.large, size.huge]",
+          "group": "FVG_GROUP"
+        },
+        "limits": {
+          "options": "[size.tiny, size.small, size.normal, size.large, size.huge]"
+        }
+      },
+      "status": "Отличается",
+      "application": "Один Segoe UI, 8 пунктов для всех ТФ; независимых размеров по таймфреймам нет. Подпись также скрывается при малой зоне или пересечении подписей.",
+      "evidence": "gui.py:710-721"
+    },
+    {
+      "variable": "fvgFontD",
+      "pine_v204": {
+        "variable": "fvgFontD",
+        "type": "string",
+        "title": "Шрифт FVG D",
+        "default": "size.normal",
+        "group": "FVG",
+        "line": 1583,
+        "arguments": {
+          "options": "[size.tiny, size.small, size.normal, size.large, size.huge]",
+          "group": "FVG_GROUP"
+        },
+        "limits": {
+          "options": "[size.tiny, size.small, size.normal, size.large, size.huge]"
+        }
+      },
+      "pine_v211": {
+        "variable": "fvgFontD",
+        "type": "string",
+        "title": "Шрифт FVG D",
+        "default": "size.normal",
+        "group": "FVG",
+        "line": 1662,
+        "arguments": {
+          "options": "[size.tiny, size.small, size.normal, size.large, size.huge]",
+          "group": "FVG_GROUP"
+        },
+        "limits": {
+          "options": "[size.tiny, size.small, size.normal, size.large, size.huge]"
+        }
+      },
+      "status": "Отличается",
+      "application": "Один Segoe UI, 8 пунктов для всех ТФ; независимых размеров по таймфреймам нет. Подпись также скрывается при малой зоне или пересечении подписей.",
+      "evidence": "gui.py:710-721"
+    },
+    {
+      "variable": "fvgFontW",
+      "pine_v204": {
+        "variable": "fvgFontW",
+        "type": "string",
+        "title": "Шрифт FVG W",
+        "default": "size.large",
+        "group": "FVG",
+        "line": 1584,
+        "arguments": {
+          "options": "[size.tiny, size.small, size.normal, size.large, size.huge]",
+          "group": "FVG_GROUP"
+        },
+        "limits": {
+          "options": "[size.tiny, size.small, size.normal, size.large, size.huge]"
+        }
+      },
+      "pine_v211": {
+        "variable": "fvgFontW",
+        "type": "string",
+        "title": "Шрифт FVG W",
+        "default": "size.large",
+        "group": "FVG",
+        "line": 1663,
+        "arguments": {
+          "options": "[size.tiny, size.small, size.normal, size.large, size.huge]",
+          "group": "FVG_GROUP"
+        },
+        "limits": {
+          "options": "[size.tiny, size.small, size.normal, size.large, size.huge]"
+        }
+      },
+      "status": "Отличается",
+      "application": "Один Segoe UI, 8 пунктов для всех ТФ; независимых размеров по таймфреймам нет. Подпись также скрывается при малой зоне или пересечении подписей.",
+      "evidence": "gui.py:710-721"
+    },
+    {
+      "variable": "fvgFontM",
+      "pine_v204": {
+        "variable": "fvgFontM",
+        "type": "string",
+        "title": "Шрифт FVG M",
+        "default": "size.huge",
+        "group": "FVG",
+        "line": 1585,
+        "arguments": {
+          "options": "[size.tiny, size.small, size.normal, size.large, size.huge]",
+          "group": "FVG_GROUP"
+        },
+        "limits": {
+          "options": "[size.tiny, size.small, size.normal, size.large, size.huge]"
+        }
+      },
+      "pine_v211": {
+        "variable": "fvgFontM",
+        "type": "string",
+        "title": "Шрифт FVG M",
+        "default": "size.huge",
+        "group": "FVG",
+        "line": 1664,
+        "arguments": {
+          "options": "[size.tiny, size.small, size.normal, size.large, size.huge]",
+          "group": "FVG_GROUP"
+        },
+        "limits": {
+          "options": "[size.tiny, size.small, size.normal, size.large, size.huge]"
+        }
+      },
+      "status": "Отличается",
+      "application": "Один Segoe UI, 8 пунктов для всех ТФ; независимых размеров по таймфреймам нет. Подпись также скрывается при малой зоне или пересечении подписей.",
+      "evidence": "gui.py:710-721"
+    },
+    {
+      "variable": "fvgMiddleWidth",
+      "pine_v204": {
+        "variable": "fvgMiddleWidth",
+        "type": "int",
+        "title": "Толщина точечной середины",
+        "default": "1",
+        "group": "FVG",
+        "line": 1586,
+        "arguments": {
+          "minval": "1",
+          "maxval": "5",
+          "group": "FVG_GROUP"
+        },
+        "limits": {
+          "minval": "1",
+          "maxval": "5"
+        }
+      },
+      "pine_v211": {
+        "variable": "fvgMiddleWidth",
+        "type": "int",
+        "title": "Толщина точечной середины",
+        "default": "1",
+        "group": "FVG",
+        "line": 1665,
+        "arguments": {
+          "minval": "1",
+          "maxval": "5",
+          "group": "FVG_GROUP"
+        },
+        "limits": {
+          "minval": "1",
+          "maxval": "5"
+        }
+      },
+      "status": "Фиксировано",
+      "application": "Пунктирная середина: ширина 1 в стандартной теме; настройки 1–5 нет.",
+      "evidence": "gui.py:707-709"
+    },
+    {
+      "variable": "liquidityHistoryBars",
+      "pine_v204": {
+        "variable": "liquidityHistoryBars",
+        "type": "int",
+        "title": "История старших ТФ для условия №1",
+        "default": "1000",
+        "group": "Скринер",
+        "line": 1910,
+        "arguments": {
+          "minval": "100",
+          "maxval": "2000",
+          "group": "\"Скринер\""
+        },
+        "limits": {
+          "minval": "100",
+          "maxval": "2000"
+        }
+      },
+      "pine_v211": {
+        "variable": "liquidityHistoryBars",
+        "type": "int",
+        "title": "История старших ТФ для условия №1",
+        "default": "1000",
+        "group": "Последний поток приказов",
+        "line": 2017,
+        "arguments": {
+          "minval": "100",
+          "maxval": "2000",
+          "group": "\"Последний поток приказов\""
+        },
+        "limits": {
+          "minval": "100",
+          "maxval": "2000"
+        }
+      },
+      "status": "Отличается",
+      "application": "Параметра 100–2000 баров нет. Старшая ликвидность считается по предоставленным полным рядам архива, а не по окну calc_bars_count=1000.",
+      "evidence": "liquidity.py:93-118; pipeline.py:10-35; market_cache.py:137-150"
+    },
+    {
+      "variable": "showH1OnM5",
+      "pine_v204": {
+        "variable": "showH1OnM5",
+        "type": "bool",
+        "title": "FVG H1 на M1 / M5",
+        "default": "true",
+        "group": "FVG",
+        "line": 2953,
+        "arguments": {
+          "group": "FVG_GROUP"
+        },
+        "limits": {}
+      },
+      "pine_v211": {
+        "variable": "showH1OnM5",
+        "type": "bool",
+        "title": "FVG H1 на M1 / M5",
+        "default": "true",
+        "group": "FVG",
+        "line": 3103,
+        "arguments": {
+          "group": "FVG_GROUP"
+        },
+        "limits": {}
+      },
+      "status": "Фиксировано",
+      "application": "Перенос рабочего FVG H1 включён для предусмотренных младших графиков; отдельного выключателя старшего ТФ нет.",
+      "evidence": "fvg_display.py:15,25,179-205"
+    },
+    {
+      "variable": "showH4OnM5",
+      "pine_v204": null,
+      "pine_v211": {
+        "variable": "showH4OnM5",
+        "type": "bool",
+        "title": "FVG H4 на M1 / M5 / H1",
+        "default": "true",
+        "group": "FVG",
+        "line": 3104,
+        "arguments": {
+          "group": "FVG_GROUP"
+        },
+        "limits": {}
+      },
+      "status": "Фиксировано",
+      "application": "Перенос рабочего FVG H4 включён для предусмотренных младших графиков; отдельного выключателя старшего ТФ нет.",
+      "evidence": "fvg_display.py:15,25,179-205"
+    },
+    {
+      "variable": "showDOnM5",
+      "pine_v204": {
+        "variable": "showDOnM5",
+        "type": "bool",
+        "title": "FVG D на M1 / M5 / H1",
+        "default": "true",
+        "group": "FVG",
+        "line": 2954,
+        "arguments": {
+          "group": "FVG_GROUP"
+        },
+        "limits": {}
+      },
+      "pine_v211": {
+        "variable": "showDOnM5",
+        "type": "bool",
+        "title": "FVG D на M1 / M5 / H1 / H4",
+        "default": "true",
+        "group": "FVG",
+        "line": 3105,
+        "arguments": {
+          "group": "FVG_GROUP"
+        },
+        "limits": {}
+      },
+      "status": "Фиксировано",
+      "application": "Перенос рабочего FVG D1 включён для предусмотренных младших графиков; отдельного выключателя старшего ТФ нет.",
+      "evidence": "fvg_display.py:15,25,179-205"
+    },
+    {
+      "variable": "showWOnM5",
+      "pine_v204": {
+        "variable": "showWOnM5",
+        "type": "bool",
+        "title": "FVG W на M1 / M5 / H1 / D",
+        "default": "true",
+        "group": "FVG",
+        "line": 2955,
+        "arguments": {
+          "group": "FVG_GROUP"
+        },
+        "limits": {}
+      },
+      "pine_v211": {
+        "variable": "showWOnM5",
+        "type": "bool",
+        "title": "FVG W на M1 / M5 / H1 / H4 / D",
+        "default": "true",
+        "group": "FVG",
+        "line": 3106,
+        "arguments": {
+          "group": "FVG_GROUP"
+        },
+        "limits": {}
+      },
+      "status": "Фиксировано",
+      "application": "Перенос рабочего FVG W1 включён для предусмотренных младших графиков; отдельного выключателя старшего ТФ нет.",
+      "evidence": "fvg_display.py:15,25,179-205"
+    },
+    {
+      "variable": "showMOnM5",
+      "pine_v204": {
+        "variable": "showMOnM5",
+        "type": "bool",
+        "title": "FVG M на M1 / M5 / H1 / D / W",
+        "default": "true",
+        "group": "FVG",
+        "line": 2956,
+        "arguments": {
+          "group": "FVG_GROUP"
+        },
+        "limits": {}
+      },
+      "pine_v211": {
+        "variable": "showMOnM5",
+        "type": "bool",
+        "title": "FVG M на M1 / M5 / H1 / H4 / D / W",
+        "default": "true",
+        "group": "FVG",
+        "line": 3107,
+        "arguments": {
+          "group": "FVG_GROUP"
+        },
+        "limits": {}
+      },
+      "status": "Фиксировано",
+      "application": "Перенос рабочего FVG MN1 включён для предусмотренных младших графиков; отдельного выключателя старшего ТФ нет.",
+      "evidence": "fvg_display.py:15,25,179-205"
+    },
+    {
+      "variable": "currentFvgTableEnabled",
+      "pine_v204": {
+        "variable": "currentFvgTableEnabled",
+        "type": "bool",
+        "title": "Состояние текущего инструмента H1 / D / W / M",
+        "default": "true",
+        "group": "Скринер",
+        "line": 2957,
+        "arguments": {
+          "group": "\"Скринер\"",
+          "tooltip": "\"Цвет ячейки ТФ: зелёный — цена в рабочем лонговом FVG, красный — в шортовом, серый — вне рабочего FVG или нет данных.\""
+        },
+        "limits": {}
+      },
+      "pine_v211": {
+        "variable": "currentFvgTableEnabled",
+        "type": "bool",
+        "title": "Состояние текущего инструмента H1 / H4 / D / W / M",
+        "default": "true",
+        "group": "Сводка инструмента",
+        "line": 3108,
+        "arguments": {
+          "group": "\"Сводка инструмента\"",
+          "tooltip": "\"Цвет ячейки ТФ: зелёный — цена в рабочем лонговом FVG, красный — в шортовом, серый — вне рабочего FVG или нет данных.\""
+        },
+        "limits": {}
+      },
+      "status": "Нет",
+      "application": "Сводки текущего инструмента 5×2 H1/H4/D/W/M на графике нет. Панель с одним текущим потоком и таблица последних FVG не заменяют эту сводку.",
+      "evidence": "gui.py:775-917,1248-1294"
+    },
+    {
+      "variable": "currentFvgCellWidth",
+      "pine_v204": {
+        "variable": "currentFvgCellWidth",
+        "type": "float",
+        "title": "Текущий инструмент: ширина ячейки (%)",
+        "default": "3.0",
+        "group": "Скринер",
+        "line": 2958,
+        "arguments": {
+          "minval": "1",
+          "maxval": "10",
+          "step": "0.5",
+          "group": "\"Скринер\""
+        },
+        "limits": {
+          "minval": "1",
+          "maxval": "10",
+          "step": "0.5"
+        }
+      },
+      "pine_v211": {
+        "variable": "currentFvgCellWidth",
+        "type": "float",
+        "title": "Текущий инструмент: ширина ячейки (%)",
+        "default": "3.0",
+        "group": "Сводка инструмента",
+        "line": 3109,
+        "arguments": {
+          "minval": "1",
+          "maxval": "10",
+          "step": "0.5",
+          "group": "\"Сводка инструмента\""
+        },
+        "limits": {
+          "minval": "1",
+          "maxval": "10",
+          "step": "0.5"
+        }
+      },
+      "status": "Нет",
+      "application": "Сводки текущего инструмента 5×2 H1/H4/D/W/M на графике нет. Панель с одним текущим потоком и таблица последних FVG не заменяют эту сводку.",
+      "evidence": "gui.py:775-917,1248-1294"
+    },
+    {
+      "variable": "currentFvgCellHeight",
+      "pine_v204": {
+        "variable": "currentFvgCellHeight",
+        "type": "float",
+        "title": "Текущий инструмент: высота ячейки (%)",
+        "default": "0.0",
+        "group": "Скринер",
+        "line": 2959,
+        "arguments": {
+          "minval": "0",
+          "maxval": "20",
+          "step": "0.5",
+          "group": "\"Скринер\"",
+          "tooltip": "\"0 — автоматическая высота по размеру текста.\""
+        },
+        "limits": {
+          "minval": "0",
+          "maxval": "20",
+          "step": "0.5"
+        }
+      },
+      "pine_v211": {
+        "variable": "currentFvgCellHeight",
+        "type": "float",
+        "title": "Текущий инструмент: высота ячейки (%)",
+        "default": "0.0",
+        "group": "Сводка инструмента",
+        "line": 3110,
+        "arguments": {
+          "minval": "0",
+          "maxval": "20",
+          "step": "0.5",
+          "group": "\"Сводка инструмента\"",
+          "tooltip": "\"0 — автоматическая высота по размеру текста.\""
+        },
+        "limits": {
+          "minval": "0",
+          "maxval": "20",
+          "step": "0.5"
+        }
+      },
+      "status": "Нет",
+      "application": "Сводки текущего инструмента 5×2 H1/H4/D/W/M на графике нет. Панель с одним текущим потоком и таблица последних FVG не заменяют эту сводку.",
+      "evidence": "gui.py:775-917,1248-1294"
+    },
+    {
+      "variable": "currentFvgFontSize",
+      "pine_v204": {
+        "variable": "currentFvgFontSize",
+        "type": "string",
+        "title": "Текущий инструмент: размер текста",
+        "default": "size.normal",
+        "group": "Скринер",
+        "line": 2960,
+        "arguments": {
+          "options": "[size.tiny, size.small, size.normal, size.large, size.huge]",
+          "group": "\"Скринер\""
+        },
+        "limits": {
+          "options": "[size.tiny, size.small, size.normal, size.large, size.huge]"
+        }
+      },
+      "pine_v211": {
+        "variable": "currentFvgFontSize",
+        "type": "string",
+        "title": "Текущий инструмент: размер текста",
+        "default": "size.normal",
+        "group": "Сводка инструмента",
+        "line": 3111,
+        "arguments": {
+          "options": "[size.tiny, size.small, size.normal, size.large, size.huge]",
+          "group": "\"Сводка инструмента\""
+        },
+        "limits": {
+          "options": "[size.tiny, size.small, size.normal, size.large, size.huge]"
+        }
+      },
+      "status": "Нет",
+      "application": "Сводки текущего инструмента 5×2 H1/H4/D/W/M на графике нет. Панель с одним текущим потоком и таблица последних FVG не заменяют эту сводку.",
+      "evidence": "gui.py:775-917,1248-1294"
+    },
+    {
+      "variable": "currentFlowArrowSize",
+      "pine_v204": {
+        "variable": "currentFlowArrowSize",
+        "type": "string",
+        "title": "Текущий инструмент: размер стрелок потока",
+        "default": "size.large",
+        "group": "Скринер",
+        "line": 2961,
+        "arguments": {
+          "options": "[size.normal, size.large, size.huge]",
+          "group": "\"Скринер\""
+        },
+        "limits": {
+          "options": "[size.normal, size.large, size.huge]"
+        }
+      },
+      "pine_v211": {
+        "variable": "currentFlowArrowSize",
+        "type": "string",
+        "title": "Текущий инструмент: размер стрелок потока",
+        "default": "size.large",
+        "group": "Сводка инструмента",
+        "line": 3112,
+        "arguments": {
+          "options": "[size.normal, size.large, size.huge]",
+          "group": "\"Сводка инструмента\""
+        },
+        "limits": {
+          "options": "[size.normal, size.large, size.huge]"
+        }
+      },
+      "status": "Нет",
+      "application": "Сводки текущего инструмента 5×2 H1/H4/D/W/M на графике нет. Панель с одним текущим потоком и таблица последних FVG не заменяют эту сводку.",
+      "evidence": "gui.py:775-917,1248-1294"
+    },
+    {
+      "variable": "vwapEnabled",
+      "pine_v204": {
+        "variable": "vwapEnabled",
+        "type": "bool",
+        "title": "Показывать VWAP",
+        "default": "true",
+        "group": "VWAP",
+        "line": 3552,
+        "arguments": {
+          "group": "VWAP_GROUP"
+        },
+        "limits": {}
+      },
+      "pine_v211": {
+        "variable": "vwapEnabled",
+        "type": "bool",
+        "title": "Показывать VWAP",
+        "default": "true",
+        "group": "VWAP",
+        "line": 3318,
+        "arguments": {
+          "group": "VWAP_GROUP"
+        },
+        "limits": {}
+      },
+      "status": "Исключено",
+      "application": "VWAP и прошлый VWAP отсутствуют по ранее согласованному отказу от VWAP в приложении.",
+      "evidence": "gui.py:485-681; engine.py:687"
+    },
+    {
+      "variable": "vwapAnchor",
+      "pine_v204": {
+        "variable": "vwapAnchor",
+        "type": "string",
+        "title": "Период",
+        "default": "\"Session\"",
+        "group": "VWAP",
+        "line": 3553,
+        "arguments": {
+          "options": "[\"Session\", \"Week\", \"Month\", \"Quarter\", \"Year\", \"Decade\", \"Century\"]",
+          "group": "VWAP_GROUP"
+        },
+        "limits": {
+          "options": "[\"Session\", \"Week\", \"Month\", \"Quarter\", \"Year\", \"Decade\", \"Century\"]"
+        }
+      },
+      "pine_v211": {
+        "variable": "vwapAnchor",
+        "type": "string",
+        "title": "Период",
+        "default": "\"Session\"",
+        "group": "VWAP",
+        "line": 3319,
+        "arguments": {
+          "options": "[\"Session\", \"Week\", \"Month\", \"Quarter\", \"Year\", \"Decade\", \"Century\"]",
+          "group": "VWAP_GROUP"
+        },
+        "limits": {
+          "options": "[\"Session\", \"Week\", \"Month\", \"Quarter\", \"Year\", \"Decade\", \"Century\"]"
+        }
+      },
+      "status": "Исключено",
+      "application": "VWAP и прошлый VWAP отсутствуют по ранее согласованному отказу от VWAP в приложении.",
+      "evidence": "gui.py:485-681; engine.py:687"
+    },
+    {
+      "variable": "vwapSource",
+      "pine_v204": {
+        "variable": "vwapSource",
+        "type": "source",
+        "title": "Источник",
+        "default": "hlc3",
+        "group": "VWAP",
+        "line": 3554,
+        "arguments": {
+          "group": "VWAP_GROUP"
+        },
+        "limits": {}
+      },
+      "pine_v211": {
+        "variable": "vwapSource",
+        "type": "source",
+        "title": "Источник",
+        "default": "hlc3",
+        "group": "VWAP",
+        "line": 3320,
+        "arguments": {
+          "group": "VWAP_GROUP"
+        },
+        "limits": {}
+      },
+      "status": "Исключено",
+      "application": "VWAP и прошлый VWAP отсутствуют по ранее согласованному отказу от VWAP в приложении.",
+      "evidence": "gui.py:485-681; engine.py:687"
+    },
+    {
+      "variable": "vwapColor",
+      "pine_v204": {
+        "variable": "vwapColor",
+        "type": "color",
+        "title": "Цвет VWAP",
+        "default": "#0C3299",
+        "group": "VWAP",
+        "line": 3555,
+        "arguments": {
+          "group": "VWAP_GROUP"
+        },
+        "limits": {}
+      },
+      "pine_v211": {
+        "variable": "vwapColor",
+        "type": "color",
+        "title": "Цвет VWAP",
+        "default": "#0C3299",
+        "group": "VWAP",
+        "line": 3321,
+        "arguments": {
+          "group": "VWAP_GROUP"
+        },
+        "limits": {}
+      },
+      "status": "Исключено",
+      "application": "VWAP и прошлый VWAP отсутствуют по ранее согласованному отказу от VWAP в приложении.",
+      "evidence": "gui.py:485-681; engine.py:687"
+    },
+    {
+      "variable": "vwapWidth",
+      "pine_v204": {
+        "variable": "vwapWidth",
+        "type": "int",
+        "title": "Толщина VWAP",
+        "default": "3",
+        "group": "VWAP",
+        "line": 3556,
+        "arguments": {
+          "minval": "1",
+          "maxval": "5",
+          "group": "VWAP_GROUP"
+        },
+        "limits": {
+          "minval": "1",
+          "maxval": "5"
+        }
+      },
+      "pine_v211": {
+        "variable": "vwapWidth",
+        "type": "int",
+        "title": "Толщина VWAP",
+        "default": "3",
+        "group": "VWAP",
+        "line": 3322,
+        "arguments": {
+          "minval": "1",
+          "maxval": "5",
+          "group": "VWAP_GROUP"
+        },
+        "limits": {
+          "minval": "1",
+          "maxval": "5"
+        }
+      },
+      "status": "Исключено",
+      "application": "VWAP и прошлый VWAP отсутствуют по ранее согласованному отказу от VWAP в приложении.",
+      "evidence": "gui.py:485-681; engine.py:687"
+    },
+    {
+      "variable": "vwapShowPrevious",
+      "pine_v204": {
+        "variable": "vwapShowPrevious",
+        "type": "bool",
+        "title": "Продлевать VWAP прошлого периода",
+        "default": "true",
+        "group": "VWAP",
+        "line": 3557,
+        "arguments": {
+          "group": "VWAP_GROUP"
+        },
+        "limits": {}
+      },
+      "pine_v211": {
+        "variable": "vwapShowPrevious",
+        "type": "bool",
+        "title": "Продлевать VWAP прошлого периода",
+        "default": "true",
+        "group": "VWAP",
+        "line": 3323,
+        "arguments": {
+          "group": "VWAP_GROUP"
+        },
+        "limits": {}
+      },
+      "status": "Исключено",
+      "application": "VWAP и прошлый VWAP отсутствуют по ранее согласованному отказу от VWAP в приложении.",
+      "evidence": "gui.py:485-681; engine.py:687"
+    },
+    {
+      "variable": "vwapPreviousColor",
+      "pine_v204": {
+        "variable": "vwapPreviousColor",
+        "type": "color",
+        "title": "Цвет прошлого VWAP",
+        "default": "#0C3299",
+        "group": "VWAP",
+        "line": 3558,
+        "arguments": {
+          "group": "VWAP_GROUP"
+        },
+        "limits": {}
+      },
+      "pine_v211": {
+        "variable": "vwapPreviousColor",
+        "type": "color",
+        "title": "Цвет прошлого VWAP",
+        "default": "#0C3299",
+        "group": "VWAP",
+        "line": 3324,
+        "arguments": {
+          "group": "VWAP_GROUP"
+        },
+        "limits": {}
+      },
+      "status": "Исключено",
+      "application": "VWAP и прошлый VWAP отсутствуют по ранее согласованному отказу от VWAP в приложении.",
+      "evidence": "gui.py:485-681; engine.py:687"
+    },
+    {
+      "variable": "vwapPreviousWidth",
+      "pine_v204": {
+        "variable": "vwapPreviousWidth",
+        "type": "int",
+        "title": "Толщина прошлого VWAP",
+        "default": "3",
+        "group": "VWAP",
+        "line": 3559,
+        "arguments": {
+          "minval": "1",
+          "maxval": "5",
+          "group": "VWAP_GROUP"
+        },
+        "limits": {
+          "minval": "1",
+          "maxval": "5"
+        }
+      },
+      "pine_v211": {
+        "variable": "vwapPreviousWidth",
+        "type": "int",
+        "title": "Толщина прошлого VWAP",
+        "default": "3",
+        "group": "VWAP",
+        "line": 3325,
+        "arguments": {
+          "minval": "1",
+          "maxval": "5",
+          "group": "VWAP_GROUP"
+        },
+        "limits": {
+          "minval": "1",
+          "maxval": "5"
+        }
+      },
+      "status": "Исключено",
+      "application": "VWAP и прошлый VWAP отсутствуют по ранее согласованному отказу от VWAP в приложении.",
+      "evidence": "gui.py:485-681; engine.py:687"
+    },
+    {
+      "variable": "scanEnabled",
+      "pine_v204": {
+        "variable": "scanEnabled",
+        "type": "bool",
+        "title": "Включить встроенный скринер",
+        "default": "true",
+        "group": "Скринер",
+        "line": 3117,
+        "arguments": {
+          "group": "\"Скринер\"",
+          "tooltip": "\"Отключение прекращает расчёт инструментов из списка и скрывает их таблицу. Сводка текущего инструмента H1/D/W/M включается отдельно.\""
+        },
+        "limits": {}
+      },
+      "pine_v211": null,
+      "status": "Исключено",
+      "application": "Настройка встроенного скринера v2.04. Скринер удалён из текущего Pine v2.11 и ранее исключён из приложения. Правый список MOEX — выбор инструментов, а не этот скринер.",
+      "evidence": "watchlist.py:94-110; gui.py:908"
+    },
+    {
+      "variable": "tickers",
+      "pine_v204": {
+        "variable": "tickers",
+        "type": "text_area",
+        "title": "Тикеры через запятую (до 12)",
+        "default": "\"CME_MINI:NQZ2026,CME_MINI:ESZ2026,BINANCE:BTCUSDT,BINANCE:ETHUSDT,OANDA:XAUUSD,OANDA:XAGUSD,OANDA:XPTUSD,OANDA:XPDUSD,NYMEX:NGZ2026,ICEEUR:BRNF2027,ICEENDEX:TFMZ2026,ICEUS:KCZ2026\"",
+        "group": "Скринер",
+        "line": 3118,
+        "arguments": {
+          "group": "\"Скринер\"",
+          "tooltip": "\"Цена внутри любого подтверждённого непробитого FVG H1 или D, независимо от потока. Цена для обоих ТФ берётся из одного H1-пакета. Проверяются последние зоны в пределах настроек хранения и истории каждого ТФ.\"",
+          "active": "scanEnabled"
+        },
+        "limits": {
+          "active": "scanEnabled"
+        }
+      },
+      "pine_v211": null,
+      "status": "Исключено",
+      "application": "Настройка встроенного скринера v2.04. Скринер удалён из текущего Pine v2.11 и ранее исключён из приложения. Правый список MOEX — выбор инструментов, а не этот скринер.",
+      "evidence": "watchlist.py:94-110; gui.py:908"
+    },
+    {
+      "variable": "historyBars",
+      "pine_v204": {
+        "variable": "historyBars",
+        "type": "int",
+        "title": "История H1",
+        "default": "5000",
+        "group": "Скринер",
+        "line": 3119,
+        "arguments": {
+          "minval": "500",
+          "maxval": "10000",
+          "group": "\"Скринер\"",
+          "active": "scanEnabled"
+        },
+        "limits": {
+          "minval": "500",
+          "maxval": "10000",
+          "active": "scanEnabled"
+        }
+      },
+      "pine_v211": null,
+      "status": "Исключено",
+      "application": "Настройка встроенного скринера v2.04. Скринер удалён из текущего Pine v2.11 и ранее исключён из приложения. Правый список MOEX — выбор инструментов, а не этот скринер.",
+      "evidence": "watchlist.py:94-110; gui.py:908"
+    },
+    {
+      "variable": "scanDayHistoryBars",
+      "pine_v204": {
+        "variable": "scanDayHistoryBars",
+        "type": "int",
+        "title": "История D",
+        "default": "1000",
+        "group": "Скринер",
+        "line": 3120,
+        "arguments": {
+          "minval": "100",
+          "maxval": "10000",
+          "group": "\"Скринер\"",
+          "active": "scanEnabled"
+        },
+        "limits": {
+          "minval": "100",
+          "maxval": "10000",
+          "active": "scanEnabled"
+        }
+      },
+      "pine_v211": null,
+      "status": "Исключено",
+      "application": "Настройка встроенного скринера v2.04. Скринер удалён из текущего Pine v2.11 и ранее исключён из приложения. Правый список MOEX — выбор инструментов, а не этот скринер.",
+      "evidence": "watchlist.py:94-110; gui.py:908"
+    },
+    {
+      "variable": "scanReplay",
+      "pine_v204": {
+        "variable": "scanReplay",
+        "type": "bool",
+        "title": "Режим симулятора",
+        "default": "false",
+        "group": "Скринер",
+        "line": 3121,
+        "arguments": {
+          "group": "\"Скринер\"",
+          "tooltip": "\"В обычной работе оставьте выключенным: скринер проверяет последние доступные данные на текущее время, независимо от окончания сессии открытого инструмента. При использовании симулятора рынка включите: цена и зоны ограничиваются временем свечи графика. Настройка действует только на встроенный скринер.\"",
+          "active": "scanEnabled"
+        },
+        "limits": {
+          "active": "scanEnabled"
+        }
+      },
+      "pine_v211": null,
+      "status": "Исключено",
+      "application": "Настройка встроенного скринера v2.04. Скринер удалён из текущего Pine v2.11 и ранее исключён из приложения. Правый список MOEX — выбор инструментов, а не этот скринер.",
+      "evidence": "watchlist.py:94-110; gui.py:908"
+    },
+    {
+      "variable": "showAll",
+      "pine_v204": {
+        "variable": "showAll",
+        "type": "bool",
+        "title": "Показать также инструменты без сигнала",
+        "default": "false",
+        "group": "Скринер",
+        "line": 3122,
+        "arguments": {
+          "group": "\"Скринер\"",
+          "tooltip": "\"Показывает все тикеры, включая «Ожидание» и «Нет данных». Совпадения проверяются по последней доступной цене. Время полученной H1 и сведения о её обновлении — в подсказке строки.\"",
+          "active": "scanEnabled"
+        },
+        "limits": {
+          "active": "scanEnabled"
+        }
+      },
+      "pine_v211": null,
+      "status": "Исключено",
+      "application": "Настройка встроенного скринера v2.04. Скринер удалён из текущего Pine v2.11 и ранее исключён из приложения. Правый список MOEX — выбор инструментов, а не этот скринер.",
+      "evidence": "watchlist.py:94-110; gui.py:908"
+    },
+    {
+      "variable": "scanFontSize",
+      "pine_v204": {
+        "variable": "scanFontSize",
+        "type": "string",
+        "title": "Размер шрифта таблицы",
+        "default": "size.normal",
+        "group": "Скринер",
+        "line": 3124,
+        "arguments": {
+          "options": "[size.tiny, size.small, size.normal, size.large, size.huge]",
+          "group": "SCAN_TABLE_GROUP"
+        },
+        "limits": {
+          "options": "[size.tiny, size.small, size.normal, size.large, size.huge]"
+        }
+      },
+      "pine_v211": null,
+      "status": "Исключено",
+      "application": "Настройка встроенного скринера v2.04. Скринер удалён из текущего Pine v2.11 и ранее исключён из приложения. Правый список MOEX — выбор инструментов, а не этот скринер.",
+      "evidence": "watchlist.py:94-110; gui.py:908"
+    },
+    {
+      "variable": "scanRightOffset",
+      "pine_v204": {
+        "variable": "scanRightOffset",
+        "type": "float",
+        "title": "Отступ таблицы справа (%)",
+        "default": "0.0",
+        "group": "Скринер",
+        "line": 3125,
+        "arguments": {
+          "minval": "0",
+          "maxval": "85",
+          "step": "1",
+          "group": "SCAN_TABLE_GROUP",
+          "tooltip": "\"Для двух компактных таблиц рядом: 12% у индикатора и 0% у отдельного скринера, ширина каждой 10%. При расширении правой таблицы увеличьте отступ индикатора.\""
+        },
+        "limits": {
+          "minval": "0",
+          "maxval": "85",
+          "step": "1"
+        }
+      },
+      "pine_v211": null,
+      "status": "Исключено",
+      "application": "Настройка встроенного скринера v2.04. Скринер удалён из текущего Pine v2.11 и ранее исключён из приложения. Правый список MOEX — выбор инструментов, а не этот скринер.",
+      "evidence": "watchlist.py:94-110; gui.py:908"
+    },
+    {
+      "variable": "scanCompactWidth",
+      "pine_v204": {
+        "variable": "scanCompactWidth",
+        "type": "float",
+        "title": "Ширина столбца в компактном режиме (%)",
+        "default": "10.0",
+        "group": "Скринер",
+        "line": 3126,
+        "arguments": {
+          "minval": "3",
+          "maxval": "30",
+          "step": "1",
+          "group": "SCAN_TABLE_GROUP"
+        },
+        "limits": {
+          "minval": "3",
+          "maxval": "30",
+          "step": "1"
+        }
+      },
+      "pine_v211": null,
+      "status": "Исключено",
+      "application": "Настройка встроенного скринера v2.04. Скринер удалён из текущего Pine v2.11 и ранее исключён из приложения. Правый список MOEX — выбор инструментов, а не этот скринер.",
+      "evidence": "watchlist.py:94-110; gui.py:908"
+    },
+    {
+      "variable": "scanGroupFutures",
+      "pine_v204": {
+        "variable": "scanGroupFutures",
+        "type": "bool",
+        "title": "Группировать фьючерсы",
+        "default": "true",
+        "group": "Скринер",
+        "line": 3127,
+        "arguments": {
+          "group": "SCAN_TABLE_GROUP"
+        },
+        "limits": {}
+      },
+      "pine_v211": null,
+      "status": "Исключено",
+      "application": "Настройка встроенного скринера v2.04. Скринер удалён из текущего Pine v2.11 и ранее исключён из приложения. Правый список MOEX — выбор инструментов, а не этот скринер.",
+      "evidence": "watchlist.py:94-110; gui.py:908"
+    },
+    {
+      "variable": "scanOnlyInstrument",
+      "pine_v204": {
+        "variable": "scanOnlyInstrument",
+        "type": "bool",
+        "title": "Только инструмент",
+        "default": "true",
+        "group": "Скринер",
+        "line": 3128,
+        "arguments": {
+          "group": "SCAN_TABLE_GROUP",
+          "tooltip": "\"Инструмент · H1 или D. Зелёная строка — цена в лонговом FVG, красная — в шортовом; направление потока не учитывается. Отдельная строка для каждого совпавшего ТФ и направления. Служебные строки скрыты.\""
+        },
+        "limits": {}
+      },
+      "pine_v211": null,
+      "status": "Исключено",
+      "application": "Настройка встроенного скринера v2.04. Скринер удалён из текущего Pine v2.11 и ранее исключён из приложения. Правый список MOEX — выбор инструментов, а не этот скринер.",
+      "evidence": "watchlist.py:94-110; gui.py:908"
+    },
+    {
+      "variable": "scanShowPrice",
+      "pine_v204": {
+        "variable": "scanShowPrice",
+        "type": "bool",
+        "title": "Цена",
+        "default": "true",
+        "group": "Скринер",
+        "line": 3129,
+        "arguments": {
+          "group": "SCAN_TABLE_GROUP",
+          "active": "not scanOnlyInstrument"
+        },
+        "limits": {
+          "active": "not scanOnlyInstrument"
+        }
+      },
+      "pine_v211": null,
+      "status": "Исключено",
+      "application": "Настройка встроенного скринера v2.04. Скринер удалён из текущего Pine v2.11 и ранее исключён из приложения. Правый список MOEX — выбор инструментов, а не этот скринер.",
+      "evidence": "watchlist.py:94-110; gui.py:908"
+    },
+    {
+      "variable": "scanShowSide",
+      "pine_v204": {
+        "variable": "scanShowSide",
+        "type": "bool",
+        "title": "FVG (направление)",
+        "default": "true",
+        "group": "Скринер",
+        "line": 3130,
+        "arguments": {
+          "group": "SCAN_TABLE_GROUP",
+          "active": "not scanOnlyInstrument"
+        },
+        "limits": {
+          "active": "not scanOnlyInstrument"
+        }
+      },
+      "pine_v211": null,
+      "status": "Исключено",
+      "application": "Настройка встроенного скринера v2.04. Скринер удалён из текущего Pine v2.11 и ранее исключён из приложения. Правый список MOEX — выбор инструментов, а не этот скринер.",
+      "evidence": "watchlist.py:94-110; gui.py:908"
+    },
+    {
+      "variable": "scanShowBottom",
+      "pine_v204": {
+        "variable": "scanShowBottom",
+        "type": "bool",
+        "title": "Низ",
+        "default": "true",
+        "group": "Скринер",
+        "line": 3131,
+        "arguments": {
+          "group": "SCAN_TABLE_GROUP",
+          "active": "not scanOnlyInstrument"
+        },
+        "limits": {
+          "active": "not scanOnlyInstrument"
+        }
+      },
+      "pine_v211": null,
+      "status": "Исключено",
+      "application": "Настройка встроенного скринера v2.04. Скринер удалён из текущего Pine v2.11 и ранее исключён из приложения. Правый список MOEX — выбор инструментов, а не этот скринер.",
+      "evidence": "watchlist.py:94-110; gui.py:908"
+    },
+    {
+      "variable": "scanShowMiddle",
+      "pine_v204": {
+        "variable": "scanShowMiddle",
+        "type": "bool",
+        "title": "Середина",
+        "default": "true",
+        "group": "Скринер",
+        "line": 3132,
+        "arguments": {
+          "group": "SCAN_TABLE_GROUP",
+          "active": "not scanOnlyInstrument"
+        },
+        "limits": {
+          "active": "not scanOnlyInstrument"
+        }
+      },
+      "pine_v211": null,
+      "status": "Исключено",
+      "application": "Настройка встроенного скринера v2.04. Скринер удалён из текущего Pine v2.11 и ранее исключён из приложения. Правый список MOEX — выбор инструментов, а не этот скринер.",
+      "evidence": "watchlist.py:94-110; gui.py:908"
+    },
+    {
+      "variable": "scanShowTop",
+      "pine_v204": {
+        "variable": "scanShowTop",
+        "type": "bool",
+        "title": "Верх",
+        "default": "true",
+        "group": "Скринер",
+        "line": 3133,
+        "arguments": {
+          "group": "SCAN_TABLE_GROUP",
+          "active": "not scanOnlyInstrument"
+        },
+        "limits": {
+          "active": "not scanOnlyInstrument"
+        }
+      },
+      "pine_v211": null,
+      "status": "Исключено",
+      "application": "Настройка встроенного скринера v2.04. Скринер удалён из текущего Pine v2.11 и ранее исключён из приложения. Правый список MOEX — выбор инструментов, а не этот скринер.",
+      "evidence": "watchlist.py:94-110; gui.py:908"
+    },
+    {
+      "variable": "scanShowCount",
+      "pine_v204": {
+        "variable": "scanShowCount",
+        "type": "bool",
+        "title": "Количество зон",
+        "default": "true",
+        "group": "Скринер",
+        "line": 3134,
+        "arguments": {
+          "group": "SCAN_TABLE_GROUP",
+          "tooltip": "\"Число непробитых FVG данного ТФ и направления, содержащих цену. Границы в строке относятся к самой новой из совпавших зон.\"",
+          "active": "not scanOnlyInstrument"
+        },
+        "limits": {
+          "active": "not scanOnlyInstrument"
+        }
+      },
+      "pine_v211": null,
+      "status": "Исключено",
+      "application": "Настройка встроенного скринера v2.04. Скринер удалён из текущего Pine v2.11 и ранее исключён из приложения. Правый список MOEX — выбор инструментов, а не этот скринер.",
+      "evidence": "watchlist.py:94-110; gui.py:908"
+    },
+    {
+      "variable": "scanShowTime",
+      "pine_v204": {
+        "variable": "scanShowTime",
+        "type": "bool",
+        "title": "Свеча ТФ от (МСК)",
+        "default": "true",
+        "group": "Скринер",
+        "line": 3135,
+        "arguments": {
+          "group": "SCAN_TABLE_GROUP",
+          "active": "not scanOnlyInstrument"
+        },
+        "limits": {
+          "active": "not scanOnlyInstrument"
+        }
+      },
+      "pine_v211": null,
+      "status": "Исключено",
+      "application": "Настройка встроенного скринера v2.04. Скринер удалён из текущего Pine v2.11 и ранее исключён из приложения. Правый список MOEX — выбор инструментов, а не этот скринер.",
+      "evidence": "watchlist.py:94-110; gui.py:908"
+    },
+    {
+      "variable": "scanShowFooter",
+      "pine_v204": {
+        "variable": "scanShowFooter",
+        "type": "bool",
+        "title": "Служебные строки под таблицей",
+        "default": "true",
+        "group": "Скринер",
+        "line": 3136,
+        "arguments": {
+          "group": "SCAN_TABLE_GROUP",
+          "active": "not scanOnlyInstrument"
+        },
+        "limits": {
+          "active": "not scanOnlyInstrument"
+        }
+      },
+      "pine_v211": null,
+      "status": "Исключено",
+      "application": "Настройка встроенного скринера v2.04. Скринер удалён из текущего Pine v2.11 и ранее исключён из приложения. Правый список MOEX — выбор инструментов, а не этот скринер.",
+      "evidence": "watchlist.py:94-110; gui.py:908"
+    }
+  ]
+}
