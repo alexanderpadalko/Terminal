@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
 )
 
 from . import __version__
+from .app_icon import application_icon, set_windows_application_id
 from .chart_view import ChartView, inside_mother_bars, time_axis_zoom_factor
 from .chart_time import candle_time_text
 from .fvg_display import DisplaySettings, select_fvg_display
@@ -764,6 +765,8 @@ class MainWindow(StreamController, WatchlistController, QMainWindow):
     def __init__(self, service=None, *, stream_factory=None, startup=None, watchlist_service=None, preferences=None, shutdown=None, settings_store=None):
         super().__init__()
         self.setWindowTitle(f"FlowDesk {__version__} — Структура и FVG · Windows")
+        # Window/taskbar icon comes from the approved FD monogram, not Qt's default.
+        self.setWindowIcon(application_icon())
         self.setMinimumSize(1060, 690)
         self.resize(1420, 830)
         self.worker: MarketWorker | None = None
@@ -1566,8 +1569,10 @@ class MainWindow(StreamController, WatchlistController, QMainWindow):
 
 def run():
     import sys
+    set_windows_application_id()
     app = QApplication(sys.argv)
     app.setApplicationName("FlowDesk")
+    app.setWindowIcon(application_icon())
     shutdown = ShutdownWatchdog()
     app.aboutToQuit.connect(shutdown.arm)
     window = MainWindow(shutdown=shutdown)
