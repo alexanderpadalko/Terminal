@@ -63,9 +63,11 @@ class ApplicationSettings:
     auto_updates: bool = True
     refresh_seconds: int = 60
     show_panel: bool = False
+    allow_http: bool = False  # Explicit opt-in for network-based candle history.
 
     def __post_init__(self):
-        if type(self.auto_updates) is not bool or type(self.show_panel) is not bool:
+        if (type(self.auto_updates) is not bool or type(self.show_panel) is not bool
+                or type(self.allow_http) is not bool):
             raise ValueError('Invalid application settings')
         if type(self.refresh_seconds) is not int or not 10<=self.refresh_seconds<=3600:
             raise ValueError('Интервал обновления должен быть от 10 до 3600 секунд')

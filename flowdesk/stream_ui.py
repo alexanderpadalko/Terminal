@@ -16,6 +16,7 @@ class StreamController:
         self.stream_buffer = {}
         self.stream_state = ''
         self.stream_quote = {}
+        self.stream_error = ''
 
     def _auto_toggled(self, enabled):
         if enabled:
@@ -47,7 +48,8 @@ class StreamController:
         if worker is self.stream_worker:
             self.stream_worker = None
             self.stream_ready = False
-            self.stream_state = 'HTTP · поток недоступен'
+            self.stream_state = ('HTTP · поток недоступен' if self.http_checkbox.isChecked()
+                                 else 'ISS+ недоступен · HTTP выключен')
             self._feed_text()
         if worker in self.retiring_streams:
             self.retiring_streams.remove(worker)
@@ -57,12 +59,15 @@ class StreamController:
 
     def _ensure_stream(self):
         if (not self.stream_factory or not self.auto_checkbox.isChecked() or self.closing_after_load or
-                not self.loaded_market or not self.source.startswith('MOEX:') or self.csv_overrides):
+                not (self.loaded_market or self.desired_market) or
+                not self.source.startswith('MOEX:') or self.csv_overrides):
             return
-        key = self.loaded_market[:2]
+        key = (self.loaded_market or self.desired_market)[:2]
         if key[1] == 'RFUD':
             seconds=getattr(getattr(self,'application_settings',None),'refresh_seconds',60)
-            self.stream_state = f'MOEX ISS · RFUD · HTTP, обновление {seconds} с'
+            self.stream_state = (f'MOEX ISS · RFUD · HTTP, обновление {seconds} с'
+                                 if self.http_checkbox.isChecked() else
+                                 'RFUD · HTTP выключен; поток пока не поддерживается')
             self.feed_label.show()
             self._feed_text()
             return
@@ -86,7 +91,8 @@ class StreamController:
     def _feed_text(self):
         text = self.stream_state
         if self.stream_ready and self.stream_needs_repair:
-            text = 'ISS+ DEMO · требуется восстановление HTTP'
+            text = ('ISS+ DEMO · требуется восстановление HTTP' if self.http_checkbox.isChecked()
+                    else 'ISS+ DEMO · требуется сверка, HTTP выключен')
         q = self.stream_quote
         if q.get('LAST') is not None:
             text += f" · Сделка {q['LAST']:g} · {q.get('TIME', '—')} · статус {q.get('TRADINGSTATUS', '—')}"
@@ -115,11 +121,18 @@ class StreamController:
                 self.stream_buffer.clear()
                 if event.state == 'unavailable':
                     self.stream_disabled_key = self.stream_key
-            self.stream_state = {'connecting': 'Подключение ISS+ DEMO', 'resync': 'Восстановление диапазона HTTP',
-                'ready': 'ISS+ DEMO · внутридневные данные ≈15 мин', 'reconnecting': 'HTTP · переподключение потока',
-                'unavailable': 'HTTP · поток недоступен'}.get(event.state, event.state)
+            approved = self.http_checkbox.isChecked()
+            self.stream_state = {'connecting': 'Подключение ISS+ DEMO',
+                'resync': 'Восстановление диапазона HTTP' if approved else 'Сверка ISS+ без HTTP',
+                'ready': 'ISS+ DEMO · внутридневные данные ≈15 мин',
+                'reconnecting': 'HTTP · переподключение потока' if approved else 'Переподключение ISS+',
+                'unavailable': 'HTTP · поток недоступен' if approved else 'ISS+ недоступен · HTTP выключен'
+                }.get(event.state, event.state)
             if event.detail:
+                self.stream_error = event.detail
                 self.status.setText(event.detail)
+            elif event.state == 'ready':
+                self.stream_error = ''
         elif event.kind == 'quote':
             self.stream_quote = event.quote
         elif event.kind == 'candles':
@@ -137,10 +150,11 @@ class StreamController:
                 self.loaded_market[:2] != self.stream_key or not self.auto_checkbox.isChecked() or
                 self.csv_overrides or self.closing_after_load):
             return
-        if self.stream_repair_pending:
+        if self.stream_repair_pending and self.http_checkbox.isChecked():
             self.stream_repair_pending = False
             self._start_market((*self.loaded_market, True), automatic=True, repair=True)
-        elif self.stream_ready and not self.stream_needs_repair and self.stream_buffer:
+        elif (self.stream_ready and self.stream_buffer and
+              (not self.stream_needs_repair or not self.http_checkbox.isChecked())):
             batch = tuple(replace(e, candles=(bar,)) for e, bar in self.stream_buffer.values())
             self.stream_buffer.clear()
             self._start_market((*self.loaded_market, False), automatic=True, stream_batch=batch)

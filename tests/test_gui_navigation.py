@@ -55,6 +55,7 @@ class TestGuiNavigation(unittest.TestCase):
     def setUp(self):
         self.market = FakeMarket()
         self.window = MainWindow(service=self.market)
+        self.window.http_checkbox.setChecked(True)
         self.window.show()
         self.app.processEvents()
         self.addCleanup(self.cleanup_window)

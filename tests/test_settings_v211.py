@@ -59,6 +59,7 @@ class TestSettingsV211(unittest.TestCase):
             self.assertEqual(new_a,application)
             store.write(IndicatorSettings(),ApplicationSettings())
             self.assertEqual(SettingsStore(path).read()[0].as_dict(),IndicatorSettings().as_dict())
+        self.assertFalse(SettingsStore(path).read()[1].allow_http)
 
     def test_corrupted_settings_recover_without_overwriting_original(self):
         with tempfile.TemporaryDirectory() as folder:

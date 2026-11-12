@@ -244,7 +244,7 @@ class MarketService:
         self.memory[key] = snapshot
 
     def view(self, symbol, board, tf, *, refresh=False, overrides=None, provenance=None, progress=None,
-             with_minutes=False, settings=None):
+             with_minutes=False, settings=None, allow_http=True):
         symbol, board = symbol.strip().upper(), board.strip().upper()
         if settings is None:
             from .settings import IndicatorSettings
@@ -277,7 +277,14 @@ class MarketService:
         has_native = saved is not None and all(saved.native_higher.get(t) for t in NATIVE_HIGHER)
         must_fetch = saved is None or refresh or not has_native or needs_minutes and not saved.minutes
         snapshot = saved
-        if must_fetch:
+        if must_fetch and not allow_http:
+            # Never issue an implicit HTTP cold-start, catchup or repair.
+            # A short WebSocket snapshot is not enough to rebuild full v2.11 history.
+            if saved is None or not has_native or (needs_minutes and not saved.minutes):
+                raise RuntimeError('HTTP выключен: нет полной истории в кэше. '
+                                   'Включите галочку «HTTP» для первой загрузки.')
+            warning = 'HTTP выключен: показана сохранённая история'
+        if must_fetch and allow_http:
             try:
                 snapshot = self._fetch(symbol, board, saved, needs_minutes, sessions, progress)
                 tier = 'network'
@@ -291,7 +298,7 @@ class MarketService:
                 snapshot, tier = saved, 'offline'
                 warning = f'Обновление недоступно; сохранённые данные: {exc}'
         self.memory[key] = snapshot
-        if self._refresh_tick(snapshot):
+        if allow_http and self._refresh_tick(snapshot):
             try:
                 self.store.write_delta(key,snapshot,{})
             except (sqlite3.Error,OSError) as exc:

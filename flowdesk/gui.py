@@ -206,13 +206,14 @@ class MarketWorker(QThread):
     progress = Signal(str)
 
     def __init__(self, symbol: str, tf: str, board: str, service: MarketService,
-                 *, refresh=False, overrides=None, provenance=None, stream_batch=(), repair=False, settings=None):
+                 *, refresh=False, overrides=None, provenance=None, stream_batch=(), repair=False, settings=None, allow_http=True):
         super().__init__()
         self.symbol, self.tf, self.board = symbol, tf, board
         self.service, self.refresh = service, refresh
         self.overrides, self.provenance = overrides, provenance
         self.stream_batch, self.repair = stream_batch, repair
         self.settings=settings
+        self.allow_http=allow_http
 
     def run(self):
         try:
@@ -220,8 +221,10 @@ class MarketWorker(QThread):
                 if self.stream_batch:
                     self.service.ingest_stream(self.symbol, self.board, self.stream_batch)
                 extra = {'with_minutes': True} if self.repair else {}
-                if self.settings is not None and isinstance(self.service,MarketService):
-                    extra['settings']=self.settings
+                if isinstance(self.service,MarketService):
+                    extra['allow_http']=self.allow_http
+                    if self.settings is not None:
+                        extra['settings']=self.settings
                 def progress(message):
                     checkpoint()
                     self.progress.emit(message)
@@ -803,6 +806,7 @@ class MainWindow(StreamController, WatchlistController, QMainWindow):
         self.stream_timer.timeout.connect(self._flush_stream)
         self.auto_checkbox.toggled.connect(self._auto_toggled)
         self.auto_checkbox.toggled.connect(self._persist_application_controls)
+        self.http_checkbox.toggled.connect(self._http_toggled)
         self.panel_checkbox.toggled.connect(self._persist_application_controls)
         lists = (WatchlistService() if service is None else None) if watchlist_service is None else watchlist_service
         self._init_lists(lists or None)
@@ -895,6 +899,11 @@ class MainWindow(StreamController, WatchlistController, QMainWindow):
         self.auto_checkbox.setChecked(self.application_settings.auto_updates)
         self.auto_checkbox.setToolTip(self._auto_help())
         navigation.addWidget(self.auto_checkbox)
+        self.http_checkbox = QCheckBox('HTTP')
+        self.http_checkbox.setObjectName('httpPermission')
+        self.http_checkbox.setChecked(self.application_settings.allow_http)
+        self.http_checkbox.setToolTip('Разрешить HTTP-историю и резерв. Без галочки только WebSocket и кэш; для первичной истории потребуется временно включить HTTP.')
+        navigation.addWidget(self.http_checkbox)
         navigation.addSpacing(10)
         self.panel_checkbox = QCheckBox("Панель")
         self.panel_checkbox.setChecked(self.application_settings.show_panel)
@@ -1092,6 +1101,27 @@ class MainWindow(StreamController, WatchlistController, QMainWindow):
                       "memory": "оперативный кэш", "disk": "дисковый кэш",
                       "offline": "локальный офлайн-кэш"}.get(tier, tier)
             detail += f"\nПоследняя обработанная порция: {origin}."
+        if (not self.http_checkbox.isChecked() and self.source.startswith('MOEX:')
+                and self.auto_checkbox.isChecked()):
+            if worker is not None and not worker.stream_batch:
+                channel, caption = 'pending', 'КЭШ · ЗАГРУЗКА'
+                detail = 'HTTP запрещён. Чтение локальной истории.'
+            elif self.stream_worker is not None:
+                if not self.loaded_market:
+                    channel, caption = 'pending', 'ПОТОК · НЕТ ИСТОРИИ'
+                    detail = 'WebSocket возможен, но для графика v2.11 нужна история. Разрешите HTTP на первую загрузку.'
+                elif self.stream_ready and self.stream_needs_repair:
+                    channel, caption = 'pending', 'ПОТОК · НУЖНА СВЕРКА'
+                    detail = 'WebSocket готов, но нужна проверка пропусков. HTTP запрещён.'
+                elif not self.stream_ready and self.stream_state.startswith(('HTTP', 'Переподключение')):
+                    channel, caption = 'pending', 'ПОТОК · ПЕРЕПОДКЛ.'
+                    detail = 'WebSocket переподключается. HTTP запрещён.'
+            elif (self.loaded_market or self.desired_market):
+                channel, caption = 'idle', 'ПОТОК · НЕДОСТУПЕН'
+                detail = 'Нет активного потока. HTTP запрещён, новых свечей нет.'
+            detail += '\nHTTP: запрещён (галочка снята)'
+        if getattr(self, 'stream_error', ''):
+            detail += '\nПричина: ' + self.stream_error
         badge = self.source_indicator
         if badge.text() != caption or badge.property("channel") != channel:
             badge.setText(caption)
@@ -1110,12 +1140,38 @@ class MainWindow(StreamController, WatchlistController, QMainWindow):
         dialog.exec()
 
     def _auto_help(self):
-        return (f'Поток MOEX ISS+ DEMO. Резерв — HTTP через {self.application_settings.refresh_seconds} с. '
-                'Внутридневные свечи и котировки могут поступать с задержкой около 15 минут.')
+        return (f'Основной канал WebSocket. HTTP через {self.application_settings.refresh_seconds} с '
+                'разрешён только при отмеченной галочке HTTP. DEMO задержка около 15 минут.')
+
+    def _http_toggled(self, enabled):
+        self._persist_application_controls()
+        if self.closing_after_load:
+            return
+        if not enabled:
+            self.stream_repair_pending = False
+            if self.worker is not None and self.worker.repair:
+                self.worker.requestInterruption()
+        elif self.source.startswith('MOEX:'):
+            if self.loaded_market is None and self.desired_market:
+                request = (*self.desired_market, True)
+                if self.worker is not None:
+                    self.pending_market = request
+                else:
+                    self._start_market(request, automatic=True)
+            elif self.stream_needs_repair and self.stream_worker:
+                self.stream_repair_pending = True
+                if not self.stream_timer.isActive():
+                    self.stream_timer.start()
+            elif self.loaded_market and self.auto_checkbox.isChecked() and not self.stream_ready:
+                self._auto_refresh()
+        if enabled:
+            self._refresh_lists()
+        self._schedule_auto_refresh()
+        self._update_channel_indicator()
 
     def _persist_application_controls(self,*_):
         if self._applying_settings:return
-        self.application_settings=replace(self.application_settings,auto_updates=self.auto_checkbox.isChecked(),show_panel=self.panel_checkbox.isChecked())
+        self.application_settings=replace(self.application_settings,auto_updates=self.auto_checkbox.isChecked(),show_panel=self.panel_checkbox.isChecked(),allow_http=self.http_checkbox.isChecked())
         try:self.settings_store.write(self.indicator_settings,self.application_settings)
         except OSError as error:
             record_exception('settings_save',error)
@@ -1138,6 +1194,7 @@ class MainWindow(StreamController, WatchlistController, QMainWindow):
             self.auto_timer.setInterval(application.refresh_seconds*1000)
             self.auto_checkbox.setToolTip(self._auto_help())
             self.auto_checkbox.setChecked(application.auto_updates)
+            self.http_checkbox.setChecked(application.allow_http)
             self.panel_checkbox.setChecked(application.show_panel)
         finally:self._applying_settings=False
         if recalculate and self.source.startswith('MOEX:'):
@@ -1171,7 +1228,7 @@ class MainWindow(StreamController, WatchlistController, QMainWindow):
         self._start_market((*context, False), automatic=True)
 
     def _schedule_auto_refresh(self, *_):
-        if (self.auto_checkbox.isChecked() and self.loaded_market and
+        if (self.auto_checkbox.isChecked() and self.http_checkbox.isChecked() and self.loaded_market and
                 self.source.startswith('MOEX:') and self.worker is None and not self.closing_after_load):
             if not self.auto_timer.isActive():
                 self.auto_timer.start()
@@ -1179,7 +1236,7 @@ class MainWindow(StreamController, WatchlistController, QMainWindow):
             self.auto_timer.stop()
 
     def _auto_refresh(self):
-        if (not self.auto_checkbox.isChecked() or not self.loaded_market or
+        if (not self.auto_checkbox.isChecked() or not self.http_checkbox.isChecked() or not self.loaded_market or
                 not self.source.startswith('MOEX:') or self.worker is not None or self.closing_after_load):
             return
         # Never open an unsubmitted ticker/board or replace a queued user request.
@@ -1240,7 +1297,8 @@ class MainWindow(StreamController, WatchlistController, QMainWindow):
         self.status.setText(f'Открытие {symbol} · {tf}…')
         self.worker = MarketWorker(symbol, tf, board, self.market_service, refresh=refresh,
                                    overrides=dict(self.csv_overrides), provenance=dict(self.csv_provenance),
-                                   stream_batch=stream_batch, repair=repair,settings=self.indicator_settings)
+                                   stream_batch=stream_batch, repair=repair,settings=self.indicator_settings,
+                                   allow_http=self.http_checkbox.isChecked())
         self.worker.automatic = automatic
         self.worker.stream_epoch = self.stream_epoch
         self.worker.loaded.connect(self._loaded)
@@ -1271,10 +1329,13 @@ class MainWindow(StreamController, WatchlistController, QMainWindow):
             self.stream_needs_repair = True
             if self.worker.stream_batch:
                 self.stream_repair_pending = True
+        elif self.worker.stream_batch and info.get('stream_received_at'):
+            self.stream_needs_repair = self.stream_repair_pending = False
         self._show_data(analysis, higher, f"MOEX: {info['symbol']} / {info['board']}")
 
     def _failed(self, error: str):
-        if self.startup and self.analysis is None and getattr(self.worker, 'automatic', False) and not self.closing_after_load:
+        if (self.startup and self.analysis is None and getattr(self.worker, 'automatic', False)
+                and not self.closing_after_load and self.http_checkbox.isChecked()):
             QTimer.singleShot(30000, self._startup_load)
         if getattr(self.worker, 'stream_batch', ()) and error.startswith('StreamGap:'):
             self.stream_needs_repair = self.stream_repair_pending = True
@@ -1285,7 +1346,9 @@ class MainWindow(StreamController, WatchlistController, QMainWindow):
             self.stream_state = 'HTTP · восстановление потока недоступно'
             self._feed_text()
         self.status.setText(f"Ошибка загрузки: {error}")
-        if not self.pending_market and not self.closing_after_load and not getattr(self.worker, 'automatic', False):
+        if (not self.pending_market and not self.closing_after_load
+                and not getattr(self.worker, 'automatic', False)
+                and not (not self.http_checkbox.isChecked() and error.startswith('RuntimeError: HTTP выключен'))):
             QMessageBox.warning(self, "MOEX ISS", error)
 
     def _market_finished(self):

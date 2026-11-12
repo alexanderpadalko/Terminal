@@ -70,10 +70,12 @@ class WatchlistController:
             self._lists_loaded(value)
         if service:
             self.list_timer.start()
-            QTimer.singleShot(0, self._refresh_lists)
+            if self.http_checkbox.isChecked():
+                QTimer.singleShot(0, self._refresh_lists)
 
     def _refresh_lists(self):
-        if (not self.watchlist_service or self.list_worker or self.closing_after_load or
+        if (not self.http_checkbox.isChecked() or not self.watchlist_service or
+                self.list_worker or self.closing_after_load or
                 not self.watchlist_service.due(self.list_value)):
             return
         if self.list_retry_at and datetime.now(MOSCOW) < self.list_retry_at:

@@ -63,6 +63,10 @@ class SettingsDialog(QDialog):
         self.auto=QCheckBox()
         self.auto.setChecked(application.auto_updates)
         form.addRow('Автоматическое обновление MOEX',self.auto)
+        self.http=QCheckBox()
+        self.http.setChecked(application.allow_http)
+        self.http.setToolTip('Разрешить HTTP-загрузку истории и резервные свечи; без галочки — WebSocket/кэш.')
+        form.addRow('Разрешить HTTP (история и резерв)',self.http)
         self.refresh=QSpinBox()
         self.refresh.setRange(10,3600)
         self.refresh.setSuffix(' с')
@@ -111,7 +115,7 @@ class SettingsDialog(QDialog):
             elif spec['type']=='color':value=control.value
             else:value=control.currentText()
             values[spec['variable']]=value
-        return IndicatorSettings(values),ApplicationSettings(self.auto.isChecked(),self.refresh.value(),self.panel.isChecked())
+        return IndicatorSettings(values),ApplicationSettings(self.auto.isChecked(),self.refresh.value(),self.panel.isChecked(),self.http.isChecked())
 
     def apply(self):
         self.applied.emit(*self.values())
@@ -131,3 +135,4 @@ class SettingsDialog(QDialog):
         self.auto.setChecked(True)
         self.refresh.setValue(60)
         self.panel.setChecked(False)
+        self.http.setChecked(False)

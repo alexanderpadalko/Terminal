@@ -71,6 +71,7 @@ class TestStreamGui(unittest.TestCase):
             return stream
         self.market = StreamMarket()
         self.window = MainWindow(service=self.market, stream_factory=factory)
+        self.window.http_checkbox.setChecked(True)
         self.window.show()
         self.window.load_moex()
         self.settle()
@@ -214,6 +215,25 @@ class TestStreamGui(unittest.TestCase):
         stream.send(state='unavailable')
         stream.finished.emit()
         self.assertEqual(indicator.property('channel'), 'http')
+
+    def test_disabled_http_blocks_repair_and_stream_still_updates(self):
+        stream = self.streams[-1]
+        self.window.http_checkbox.setChecked(False)
+        self.assertFalse(self.window.application_settings.allow_http)
+        self.assertFalse(self.window.auto_timer.isActive())
+        stream.send(state='resync')
+        stream.send(state='ready')
+        self.window._flush_stream()
+        self.settle()
+        self.assertEqual(self.market.repairs, 0)
+        stream.send(kind='candles', timeframe='M1',
+                    candles=(Candle(NOW, 10, 12, 9, 11),))
+        self.window._flush_stream()
+        self.settle()
+        self.assertEqual(len(self.market.batches), 1)
+        self.assertEqual(self.window.data_info['tier'], 'stream')
+        stream.send(state='reconnecting')
+        self.assertNotEqual(self.window.source_indicator.text(), 'HTTP · РЕЗЕРВ')
 
     def test_channel_indicator_shows_paused_auto_updates(self):
         self.ready()
