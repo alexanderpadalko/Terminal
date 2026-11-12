@@ -121,27 +121,29 @@ class FakeSocket:
 
 class TestClient(unittest.IsolatedAsyncioTestCase):
     async def test_observed_gateway_timeout_reconnects_instead_of_disabling_stream(self):
-        sockets = [FakeSocket(['CONNECTED\n\n\0', 'ERROR\n\nТаймаут операции\0']),
-                   FakeSocket(['CONNECTED\n\n\0'])]
-        events, calls = [], []
-        async def connector(*args, **kwargs):
-            calls.append(kwargs)
-            return sockets[len(calls)-1]
-        task = asyncio.create_task(IssPlusClient('MXZ6', 'RFUD', connector=connector,
-                                                backoffs=(0,)).run(events.append))
-        try:
-            for _ in range(100):
-                if len(calls) == 2 and len(sockets[1].sent) == 7:
-                    break
-                await asyncio.sleep(.001)
-        finally:
-            task.cancel()
-            with self.assertRaises(asyncio.CancelledError):
-                await task
-        self.assertEqual(len(calls), 2)
-        self.assertTrue(any(e.state == 'reconnecting' and 'Таймаут операции' in e.detail for e in events))
-        self.assertFalse(any(e.state == 'unavailable' for e in events))
-        self.assertTrue(all(s.closed for s in sockets))
+        for phrase in ('Таймаут операции', 'Operation timed out'):
+            with self.subTest(phrase=phrase):
+                sockets = [FakeSocket(['CONNECTED\n\n\0', f'ERROR\n\n{phrase}\0']),
+                           FakeSocket(['CONNECTED\n\n\0'])]
+                events, calls = [], []
+                async def connector(*args, **kwargs):
+                    calls.append(kwargs)
+                    return sockets[len(calls)-1]
+                task = asyncio.create_task(IssPlusClient('MXZ6', 'RFUD', connector=connector,
+                                                        backoffs=(0,)).run(events.append))
+                try:
+                    for _ in range(100):
+                        if len(calls) == 2 and len(sockets[1].sent) == 7:
+                            break
+                        await asyncio.sleep(.001)
+                finally:
+                    task.cancel()
+                    with self.assertRaises(asyncio.CancelledError):
+                        await task
+                self.assertEqual(len(calls), 2)
+                self.assertTrue(any(e.state == 'reconnecting' and phrase in e.detail for e in events))
+                self.assertFalse(any(e.state == 'unavailable' for e in events))
+                self.assertTrue(all(s.closed for s in sockets))
 
     async def test_rfud_reconnect_resubscribes_to_forts_without_equity_requests(self):
         sockets = [FakeSocket(['CONNECTED\n\n\0', ConnectionError('forced drop')]),

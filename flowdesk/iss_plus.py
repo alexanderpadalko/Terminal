@@ -48,7 +48,8 @@ def stomp_failure(body):
     message = body.strip()[:250]
     # Distinct from asyncio.TimeoutError, which the receive loop uses for its
     # idle heartbeat tick. The gateway failure must reach the reconnect path.
-    return GatewayTimeout(message) if message.casefold() == 'таймаут операции' else FeedError(message)
+    return (GatewayTimeout(message) if message.casefold() in ('таймаут операции', 'operation timed out')
+            else FeedError(message))
 
 
 @dataclass(frozen=True)

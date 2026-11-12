@@ -16,6 +16,7 @@ from flowdesk.market_data import (_iss_download, exclude_opening_auction, load_m
                                  load_session_overrides, candle_close_time)
 from flowdesk.pipeline import analyze_timeframes
 from flowdesk.stream_cache import StreamGap
+from flowdesk.stream_probe_policy import minute_updates_expected
 
 
 def seed_recent_http(service):
@@ -141,7 +142,11 @@ async def main():
             assert result['stream_batches'] >= 10, result
             expected = any(s['first_trade'] and (s['ended'] or service.clock()) - s['first_trade'] >= timedelta(seconds=75)
                            for s in segments)
-            if expected:
+            # HTTP can already contain the final session bars while delayed
+            # quotes still change NUMTRADES. After the delayed close this is
+            # not evidence that another M1 packet must be published.
+            result['minute_updates_expected'] = minute_updates_expected(service.clock(), 'TQBR')
+            if expected and result['minute_updates_expected']:
                 assert result['minute_updates'] > 0, 'Trades continued, but no M1 was applied after HTTP repair'
             result['live_m1_updates'] = 'OBSERVED' if result['minute_updates'] else 'NOT_OBSERVED'
             result['status'] = 'PASSED' if result['minute_updates'] else 'PARTIAL_NO_NEW_M1'
