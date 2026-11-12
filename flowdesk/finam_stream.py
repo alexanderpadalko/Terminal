@@ -101,6 +101,7 @@ class FinamStreamWorker(QThread):
             try:
                 token = await asyncio.to_thread(self.api.access_key, force=epoch>1)
                 async with connect(WS_URL,open_timeout=15,close_timeout=3,
+                                   additional_headers={"Authorization": token},
                                    ping_interval=20,ping_timeout=15,max_size=4*1024*1024) as ws:
                     handshake = False
                     subscribed = False
