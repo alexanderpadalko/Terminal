@@ -194,3 +194,29 @@ class TestStreamGui(unittest.TestCase):
         self.assertFalse(self.window.stream_repair_pending)
         self.assertIsNone(self.window.worker)
         self.assertTrue(self.window.auto_timer.isActive())
+
+    def test_channel_indicator_tracks_websocket_repair_and_fallback(self):
+        indicator = self.window.source_indicator
+        self.assertEqual(indicator.property('channel'), 'pending')
+        self.assertIn('ПОДКЛ', indicator.text())
+        stream = self.streams[-1]
+        stream.send(state='resync')
+        self.assertEqual(indicator.property('channel'), 'http')
+        self.assertIn('СВЕРКА', indicator.text())
+        stream.send(state='ready')
+        self.window._flush_stream()
+        self.settle()
+        self.assertEqual(indicator.property('channel'), 'stream')
+        self.assertIn('ISS+', indicator.text())
+        stream.send(state='reconnecting')
+        self.assertEqual(indicator.property('channel'), 'http')
+        self.assertIn('РЕЗЕРВ', indicator.text())
+        stream.send(state='unavailable')
+        stream.finished.emit()
+        self.assertEqual(indicator.property('channel'), 'http')
+
+    def test_channel_indicator_shows_paused_auto_updates(self):
+        self.ready()
+        self.window.auto_checkbox.setChecked(False)
+        self.assertEqual(self.window.source_indicator.property('channel'), 'idle')
+        self.assertIn('ПАУЗА', self.window.source_indicator.text())

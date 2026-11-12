@@ -828,8 +828,22 @@ class MainWindow(StreamController, WatchlistController, QMainWindow):
         layout.setContentsMargins(10, 10, 10, 10)
         layout.setSpacing(9)
         header = QHBoxLayout()
-        brand = QLabel("◈  FLOWDESK")
-        brand.setObjectName("brand")
+        # Use the approved FD brand mark alongside its full wordmark.
+        # The window/taskbar icon remains the unchanged text-free monogram.
+        brand = QWidget(container)
+        brand.setAccessibleName("FlowDesk — полный логотип")
+        brand_row = QHBoxLayout(brand)
+        brand_row.setContentsMargins(0, 0, 0, 0)
+        brand_row.setSpacing(7)
+        self.brand_icon = QLabel(brand)
+        self.brand_icon.setPixmap(application_icon().pixmap(32, 32))
+        self.brand_icon.setFixedSize(34, 34)
+        self.brand_icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.brand_icon.setAccessibleName("Фирменный знак FD")
+        self.brand_text = QLabel("FLOWDESK", brand)
+        self.brand_text.setObjectName("brand")
+        brand_row.addWidget(self.brand_icon)
+        brand_row.addWidget(self.brand_text)
         header.addWidget(brand)
         header.addSpacing(12)
         # Instrument choice lives exclusively in the watchlist on the right.
@@ -853,6 +867,14 @@ class MainWindow(StreamController, WatchlistController, QMainWindow):
         self.export_button = QPushButton("Экспорт диагностики")
         self.export_button.clicked.connect(self.export_diagnostics)
         header.addWidget(self.export_button)
+        header.addStretch()
+        self.source_indicator = QLabel("ДЕМО · ЛОКАЛЬНО")
+        self.source_indicator.setObjectName("sourceIndicator")
+        self.source_indicator.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.source_indicator.setMinimumWidth(162)
+        self.source_indicator.setFixedHeight(36)
+        self.source_indicator.setAccessibleName("Текущий канал рыночных данных")
+        header.addWidget(self.source_indicator)
         self.settings_button=QPushButton('⚙')
         self.settings_button.setObjectName('settingsButton')
         self.settings_button.setAccessibleName('Настройки приложения')
@@ -860,7 +882,6 @@ class MainWindow(StreamController, WatchlistController, QMainWindow):
         self.settings_button.setFixedWidth(42)
         self.settings_button.clicked.connect(self.open_settings)
         header.addWidget(self.settings_button)
-        header.addStretch()
         layout.addLayout(header)
         navigation = QHBoxLayout()
         for caption, callback in [('К последним · End', self.chart.latest),
@@ -982,6 +1003,19 @@ class MainWindow(StreamController, WatchlistController, QMainWindow):
                 font-size: 18px; font-weight: 800; color: #f2f2f2;
                 letter-spacing: 1px;
             }
+            QLabel#sourceIndicator {
+                background: #282828; color: #bebebe; border: 1px solid #454545;
+                border-radius: 5px; padding: 5px 9px; font-size: 11px; font-weight: 700;
+            }
+            QLabel#sourceIndicator[channel="stream"] {
+                background: #18362c; color: #a0edc5; border-color: #386c53;
+            }
+            QLabel#sourceIndicator[channel="http"] {
+                background: #223246; color: #abd2ff; border-color: #465e79;
+            }
+            QLabel#sourceIndicator[channel="pending"] {
+                background: #363023; color: #e2c78c; border-color: #63563b;
+            }
             #section { font-weight: 700; font-size: 13px; color: #b5b5b5; margin-top: 6px; }
             #warning {
                 background: #2b2623; color: #d6b89c;
@@ -1007,6 +1041,64 @@ class MainWindow(StreamController, WatchlistController, QMainWindow):
             QSplitter::handle { background: #313131; width: 3px; }
         """)
         self.tf.set_theme("dark")
+
+    def _update_channel_indicator(self):
+        """Show actual load/connection state, separately from the trading flow."""
+        worker = self.worker
+        if worker is not None:
+            if worker.stream_batch:
+                channel, caption = "stream", "ПОТОК · ДАННЫЕ"
+                detail = "Применяются полученные по ISS+ WebSocket/STOMP свечи."
+            elif worker.repair:
+                channel, caption = "http", "HTTP · СВЕРКА"
+                detail = "HTTP-запрос для восстановления пропусков и границ закрытых свечей."
+            else:
+                channel, caption = "http", "HTTP/КЭШ · ЗАГРУЗКА"
+                detail = "Загрузка истории MOEX ISS через HTTP или локальный кэш."
+        elif not self.source.startswith("MOEX:"):
+            channel = "idle"
+            caption = "CSV · ЛОКАЛЬНО" if self.source.startswith("CSV:") else "ДЕМО · ЛОКАЛЬНО"
+            detail = "Сетевые запросы для этого графика не выполняются."
+        elif not self.auto_checkbox.isChecked():
+            channel, caption = "idle", "АВТО · ПАУЗА"
+            detail = "Автоматические HTTP-запросы и поток ISS+ остановлены."
+        else:
+            key = self.loaded_market[:2] if self.loaded_market else None
+            if key and key[1] == "RFUD":
+                channel, caption = "http", "HTTP · ОПРОС"
+                detail = "Для срочного рынка используется HTTP-обновление MOEX ISS."
+            elif self.stream_worker is not None and self.stream_key == key:
+                if self.stream_ready and not self.stream_needs_repair:
+                    channel, caption = "stream", "ПОТОК · ISS+"
+                    detail = "WebSocket/STOMP ISS+ DEMO подключён; обновления свечей поступают потоком. HTTP остаётся резервом."
+                elif self.stream_repair_pending or (self.stream_ready and self.stream_needs_repair):
+                    channel, caption = "http", "HTTP · СВЕРКА"
+                    detail = "Поток подключён, но требуется восстановление истории через HTTP."
+                elif self.stream_state.startswith("HTTP"):
+                    channel, caption = "http", "HTTP · РЕЗЕРВ"
+                    detail = "WebSocket переподключается или недоступен; используется HTTP."
+                else:
+                    channel, caption = "pending", "ПОТОК · ПОДКЛ."
+                    detail = "Устанавливается подключение ISS+ WebSocket/STOMP. Данные потока пока не подтверждены."
+            elif key:
+                channel, caption = "http", "HTTP · РЕЗЕРВ"
+                detail = "Поток для выбранного инструмента не активен. История и обновления — через HTTP."
+            else:
+                channel, caption = "pending", "ДАННЫЕ · ОЖИДАНИЕ"
+                detail = "Инструмент MOEX ещё не загружен."
+        tier = self.data_info.get("tier") if self.source.startswith("MOEX:") else None
+        if tier:
+            origin = {"network": "HTTP-сеть", "stream": "WebSocket",
+                      "memory": "оперативный кэш", "disk": "дисковый кэш",
+                      "offline": "локальный офлайн-кэш"}.get(tier, tier)
+            detail += f"\nПоследняя обработанная порция: {origin}."
+        badge = self.source_indicator
+        if badge.text() != caption or badge.property("channel") != channel:
+            badge.setText(caption)
+            badge.setProperty("channel", channel)
+            badge.style().unpolish(badge)
+            badge.style().polish(badge)
+        badge.setToolTip(detail)
 
     def _toggle(self, key: str, value: bool):
         mapping={'show_structure':'showStructure','show_fvg':'fvgEnabled','show_flow':'flowShowLevels','show_previous':'flowShowPrevious'}
@@ -1155,6 +1247,7 @@ class MainWindow(StreamController, WatchlistController, QMainWindow):
         self.worker.failed.connect(self._failed)
         self.worker.progress.connect(self.status.setText)
         self.worker.finished.connect(self._market_finished)
+        self._update_channel_indicator()
         self.worker.start()
 
     def _loaded(self, analysis: Analysis, higher: dict, info: dict):
@@ -1224,6 +1317,7 @@ class MainWindow(StreamController, WatchlistController, QMainWindow):
         self._ensure_stream()
         if self.stream_buffer or self.stream_repair_pending:
             self.stream_timer.start()
+        self._update_channel_indicator()
 
     def closeEvent(self, event):
         if self.shutdown_watchdog is not None:
@@ -1413,6 +1507,7 @@ class MainWindow(StreamController, WatchlistController, QMainWindow):
                 self.status.setText(self.status.text() + ' · ' + self.data_info['warning'])
         else:
             self.data_age.setText('')
+        self._update_channel_indicator()
 
     def _pair_text(self, state) -> str:
         pair = state.liquidity

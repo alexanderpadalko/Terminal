@@ -39,6 +39,9 @@ class CleanHeaderTests(unittest.TestCase):
         self.assertTrue(window.export_button.isVisible())
         self.assertTrue(window.settings_button.isVisible())
         self.assertTrue(window.instrument_list.isVisible())
+        self.assertEqual(window.brand_text.text(), "FLOWDESK")
+        self.assertFalse(window.brand_icon.pixmap().isNull())
+        self.assertTrue(window.source_indicator.isVisible())
 
     def test_watchlist_switches_hidden_symbol_board_for_futures(self):
         window = self.make_window()

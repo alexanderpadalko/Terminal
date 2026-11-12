@@ -26,6 +26,7 @@ class StreamController:
             self.stream_state = 'Пауза'
             self._feed_text()
         self._schedule_auto_refresh()
+        self._update_channel_indicator()
 
     def _stop_stream(self):
         self.stream_timer.stop()
@@ -39,6 +40,7 @@ class StreamController:
             worker, self.stream_worker = self.stream_worker, None
             self.retiring_streams.append(worker)
             worker.stop()
+        self._update_channel_indicator()
 
     def _stream_finished(self):
         worker = self.sender()
@@ -79,6 +81,7 @@ class StreamController:
         worker.event.connect(self._stream_event)
         worker.finished.connect(self._stream_finished)
         worker.start()
+        self._update_channel_indicator()
 
     def _feed_text(self):
         text = self.stream_state
@@ -89,6 +92,7 @@ class StreamController:
             text += f" · Сделка {q['LAST']:g} · {q.get('TIME', '—')} · статус {q.get('TRADINGSTATUS', '—')}"
         self.feed_label.setText(text)
         self.feed_label.setToolTip('Сделка не заменяет OHLC свечи. Д/Н/М могут обновляться быстрее внутридневного канала. Граница подтверждения свечей указана отдельно.')
+        self._update_channel_indicator()
 
     def _stream_event(self, event):
         if (self.sender() is not self.stream_worker or self.closing_after_load or
