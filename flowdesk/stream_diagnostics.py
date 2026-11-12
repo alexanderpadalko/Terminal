@@ -9,6 +9,7 @@ import traceback
 
 from .asyncio_runtime import prepare_asyncio_runtime
 from .iss_plus import IssPlusClient
+from .stream_probe_policy import minute_updates_expected
 
 
 async def probe(result,timeout=100,*,symbol='SBER',board='TQBR'):
@@ -51,8 +52,14 @@ async def probe(result,timeout=100,*,symbol='SBER',board='TQBR'):
             # Quotes can remain quiet while delayed closed candles arrive.
             minute_updates=any(n>=2 for (epoch,kind),n in per_epoch.items() if kind=='M1')
             result['quote_updates_observed']=any(n>=2 for (epoch,kind),n in per_epoch.items() if kind=='quote')
+            result['minute_updates_expected']=minute_updates_expected(datetime.now(timezone.utc),board)
             if ready and minute_updates:
                 result['automatic_updates']=True
+                result['validation']='AUTOMATIC_M1_OBSERVED'
+                return
+            if ready and not result['minute_updates_expected']:
+                result['automatic_updates']=False
+                result['validation']='SNAPSHOTS_ONLY_OUTSIDE_SESSION'
                 return
         raise TimeoutError('ISS+ snapshots/automatic M1 update not received')
     finally:

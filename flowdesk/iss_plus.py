@@ -38,6 +38,19 @@ class FeedError(Exception):
     pass
 
 
+class GatewayTimeout(ConnectionError):
+    pass
+
+
+def stomp_failure(body):
+    # Observed FORTS gateway response: a subscription timed out, not access
+    # denial. Unknown resource/authentication errors must still stop retries.
+    message = body.strip()[:250]
+    # Distinct from asyncio.TimeoutError, which the receive loop uses for its
+    # idle heartbeat tick. The gateway failure must reach the reconnect path.
+    return GatewayTimeout(message) if message.casefold() == 'таймаут операции' else FeedError(message)
+
+
 @dataclass(frozen=True)
 class FeedEvent:
     kind: str
@@ -203,7 +216,7 @@ class IssPlusClient:
                     data = await asyncio.wait_for(ws.recv(), max(.1, deadline - time.monotonic()))
                     for command, headers, body in parser.feed(data):
                         if command == 'ERROR':
-                            raise FeedError(body[:250])
+                            raise stomp_failure(body)
                         if command == 'CONNECTED':
                             authenticated = True
                     if time.monotonic() > deadline and not authenticated:
@@ -223,7 +236,7 @@ class IssPlusClient:
                         data = await asyncio.wait_for(ws.recv(), timeout=3)
                         for command, headers, body in parser.feed(data):
                             if command == 'ERROR':
-                                raise FeedError(body[:250])
+                                raise stomp_failure(body)
                             if command != 'MESSAGE':
                                 continue
                             event = decoder.decode(headers, body, self.clock())

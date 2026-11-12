@@ -22,7 +22,9 @@ def main():
     assert result['frozen'],'The check must execute the bundled application'
     assert completed.returncode==0 and result['passed'],result.get('error','Packaged stream failed')
     assert result['executor_after']=='ok' and result['dns_addresses']>0
-    assert result['automatic_updates'] and result['counts']['M1']>=2
+    assert result['automatic_updates'] or (result['validation']=='SNAPSHOTS_ONLY_OUTSIDE_SESSION'
+                                          and result['minute_updates_expected'] is False)
+    assert result['counts']['M1'] >= (2 if result['automatic_updates'] else 1)
     assert result['http_market_requests']==0
 
 

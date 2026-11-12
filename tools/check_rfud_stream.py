@@ -13,6 +13,7 @@ import time
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from flowdesk.iss_plus import (ENDPOINT, INTERVALS, IssPlusClient, PacketDecoder,
                               StompParser, encode_frame, subscriptions)
+from flowdesk.stream_probe_policy import minute_updates_expected
 
 SYMBOLS = ('MXZ6', 'SIZ6', 'CRZ6', 'EUZ6', 'RIZ6', 'EDZ6',
            'USDRUBF', 'CNYRUBF', 'EURRUBF', 'IMOEXF')
@@ -90,8 +91,8 @@ async def automatic(result):
     previous, counts = {}, Counter()
     started, dropped = time.monotonic(), False
     try:
-        while time.monotonic()-started < 125:
-            if not dropped and time.monotonic()-started >= 50 and sockets:
+        while time.monotonic()-started < 150:
+            if not dropped and time.monotonic()-started >= 50 and sockets and result['ready_epochs']:
                 sockets[-1].transport.abort()
                 dropped = True
             try:
@@ -121,10 +122,17 @@ async def automatic(result):
                     result['last_m1'] = [c.time.isoformat() for c in event.candles]
                     result['last_m1_begin_age_seconds'] = (event.received_at-event.candles[-1].time).total_seconds()
             result['counts'] = dict(counts)
+            if (len(set(result['ready_epochs'])) >= 2 and
+                    (result['changed_m1_packets'] or not minute_updates_expected(datetime.now(timezone.utc),'RFUD'))):
+                break
         result.update(forced_drop=dropped,connections=len(sockets),
-                      automatic_m1_changes_observed=result['changed_m1_packets']>0)
+                      automatic_m1_changes_observed=result['changed_m1_packets']>0,
+                      minute_updates_expected=minute_updates_expected(datetime.now(timezone.utc),'RFUD'))
         assert len(set(result['ready_epochs'])) >= 2, 'RFUD reconnect not verified'
-        assert result['automatic_m1_changes_observed'], 'RFUD M1 updates beyond initial snapshots not observed'
+        assert result['automatic_m1_changes_observed'] or not result['minute_updates_expected'], \
+            'RFUD M1 updates beyond initial snapshots not observed during delayed session'
+        result['validation'] = ('AUTOMATIC_M1_OBSERVED' if result['automatic_m1_changes_observed']
+                                else 'SNAPSHOTS_AND_RECONNECT_ONLY_OUTSIDE_SESSION')
     finally:
         task.cancel()
         try:
