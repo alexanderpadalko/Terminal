@@ -32,6 +32,8 @@ python tools\build_app_icon.py
 if errorlevel 1 goto fail
 python -m PyInstaller --clean --noconfirm --windowed --onedir --name FlowDesk --icon flowdesk\assets\flowdesk.ico --add-data "flowdesk\assets;flowdesk\assets" --collect-all tzdata --collect-all websockets --add-data "flowdesk/data;flowdesk/data" main.py
 if errorlevel 1 goto fail
+python tools\check_exe_stream.py dist\FlowDesk\FlowDesk.exe
+if errorlevel 1 goto fail
  echo.
  echo SUCCESS: dist\FlowDesk\FlowDesk.exe
  echo Copy the ENTIRE dist\FlowDesk folder to other Windows PCs.

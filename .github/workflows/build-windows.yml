@@ -91,6 +91,8 @@ jobs:
         run: python -m PyInstaller --clean --noconfirm --windowed --onedir --name FlowDesk --icon flowdesk/assets/flowdesk.ico --add-data "flowdesk/assets;flowdesk/assets" --collect-all tzdata --collect-all websockets --add-data "flowdesk/data;flowdesk/data" main.py
       - name: Verify packaged process exits after WM_CLOSE
         run: python -u tools/check_exe_shutdown.py dist/FlowDesk/FlowDesk.exe
+      - name: Verify real packaged DNS and ISS+ WebSocket without market HTTP
+        run: python -u tools/check_exe_stream.py dist/FlowDesk/FlowDesk.exe
       - name: Publish entire standalone directory
         uses: actions/upload-artifact@v4
         with:
@@ -123,6 +125,12 @@ jobs:
         with:
           name: FlowDesk-0.2.26-Process-Exit-Evidence
           path: shutdown-exe-result.json
+          retention-days: 30
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: FlowDesk-0.2.26-Packaged-WebSocket-Evidence
+          path: issplus-exe-result.json
           retention-days: 30
       - uses: actions/upload-artifact@v4
         if: always()

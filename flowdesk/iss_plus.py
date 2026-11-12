@@ -10,6 +10,7 @@ import time
 
 from .market_data import Candle, MOSCOW, candle_close_time, parse_time, period_floor
 from .runtime_errors import record_exception
+from .asyncio_runtime import prepare_asyncio_runtime
 
 ENDPOINT = 'wss://iss.moex.com/infocx/v3/websocket'
 INTERVALS = {'M1': 'M1', 'H1': 'H1', 'D1': 'D1', 'W1': 'W1', 'MN1': 'm1'}
@@ -155,6 +156,7 @@ class IssPlusClient:
         self.backoffs, self.stale_seconds = backoffs, stale_seconds
 
     async def run(self, emit):
+        prepare_asyncio_runtime()
         if self.connector is None:
             from websockets.asyncio.client import connect
             connector = connect
