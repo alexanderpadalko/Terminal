@@ -1,6 +1,8 @@
-name: Build Windows FlowDesk Finam-only exe
+name: FlowDesk 0.2.26 — Finam Windows CI
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
   pull_request:
     branches: [main]
 
@@ -56,3 +58,88 @@ jobs:
           name: FlowDesk-0.2.26-Finam-Test-Evidence
           path: shutdown-exe-result.json
           retention-days: 30
+
+  archive-obsolete-branches:
+    name: Archive and remove verified obsolete branches (one-time)
+    needs: windows-exe
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Make safe Git archive tags before deleting stale remote branches
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const owner=context.repo.owner, repo=context.repo.repo;
+            const prefix='archive/2026-11-13/';
+            const marker='tags/'+prefix+'cleanup-complete';
+            try {
+              await github.rest.git.getRef({owner,repo,ref:marker});
+              core.info('Cleanup completed earlier, skipping.');
+              return;
+            } catch(e) {
+              if(e.status!==404) throw e;
+            }
+            const main=await github.rest.repos.getBranch({owner,repo,branch:'main'});
+            if(main.data.commit.sha!==context.sha) {
+              core.setFailed('main changed since the verified Windows CI; refusing deletion');
+              return;
+            }
+            const expected={
+              'diagnostics/iss-plus-demo-20261111':'fd84d6b2770c5eedbf61cb3e601a270192fe33de',
+              'diagnostics/iss-plus-instruments-20261111':'cd69827e6c81b7ea0a955c48379f3914b2d0c104',
+              'feature/flowdesk-026-clean-topbar':'a0fe84db81ef6cdb41775b839fe7c1cfc30ea357',
+              'feature/flowdesk-026-taskbar-appicon':'8d3d9d63f8e17d0ad81af10b7d4249f83e0f58c5',
+              'feature/flowdesk-hollow-inside-only-0217':'2b5e8b38a456e58d70d9b520d4e2507f14b6e642',
+              'feature/flowdesk-no-wick-through-hollow-and-2d-pan-0218':'f2c920834743762f0fd6ce7d52f5e8dafb63adc4',
+              'feature/flowdesk-tv-dark-chrome-axis-margin-0216':'0f3c826c19c26e3491dff8d3614b9aa111ea3cd8',
+              'feature/flowdesk-tv-style-0214':'cadfc3d3d10a63482cc7cf2ff56c66b5b781c4c2'
+            };
+            const working='codex/flowdesk-0.2.9-confirmed-bars';
+            const listed=await github.paginate(github.rest.repos.listBranches,{owner,repo,per_page:100});
+            const byName=new Map(listed.map(x=>[x.name,x]));
+            const unexpected=listed.filter(x=>x.name!=='main' && x.name!==working &&
+                                           !Object.hasOwn(expected,x.name));
+            if(unexpected.length) {
+              core.setFailed('New/unrecognized branches present: '+unexpected.map(x=>x.name).join(', '));
+              return;
+            }
+            const targets=[];
+            for(const [name,sha] of Object.entries(expected)) {
+              const b=byName.get(name);
+              if(!b) continue;
+              if(b.commit.sha!==sha || b.protected) {
+                core.setFailed('Stale or protected branch: '+name);return;
+              }
+              targets.push({name,sha});
+            }
+            const wb=byName.get(working);
+            if(wb) {
+              const comparison=await github.rest.repos.compareCommitsWithBasehead({
+                owner,repo,basehead:context.sha+'...'+wb.commit.sha
+              });
+              if(comparison.data.ahead_by!==0 || wb.protected) {
+                core.setFailed('Codex branch contains unmerged changes or is protected; refusing cleanup');return;
+              }
+              targets.push({name:working,sha:wb.commit.sha});
+            }
+            for(const b of targets) {
+              const tag=prefix+b.name;
+              try {
+                await github.rest.git.createRef({owner,repo,ref:'refs/tags/'+tag,sha:b.sha});
+                core.info('Archived '+b.name+' -> '+tag);
+              } catch(e) {
+                if(e.status!==422) throw e;
+                const existing=await github.rest.git.getRef({owner,repo,ref:'tags/'+tag});
+                if(existing.data.object.sha!==b.sha) throw new Error('Archive tag mismatch: '+tag);
+              }
+            }
+            for(const b of targets) {
+              const fresh=await github.rest.repos.getBranch({owner,repo,branch:b.name});
+              if(fresh.data.commit.sha!==b.sha) throw new Error('Branch changed; keeping '+b.name);
+              await github.rest.git.deleteRef({owner,repo,ref:'heads/'+b.name});
+              core.info('Removed old remote branch '+b.name+' (archived)');
+            }
+            await github.rest.git.createRef({owner,repo,ref:'refs/'+marker,sha:context.sha});
+            core.info('Cleanup complete: only main remains; '+targets.length+' archived branches');
