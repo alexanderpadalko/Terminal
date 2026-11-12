@@ -4,3 +4,4 @@ PySide6_Essentials==6.12.0
 tzdata==2026.4
 websockets==15.0.1
 
+keyring>=25.6,<27

@@ -62,7 +62,7 @@ class SettingsDialog(QDialog):
         form=QFormLayout(app_widget)
         self.auto=QCheckBox()
         self.auto.setChecked(application.auto_updates)
-        form.addRow('Автоматическое обновление MOEX',self.auto)
+        form.addRow('Автоматическое обновление Finam Trade API',self.auto)
         self.http=QCheckBox()
         self.http.setChecked(application.allow_http)
         self.http.setToolTip('Разрешить HTTP-загрузку истории и резервные свечи; без галочки — WebSocket/кэш.')
@@ -75,7 +75,7 @@ class SettingsDialog(QDialog):
         self.panel=QCheckBox()
         self.panel.setChecked(application.show_panel)
         form.addRow('Показывать боковую панель',self.panel)
-        form.addRow(QLabel('Часовой пояс: Москва · время свечи — время её начала.\nД/Н/М: готовые свечи MOEX, метка 00:00.'))
+        form.addRow(QLabel('Время свечи — время её начала.\nД/Н/М: готовые свечи Finam Trade API.'))
         self.tabs.addTab(app_widget,'Приложение')
         buttons=QDialogButtonBox(QDialogButtonBox.StandardButton.Ok|QDialogButtonBox.StandardButton.Apply|
                                 QDialogButtonBox.StandardButton.Cancel|QDialogButtonBox.StandardButton.RestoreDefaults)

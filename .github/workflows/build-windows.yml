@@ -1,76 +1,14 @@
-name: Build Windows FlowDesk exe
+name: Build Windows FlowDesk Finam-only exe
 on:
   workflow_dispatch:
   pull_request:
     branches: [main]
 
 concurrency:
-  group: flowdesk-build-${{ github.event.pull_request.head.sha || github.sha }}
+  group: flowdesk-finam-${{ github.event.pull_request.head.sha || github.sha }}
   cancel-in-progress: true
 
 jobs:
-  rfud-live:
-    runs-on: ubuntu-latest
-    timeout-minutes: 6
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v6
-        with:
-          python-version: '3.15.2'
-      - run: python -m pip install websockets==15.0.1 tzdata==2026.4
-      - name: Verify ten RFUD streams and automatic MXZ6 candles with forced reconnect
-        run: python -u tools/check_rfud_stream.py
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: FlowDesk-0.2.26-RFUD-WebSocket-Evidence
-          path: issplus-rfud-result.json
-          retention-days: 30
-  issplus-live:
-    runs-on: ubuntu-latest
-    timeout-minutes: 12
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v6
-        with:
-          python-version: '3.15.2'
-      - run: python -m pip install websockets==15.0.1 tzdata==2026.4
-      - name: Exercise SBER stream and forced reconnect
-        run: python -u tools/check_issplus_live.py
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: FlowDesk-0.2.26-ISSPlus-Live-Evidence
-          path: |
-            issplus-live-result.json
-            issplus-live-cache.sqlite3
-          retention-days: 30
-  archive-check:
-    # Service availability is recorded independently of tests and packaging.
-    continue-on-error: true
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v6
-        with:
-          python-version: '3.15.2'
-      - run: python -m pip install tzdata==2026.4
-      - name: Replay available AFKS exchange archive
-        run: python -u tools/check_afks_archive.py
-      - name: Save market inputs and replay result
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: AFKS-archive-replay
-          path: archive-check/
-          retention-days: 7
   windows-exe:
     runs-on: windows-latest
     permissions:
@@ -78,96 +16,43 @@ jobs:
     steps:
       - name: Check out source
         uses: actions/checkout@v4
-      - name: Use stable Python 3.15.2 (x64)
+      - name: Use stable Python 3.15.2 x64
         uses: actions/setup-python@v6
         with:
           python-version: '3.15.2'
           architecture: x64
           check-latest: false
-      - name: Install stable pinned dependencies
+      - name: Install pinned dependencies
         run: |
           python -m pip install --upgrade pip
           python -m pip install -r requirements-build.txt
-      - name: Run calculation tests
+      - name: Validate v2.11 calculations and Finam adapters (offline)
         run: |
           python tools/build_v211_reference.py
           python tools/build_v211_settings.py
           python -m unittest discover -s tests -v
-      - name: Refresh daily instrument list and verify RFUD sources
-        run: python -u tools/check_watchlist_live.py
-      - name: Audit FVG display on actual SBER candles
-        run: python -u tools/check_fvg_display_live.py
-      - name: Smoke test Qt (headless)
+      - name: Smoke test Finam-only Qt window with no token
         shell: pwsh
         run: |
           $env:QT_QPA_PLATFORM='offscreen'
-          python -c "from PySide6.QtWidgets import QApplication; from flowdesk.gui import MainWindow; app = QApplication([]); w=MainWindow(); print('GUI constructed:', w.windowTitle()); w.close()"
-          python tools/preview_ui.py
-          python tools/preview_settings.py
-          python tools/check_chart_performance.py
-      - name: Prepare FlowDesk app/taskbar and executable icon
+          python -c "from PySide6.QtWidgets import QApplication; from flowdesk.finam_gui import FinamWindow; app=QApplication([]); w=FinamWindow(); assert 'Finam Trade API' in w.windowTitle(); assert w.http.text()=='HTTP'; w.close(); print('FINAM_ONLY_WINDOW_OK')"
+      - name: Prepare FlowDesk taskbar and EXE icon
         run: python tools/build_app_icon.py
-      - name: Build portable Windows executable
-        run: python -m PyInstaller --clean --noconfirm --windowed --onedir --name FlowDesk --icon flowdesk/assets/flowdesk.ico --add-data "flowdesk/assets;flowdesk/assets" --collect-all tzdata --collect-all websockets --add-data "flowdesk/data;flowdesk/data" main.py
-      - name: Verify packaged process exits after WM_CLOSE
+      - name: Build portable Windows EXE (Finam only)
+        run: python -m PyInstaller --clean --noconfirm --windowed --onedir --name FlowDesk --icon flowdesk/assets/flowdesk.ico --add-data "flowdesk/assets;flowdesk/assets" --collect-all tzdata --collect-all websockets --collect-all keyring --add-data "flowdesk/data;flowdesk/data" main.py
+      - name: Verify packaged EXE cleanly closes without a token
         run: python -u tools/check_exe_shutdown.py dist/FlowDesk/FlowDesk.exe
-      - name: Verify real packaged DNS and ISS+ WebSocket without market HTTP
-        run: python -u tools/check_exe_stream.py dist/FlowDesk/FlowDesk.exe
-      - name: Verify RFUD MXZ6 WebSocket from the packaged executable without HTTP
-        run: python -u tools/check_exe_stream.py dist/FlowDesk/FlowDesk.exe MXZ6 RFUD
-      - name: Publish entire standalone directory
+      - name: Publish standalone EXE folder
         uses: actions/upload-artifact@v4
         with:
-          name: FlowDesk-0.2.26-Windows-x64
+          name: FlowDesk-0.2.26-Finam-Windows-x64
           path: dist/FlowDesk/
           if-no-files-found: error
           retention-days: 30
-      - uses: actions/upload-artifact@v4
+      - name: Save smoke-test evidence
+        uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: FlowDesk-0.2.26-Preview
-          path: |
-            ui-preview.png
-            candle-time-preview.png
-            fvg-display-preview.png
-            settings-chart-preview.png
-            settings-dialog-preview.png
-            settings-ui-result.json
-            chart-performance-result.json
-          retention-days: 30
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: FlowDesk-0.2.26-Instrument-List-Evidence
-          path: |
-            watchlist-live-result.json
-            flowdesk/data/watchlist_seed.json
-          retention-days: 30
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: FlowDesk-0.2.26-Process-Exit-Evidence
+          name: FlowDesk-0.2.26-Finam-Test-Evidence
           path: shutdown-exe-result.json
           retention-days: 30
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: FlowDesk-0.2.26-Packaged-WebSocket-Evidence
-          path: issplus-exe-result.json
-          # Separate artifact below keeps both actual executable probe results.
-          retention-days: 30
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: FlowDesk-0.2.26-Packaged-RFUD-WebSocket-Evidence
-          path: issplus-exe-rfud-result.json
-          retention-days: 30
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: FlowDesk-0.2.26-FVG-Display-Evidence
-          path: |
-            fvg-display-live-result.json
-            fvg-display-live-cache.sqlite3
-          retention-days: 30
-
