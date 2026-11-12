@@ -11,7 +11,7 @@ from .asyncio_runtime import prepare_asyncio_runtime
 from .iss_plus import IssPlusClient
 
 
-async def probe(result,timeout=100):
+async def probe(result,timeout=100,*,symbol='SBER',board='TQBR'):
     loop=asyncio.get_running_loop()
     try:
         result['executor_before']=await loop.run_in_executor(None,lambda:'ok')
@@ -23,9 +23,9 @@ async def probe(result,timeout=100):
     addresses=await asyncio.wait_for(loop.getaddrinfo('iss.moex.com',443),20)
     result['dns_addresses']=len(addresses)
     queue=asyncio.Queue()
-    task=asyncio.create_task(IssPlusClient('SBER','TQBR').run(queue.put_nowait))
+    task=asyncio.create_task(IssPlusClient(symbol,board).run(queue.put_nowait))
     counts=Counter()
-    result.update(statuses=[],counts={},http_market_requests=0)
+    result.update(symbol=symbol,board=board,statuses=[],counts={},http_market_requests=0)
     deadline=loop.time()+timeout
     ready=False
     try:
@@ -43,6 +43,8 @@ async def probe(result,timeout=100):
                     result['last_m1']=[c.time.isoformat() for c in event.candles]
                 if event.kind=='quote':
                     result['quote_time']=event.quote.get('TIME')
+                    result['quote_ticker']=event.quote.get('TICKER')
+                    result['trading_status']=event.quote.get('TRADINGSTATUS')
             if ready and counts['M1']>=2 and counts['quote']>=2:
                 result['automatic_updates']=True
                 return
@@ -56,13 +58,14 @@ async def probe(result,timeout=100):
 
 
 def main(argv):
-    if len(argv)!=1:
+    if len(argv) not in (1,3):
         return 2
     destination=Path(argv[0])
     result={'started_at':datetime.now(timezone.utc).isoformat(),
             'frozen':bool(getattr(sys,'frozen',False)),'python':sys.version,'passed':False}
     try:
-        asyncio.run(probe(result))
+        instrument=dict(symbol=argv[1],board=argv[2]) if len(argv)==3 else {}
+        asyncio.run(probe(result,**instrument))
         result['passed']=True
     except Exception as exc:
         result.update(error=f'{type(exc).__name__}: {exc}',traceback=''.join(traceback.format_exception(exc)))

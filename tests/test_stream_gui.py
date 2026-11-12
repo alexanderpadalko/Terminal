@@ -50,6 +50,8 @@ if QT_AVAILABLE:
             if kwargs.get('with_minutes'):
                 self.repairs += 1
                 result[2]['tier'] = 'network'
+            if self.batches and self.batches[-1][:2] == args[:2]:
+                result[2]['stream_received_at'] = NOW.isoformat()
             return result
 
         def ingest_stream(self, symbol, board, batch):
@@ -254,6 +256,36 @@ class TestStreamGui(unittest.TestCase):
         self.assertEqual(self.window.data_info['tier'], 'stream')
         stream.send(state='reconnecting')
         self.assertNotEqual(self.window.source_indicator.text(), 'HTTP · РЕЗЕРВ')
+
+    def test_rfud_stream_with_http_disabled_keeps_stream_badge_and_updates(self):
+        old = self.ready()
+        self.window.http_checkbox.setChecked(False)
+        self.window.board.setCurrentText('RFUD')
+        self.window.symbol.setText('MXZ6')
+        self.window.load_moex()
+        self.settle()
+        self.assertTrue(old.stopped)
+        stream = self.streams[-1]
+        self.assertEqual((stream.symbol, stream.board), ('MXZ6', 'RFUD'))
+        count = self.market.repairs
+        stream.send(state='resync')
+        stream.send(state='ready')
+        stream.send(kind='candles', timeframe='M1', candles=(Candle(NOW, 10, 12, 9, 11),))
+        self.window._flush_stream()
+        self.settle()
+        self.assertEqual(self.market.repairs, count)
+        self.assertEqual(self.market.batches[-1][:2], ('MXZ6', 'RFUD'))
+        self.assertEqual(self.window.source_indicator.text(), 'ПОТОК · ISS+')
+        self.assertFalse(self.window.http_checkbox.isChecked())
+        self.window.tf.setCurrentText('H1')
+        self.settle()
+        self.assertIs(self.window.stream_worker, stream)
+        stream.send(state='unavailable', detail='denied')
+        stream.finished.emit()
+        self.window._auto_refresh()
+        self.settle()
+        self.assertEqual(self.market.repairs, count)
+        self.assertEqual(self.window.source_indicator.text(), 'ПОТОК · НЕДОСТУПЕН')
 
     def test_channel_indicator_shows_paused_auto_updates(self):
         self.ready()

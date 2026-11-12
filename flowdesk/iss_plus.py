@@ -14,6 +14,24 @@ from .asyncio_runtime import prepare_asyncio_runtime
 
 ENDPOINT = 'wss://iss.moex.com/infocx/v3/websocket'
 INTERVALS = {'M1': 'M1', 'H1': 'H1', 'D1': 'D1', 'W1': 'W1', 'MN1': 'm1'}
+MARKETS = {'TQBR': 'MXSE', 'RFUD': 'FORTS'}
+
+
+def stream_ticker(symbol, board):
+    market = MARKETS[board]
+    if board == 'RFUD':
+        from .futures_data import iss_symbol
+        symbol = iss_symbol(symbol)
+    return f'{market}.{board}.{symbol}'
+
+
+def subscriptions(symbol, board):
+    """FORTS uses lowercase selector names and native (Si/Eu) symbol case."""
+    market, ticker = MARKETS[board], stream_ticker(symbol, board)
+    field, language = ('ticker', 'language') if board == 'RFUD' else ('TICKER', 'LANGUAGE')
+    yield 'quotes', f'{market}.securities', f'{field}="{ticker}" and {language}="en"'
+    for tf, interval in INTERVALS.items():
+        yield tf, f'{market}.candles', f'ticker="{ticker}" and interval="{interval}" and quantity=2'
 
 
 class FeedError(Exception):
@@ -85,7 +103,7 @@ def fixed(value):
 class PacketDecoder:
     def __init__(self, symbol, board, epoch):
         self.symbol, self.board, self.epoch = symbol, board, epoch
-        self.ticker = f'MXSE.{board}.{symbol}'
+        self.ticker = stream_ticker(symbol, board)
         self.quote = {}
         self.rows = {}
 
@@ -151,6 +169,8 @@ class IssPlusClient:
         self.symbol, self.board = symbol.strip().upper(), board.strip().upper()
         if not re.fullmatch(r'[A-Z0-9._-]{1,32}', self.symbol) or not re.fullmatch(r'[A-Z0-9_-]{2,24}', self.board):
             raise ValueError('Неверный инструмент потока')
+        if self.board not in MARKETS:
+            raise ValueError('Режим торгов не поддерживается потоком ISS+')
         self.connector = connector
         self.clock = clock or (lambda: datetime.now(timezone.utc))
         self.backoffs, self.stale_seconds = backoffs, stale_seconds
@@ -189,12 +209,9 @@ class IssPlusClient:
                     if time.monotonic() > deadline and not authenticated:
                         raise TimeoutError('Нет ответа CONNECTED')
                 status('resync')
-                ticker = f'MXSE.{self.board}.{self.symbol}'
-                await ws.send(encode_frame('SUBSCRIBE', {'id': 'quotes', 'receipt': 'quotes',
-                    'destination': 'MXSE.securities', 'selector': f'TICKER="{ticker}" and LANGUAGE="en"'}))
-                for tf, interval in INTERVALS.items():
-                    await ws.send(encode_frame('SUBSCRIBE', {'id': tf, 'receipt': tf, 'destination': 'MXSE.candles',
-                        'selector': f'ticker="{ticker}" and interval="{interval}" and quantity=2'}))
+                for ident, destination, selector in subscriptions(self.symbol, self.board):
+                    await ws.send(encode_frame('SUBSCRIBE', {'id': ident, 'receipt': ident,
+                        'destination': destination, 'selector': selector}))
                 received = set()
                 ready = False
                 heartbeat = last_minute = time.monotonic()
@@ -243,7 +260,7 @@ class IssPlusClient:
                 raise
             except FeedError as exc:
                 # An explicit resource/permission error isn't solved by a tight
-                # reconnect loop. HTTP remains active; user can retry manually.
+                # reconnect loop. HTTP is used only with the user's opt-in.
                 status('unavailable', str(exc))
                 return
             except Exception as exc:

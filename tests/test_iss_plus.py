@@ -3,7 +3,8 @@ import json
 import unittest
 from datetime import datetime
 
-from flowdesk.iss_plus import FeedError, IssPlusClient, PacketDecoder, StompParser, encode_frame, fixed
+from flowdesk.iss_plus import (FeedError, IssPlusClient, PacketDecoder, StompParser,
+                              encode_frame, fixed, subscriptions)
 from flowdesk.market_data import MOSCOW
 from flowdesk.chart_time import candle_time_text
 
@@ -16,6 +17,31 @@ def packet(columns, rows, kind='snapshot'):
 
 
 class TestProtocol(unittest.TestCase):
+    def test_rfud_decodes_native_case_and_preserves_exchange_candle_time(self):
+        for symbol, ticker in [('SIZ6', 'FORTS.RFUD.SiZ6'), ('EUZ6', 'FORTS.RFUD.EuZ6'),
+                               ('MXZ6', 'FORTS.RFUD.MXZ6')]:
+            with self.subTest(symbol=symbol):
+                d = PacketDecoder(symbol, 'RFUD', 1)
+                event = d.decode({'subscription': 'quotes'},
+                    packet(['TICKER', 'LAST', 'TIME', 'TRADINGSTATUS'],
+                           [[ticker, [250625, 0], '20:37:15', 'T']]), NOW)
+                self.assertEqual((event.symbol, event.board, event.quote['LAST']), (symbol, 'RFUD', 250625))
+                event = d.decode({'subscription': 'M1'},
+                    packet(['FROM', 'OPEN', 'HIGH', 'LOW', 'CLOSE', 'VOLUME'],
+                           [['2026-11-12 20:37:00', 250625, 250650, 250600, 250625, 50]]), NOW)
+                self.assertEqual((event.candles[0].time.hour, event.candles[0].time.minute), (20, 37))
+
+    def test_rfud_subscription_selector_case_and_all_native_timeframes(self):
+        specs = list(subscriptions('SIZ6', 'RFUD'))
+        self.assertEqual(specs[0], ('quotes', 'FORTS.securities', 'ticker="FORTS.RFUD.SiZ6" and language="en"'))
+        self.assertEqual([s[0] for s in specs], ['quotes', 'M1', 'H1', 'D1', 'W1', 'MN1'])
+        self.assertTrue(all(s[1] == 'FORTS.candles' for s in specs[1:]))
+        self.assertIn('interval="m1"', specs[-1][2])
+        self.assertEqual(list(subscriptions('SBER', 'TQBR'))[0],
+            ('quotes', 'MXSE.securities', 'TICKER="MXSE.TQBR.SBER" and LANGUAGE="en"'))
+        with self.assertRaises(ValueError):
+            IssPlusClient('SBER', 'UNKNOWN')
+
     def test_candle_label_uses_from_and_never_receipt_or_publication_time(self):
         received = datetime(2026, 11, 12, 11, 38, 43, tzinfo=MOSCOW)
         d = PacketDecoder('SBER', 'TQBR', 1)
@@ -94,6 +120,31 @@ class FakeSocket:
 
 
 class TestClient(unittest.IsolatedAsyncioTestCase):
+    async def test_rfud_reconnect_resubscribes_to_forts_without_equity_requests(self):
+        sockets = [FakeSocket(['CONNECTED\n\n\0', ConnectionError('forced drop')]),
+                   FakeSocket(['CONNECTED\n\n\0'])]
+        calls, events = [], []
+        async def connector(*args, **kwargs):
+            calls.append(kwargs)
+            return sockets[len(calls)-1]
+        task = asyncio.create_task(IssPlusClient('SIZ6', 'RFUD', connector=connector,
+                                                backoffs=(0,)).run(events.append))
+        try:
+            for _ in range(100):
+                if len(calls) == 2 and len(sockets[1].sent) == 7:
+                    break
+                await asyncio.sleep(.001)
+        finally:
+            task.cancel()
+            with self.assertRaises(asyncio.CancelledError):
+                await task
+        self.assertEqual(len(calls), 2)
+        for socket in sockets:
+            self.assertTrue(socket.closed)
+            self.assertEqual(len(socket.sent), 7)
+            self.assertTrue(all('FORTS.RFUD.SiZ6' in f and 'MXSE' not in f for f in socket.sent[1:]))
+        self.assertEqual([e.epoch for e in events if e.state == 'resync'], [1, 2])
+
     async def test_reconnect_resubscribes_and_cancel_closes_socket(self):
         sockets = [FakeSocket(['CONNECTED\n\n\0', ConnectionError('forced drop')]),
                    FakeSocket(['CONNECTED\n\n\0'])]

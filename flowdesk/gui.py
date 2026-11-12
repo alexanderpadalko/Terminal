@@ -1125,10 +1125,7 @@ class MainWindow(StreamController, WatchlistController, QMainWindow):
             detail = "Автоматические HTTP-запросы и поток ISS+ остановлены."
         else:
             key = self.loaded_market[:2] if self.loaded_market else None
-            if key and key[1] == "RFUD":
-                channel, caption = "http", "HTTP · ОПРОС"
-                detail = "Для срочного рынка используется HTTP-обновление MOEX ISS."
-            elif self.stream_worker is not None and self.stream_key == key:
+            if self.stream_worker is not None and self.stream_key == key:
                 if self.stream_ready and not self.stream_needs_repair:
                     channel, caption = "stream", "ПОТОК · ISS+"
                     detail = "WebSocket/STOMP ISS+ DEMO подключён; обновления свечей поступают потоком. HTTP остаётся резервом."

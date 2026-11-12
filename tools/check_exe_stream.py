@@ -8,13 +8,14 @@ import sys
 
 def main():
     exe=Path(sys.argv[1]).resolve()
-    output=Path('issplus-exe-result.json').resolve()
+    symbol,board=sys.argv[2:4] if len(sys.argv)>=4 else ('SBER','TQBR')
+    output=Path('issplus-exe-result.json' if board=='TQBR' else 'issplus-exe-rfud-result.json').resolve()
     startup=None
     if os.name=='nt':
         startup=subprocess.STARTUPINFO()
         startup.dwFlags|=subprocess.STARTF_USESHOWWINDOW
         startup.wShowWindow=0
-    completed=subprocess.run([str(exe),'--diagnose-stream',str(output)],startupinfo=startup,timeout=150)
+    completed=subprocess.run([str(exe),'--diagnose-stream',str(output),symbol,board],startupinfo=startup,timeout=150)
     assert output.exists(),'Packaged stream diagnostic did not produce a result'
     result=json.loads(output.read_text(encoding='utf-8'))
     print('PACKAGED_STREAM',json.dumps(result,ensure_ascii=False),flush=True)

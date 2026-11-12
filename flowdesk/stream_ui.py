@@ -64,15 +64,7 @@ class StreamController:
                 not self.source.startswith('MOEX:') or self.csv_overrides):
             return
         key = (self.loaded_market or self.desired_market)[:2]
-        if key[1] == 'RFUD':
-            seconds=getattr(getattr(self,'application_settings',None),'refresh_seconds',60)
-            self.stream_state = (f'MOEX ISS · RFUD · HTTP, обновление {seconds} с'
-                                 if self.http_checkbox.isChecked() else
-                                 'RFUD · HTTP выключен; поток пока не поддерживается')
-            self.feed_label.show()
-            self._feed_text()
-            return
-        if key[1] != 'TQBR' or key == self.stream_disabled_key:
+        if key[1] not in ('TQBR', 'RFUD') or key == self.stream_disabled_key:
             return
         if self.stream_worker is not None and self.stream_key == key:
             return

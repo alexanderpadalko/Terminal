@@ -9,6 +9,25 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  rfud-live:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.15.2'
+      - run: python -m pip install websockets==15.0.1 tzdata==2026.4
+      - name: Verify ten RFUD streams and automatic MXZ6 candles with forced reconnect
+        run: python -u tools/check_rfud_stream.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: FlowDesk-0.2.26-RFUD-WebSocket-Evidence
+          path: issplus-rfud-result.json
+          retention-days: 30
   issplus-live:
     runs-on: ubuntu-latest
     timeout-minutes: 12
@@ -94,6 +113,8 @@ jobs:
         run: python -u tools/check_exe_shutdown.py dist/FlowDesk/FlowDesk.exe
       - name: Verify real packaged DNS and ISS+ WebSocket without market HTTP
         run: python -u tools/check_exe_stream.py dist/FlowDesk/FlowDesk.exe
+      - name: Verify RFUD MXZ6 WebSocket from the packaged executable without HTTP
+        run: python -u tools/check_exe_stream.py dist/FlowDesk/FlowDesk.exe MXZ6 RFUD
       - name: Publish entire standalone directory
         uses: actions/upload-artifact@v4
         with:
@@ -133,6 +154,13 @@ jobs:
         with:
           name: FlowDesk-0.2.26-Packaged-WebSocket-Evidence
           path: issplus-exe-result.json
+          # Separate artifact below keeps both actual executable probe results.
+          retention-days: 30
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: FlowDesk-0.2.26-Packaged-RFUD-WebSocket-Evidence
+          path: issplus-exe-rfud-result.json
           retention-days: 30
       - uses: actions/upload-artifact@v4
         if: always()

@@ -31,6 +31,23 @@ def snapshot():
 
 
 class TestStreamCache(unittest.TestCase):
+    def test_rfud_minute_upsert_and_timeframe_views_without_http(self):
+        saved = replace(snapshot(), symbol='MXZ6', board='RFUD')
+        with tempfile.TemporaryDirectory() as directory, patch('flowdesk.market_cache.load_session_overrides', return_value={}):
+            service = MarketService(Path(directory)/'rfud.sqlite3')
+            key = service.key('MXZ6', 'RFUD', {})
+            service.store.write(key, saved)
+            service.memory[key] = saved
+            bar = candle(BASE+timedelta(minutes=30), 11, 2)
+            incoming = replace(event('M1', [bar]), symbol='MXZ6', board='RFUD')
+            with patch.object(service, '_fetch') as http:
+                service.ingest_stream('MXZ6', 'RFUD', [incoming])
+                for tf in ('M1', 'M5', 'H1', 'H4', 'D1', 'W1', 'MN1'):
+                    service.view('MXZ6', 'RFUD', tf, allow_http=False)
+            http.assert_not_called()
+            self.assertEqual(service.store.read(key).minutes[-1], bar)
+            self.assertEqual(service.memory[key].symbol, 'MXZ6')
+
     def test_upsert_deduplicates_preserves_archive_and_persists(self):
         saved = snapshot()
         with tempfile.TemporaryDirectory() as directory, patch('flowdesk.market_cache.load_session_overrides', return_value={}):
