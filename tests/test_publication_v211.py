@@ -67,6 +67,31 @@ class TestPublicationV211(unittest.TestCase):
         self.assertEqual([zone.top for zone in plan.parents],[110])
         self.assertEqual(plan.cutoff,candle_close_time(chart.candles[-1],'M1'))
 
+
+    def test_h4_chart_provides_its_own_hourly_summary_source(self):
+        # On H4/D/W/M the original pipeline skipped H1 entirely: summary
+        # showed a dash even though independent hourly candles existed.
+        hours=[Candle(BASE+timedelta(hours=i),100,110+(i%4),90,105,100)
+               for i in range(36)]
+        higher=[Candle(BASE+timedelta(hours=4*i),100,110,90,105,100)
+                for i in range(9)]
+        asof=BASE+timedelta(hours=17,minutes=30)
+        a,_=analyze_timeframes({'H1':hours,'H4':higher},'H4',asof=asof)
+        self.assertIn('H1',a.summary_sources)
+        hourly=a.summary_sources['H1']
+        self.assertEqual(hourly.timeframe,'H1')
+        self.assertEqual(hourly.asof,asof)
+        self.assertEqual(hourly.candles[-1].time,BASE+timedelta(hours=17))
+        self.assertTrue(summary_rows(a)[0]['available'])
+        self.assertEqual(summary_rows(a)[0]['flow'],hourly.flows[16].side)
+
+    def test_higher_chart_does_not_invent_h1_when_hourly_candles_are_absent(self):
+        higher=[Candle(BASE+timedelta(hours=i*4),100,110,90,105,100)
+                for i in range(7)]
+        a,_=analyze_timeframes({'H4':higher},'H4',asof=BASE+timedelta(hours=24))
+        self.assertNotIn('H1',a.summary_sources)
+        self.assertEqual((summary_rows(a)[0]['flow'],summary_rows(a)[0]['available']),(0,False))
+
     def test_h1_summary_live_range_retains_the_confirmed_guard(self):
         guard=FVG(0,0,0,105,102,1)
         confirmed=FlowState(0,1,90,100,0,guard=guard)

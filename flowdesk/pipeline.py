@@ -54,7 +54,20 @@ def analyze_timeframes(series: dict[str, list[Candle]], display_tf: str,
         analyses[tf] = result
     if settings is not None:
         summary={**limited}
-        if analyses.get('H1'):summary['H1']=analyses['H1']
+        if analyses.get('H1'):
+            summary['H1']=analyses['H1']
+        elif series.get('H1'):
+            # H1 is LOWER than H4/D/W/M: the main analysis loop stops at the
+            # displayed frame and therefore never visits it. The five-column
+            # summary must still receive its independent confirmed H1 flow.
+            # Do not substitute H4 direction for missing H1 data.
+            hourly=normalize(series['H1'])
+            eligible=hourly[:bisect_right(hourly,asof,key=lambda bar:bar.time)]
+            if eligible:
+                summary['H1']=analyze(eligible,'H1',asof=asof,
+                    higher_liquidity=limited,settings=settings,
+                    minimum_tick=minimum_tick)
+                summary['H1'].session_info=dict((provenance or {}).get('H1',{}))
         for result in analyses.values():
             result.summary_sources=summary
     main = analyses.pop(display_tf)
