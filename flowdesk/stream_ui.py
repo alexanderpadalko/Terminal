@@ -59,7 +59,8 @@ class StreamController:
             return
         key = self.loaded_market[:2]
         if key[1] == 'RFUD':
-            self.stream_state = 'MOEX ISS · RFUD · HTTP, обновление 60 с'
+            seconds=getattr(getattr(self,'application_settings',None),'refresh_seconds',60)
+            self.stream_state = f'MOEX ISS · RFUD · HTTP, обновление {seconds} с'
             self.feed_label.show()
             self._feed_text()
             return

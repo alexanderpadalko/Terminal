@@ -760,10 +760,8 @@ class CandleChart(QWidget):
             width=max(1,x1-x0-6)
             label_rect = QRectF(x1-width-3,low_y+(height-label_height)/2,width,label_height)
             p.setPen(strong if self.visual_theme=='tv' else CHART_PALETTES['dark']['text'])
-            p.save()
-            p.setClipRect(QRectF(x0,low_y,x1-x0,height),Qt.ClipOperation.IntersectClip)
-            p.drawText(label_rect,int(Qt.AlignmentFlag.AlignRight|Qt.AlignmentFlag.AlignVCenter),label)
-            p.restore()
+            flags=int(Qt.AlignmentFlag.AlignRight|Qt.AlignmentFlag.AlignVCenter)|int(Qt.TextFlag.TextDontClip)
+            p.drawText(label_rect,flags,label)
 
 
 class MainWindow(StreamController, WatchlistController, QMainWindow):
@@ -876,7 +874,7 @@ class MainWindow(StreamController, WatchlistController, QMainWindow):
             navigation.addWidget(button)
         self.auto_checkbox = QCheckBox("Авто")
         self.auto_checkbox.setChecked(self.application_settings.auto_updates)
-        self.auto_checkbox.setToolTip("Поток MOEX ISS+ DEMO. Резерв — HTTP каждые 60 секунд. Внутридневные свечи и котировки задержаны примерно на 15 минут.")
+        self.auto_checkbox.setToolTip(self._auto_help())
         navigation.addWidget(self.auto_checkbox)
         navigation.addSpacing(10)
         self.panel_checkbox = QCheckBox("Панель")
@@ -1024,6 +1022,10 @@ class MainWindow(StreamController, WatchlistController, QMainWindow):
         dialog.applied.connect(self._apply_settings)
         dialog.exec()
 
+    def _auto_help(self):
+        return (f'Поток MOEX ISS+ DEMO. Резерв — HTTP через {self.application_settings.refresh_seconds} с. '
+                'Внутридневные свечи и котировки могут поступать с задержкой около 15 минут.')
+
     def _persist_application_controls(self,*_):
         if self._applying_settings:return
         self.application_settings=replace(self.application_settings,auto_updates=self.auto_checkbox.isChecked(),show_panel=self.panel_checkbox.isChecked())
@@ -1047,6 +1049,7 @@ class MainWindow(StreamController, WatchlistController, QMainWindow):
                 cb.setChecked(getattr(self.chart,prop))
                 cb.blockSignals(False)
             self.auto_timer.setInterval(application.refresh_seconds*1000)
+            self.auto_checkbox.setToolTip(self._auto_help())
             self.auto_checkbox.setChecked(application.auto_updates)
             self.panel_checkbox.setChecked(application.show_panel)
         finally:self._applying_settings=False
@@ -1064,6 +1067,7 @@ class MainWindow(StreamController, WatchlistController, QMainWindow):
         elif self.analysis:
             self._show_data(self.analysis,self.parents,self.source)
         self._schedule_auto_refresh()
+        self._ensure_stream()
 
     def load_moex(self):
         if self.closing_after_load:

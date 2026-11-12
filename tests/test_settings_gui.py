@@ -6,7 +6,8 @@ from unittest.mock import patch
 os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
 try:
     from PySide6.QtWidgets import QApplication,QDialogButtonBox
-    from flowdesk.gui import MainWindow
+    from PySide6.QtGui import QImage,QPainter,QColor
+    from flowdesk.gui import MainWindow,CandleChart
     from flowdesk.settings_dialog import SettingsDialog
     QT=True
 except ImportError:
@@ -48,18 +49,36 @@ class TestSettingsGui(unittest.TestCase):
             dialog.controls['fvgFontM'].setCurrentText('small')
             dialog.controls['flowDiagnosticEnabled'].setChecked(True)
             dialog.controls['flowDiagnosticFont'].setCurrentText('small')
+            dialog.refresh.setValue(120)
             dialog.apply()
             self.app.processEvents()
             self.assertEqual(window.chart.fvg_settings.max_zones,7)
             self.assertNotIn('H4',window.chart.fvg_settings.higher)
             self.assertTrue(window.indicator_settings.flowShowData)
+            self.assertEqual(window.auto_timer.interval(),120000)
+            self.assertIn('120',window.auto_checkbox.toolTip())
             self.assertFalse(window.grab().isNull())
             window.close()
             other=MainWindow(startup=False,watchlist_service=False,settings_store=SettingsStore(store.path))
             self.assertEqual(other.indicator_settings.fvgMaxZones,7)
             self.assertTrue(other.indicator_settings.flowDiagnosticEnabled)
+            self.assertEqual(other.application_settings.refresh_seconds,120)
             other.close()
             dialog.close()
+
+    def test_thin_monthly_fvg_keeps_full_size_text_outside_its_height(self):
+        chart=CandleChart()
+        canvas=QImage(320,110,QImage.Format.Format_ARGB32_Premultiplied)
+        canvas.fill(QColor('#898989'))
+        painter=QPainter(canvas)
+        chart._draw_zone(painter,60,260,50,52,1,False,'MN1',10,parent=True)
+        painter.end()
+        # Pine box text overflows a narrow zone; clipping to its two-pixel
+        # height would erase the entire upper part of the huge monthly label.
+        dark=sum(canvas.pixelColor(x,y).red()<80 and canvas.pixelColor(x,y).green()<100
+                 for y in range(30,48) for x in range(80,270))
+        self.assertGreater(dark,20)
+        chart.close()
 
     def test_defaults_reset_changes_fields_until_apply(self):
         changed=IndicatorSettings().changed(fvgMaxZones=3,flowShowData=True)

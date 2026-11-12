@@ -90,6 +90,19 @@ class TestSettingsV211(unittest.TestCase):
 
 
 class TestV211Calculations(unittest.TestCase):
+    def test_structural_points_match_pinned_source_over_5000_candles(self):
+        from flowdesk.engine import StructureEngine
+        data=bars(5000)
+        engine=StructureEngine()
+        context=ReferenceContext('H1')
+        for i,bar in enumerate(data):
+            point=engine.step(bar,i)
+            context.observe(data,i)
+            source=context.call('f_mtfFlow')
+            self.assertEqual((point.direction,point.start_i,point.base,point.tip_i,point.tip,
+                              point.outside_dir,point.outside_start_i,point.outside_base),
+                             (source[0],source[7],source[2],source[8],source[3],source[4],source[9],source[6]),i)
+
     def test_future_http_tail_cannot_enter_market_replay_before_observation(self):
         data=bars(40)
         cutoff=BASE+timedelta(hours=10,minutes=30)
