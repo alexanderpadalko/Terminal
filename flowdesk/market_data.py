@@ -11,6 +11,7 @@ import urllib.parse
 import urllib.request
 import urllib.error
 import time as time_module
+from functools import lru_cache
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
@@ -32,6 +33,27 @@ NATIVE_HIGHER = ("D1", "W1", "MN1")
 # equivalent to completeness or to the TradingView session's first bar.
 CANONICAL_H1_DAYS = 36 * 366
 CANONICAL_H1_LIMIT = 200000
+
+
+@lru_cache(maxsize=128)
+def security_tick(symbol,board,day):
+    """Official instrument MINSTEP, refreshed once per trading-calendar date."""
+    market='futures/markets/forts' if board=='RFUD' else 'stock/markets/shares'
+    if board=='RFUD':
+        from .futures_data import iss_symbol
+        symbol=iss_symbol(symbol)
+    url=f'https://iss.moex.com/iss/engines/{market}/boards/{board}/securities/{symbol}.json?iss.meta=off&iss.only=securities&securities.columns=SECID,MINSTEP'
+    try:
+        checkpoint()
+        with urllib.request.urlopen(url,timeout=5) as response:
+            table=json.load(response).get('securities',{})
+        checkpoint()
+        for row in table.get('data',[]):
+            value=dict(zip(table.get('columns',[]),row)).get('MINSTEP')
+            if value is not None and float(value)>0:return float(value)
+    except (OSError,ValueError,KeyError):
+        return None
+    return None
 
 
 @dataclass(frozen=True, slots=True)

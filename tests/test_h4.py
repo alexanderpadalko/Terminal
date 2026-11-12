@@ -67,9 +67,9 @@ class TestH4(unittest.TestCase):
         self.assertEqual((before.flows[-1].side, before.flows[-1].rule), (1, 0))
         self.assertEqual((after.flows[-1].side, after.flows[-1].rule), (-1, 2))
 
-    def test_h4_uses_daily_weekly_monthly_without_changing_h1_hierarchy(self):
+    def test_v211_h4_uses_dwm_and_h1_also_consumes_h4(self):
         self.assertEqual(HIGHER_SOURCES['H4'], ('MN1', 'W1', 'D1'))
-        self.assertEqual(HIGHER_SOURCES['H1'], ('MN1', 'W1', 'D1'))
+        self.assertEqual(HIGHER_SOURCES['H1'], ('MN1', 'W1', 'D1','H4'))
 
     def test_h4_does_not_change_existing_flow_histories(self):
         hours = [hour(day, h, 10 + ((day + h) % 5)) for day in (9, 10, 11) for h in range(7, 24)]
@@ -110,3 +110,4 @@ class TestH4(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+

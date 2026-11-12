@@ -33,6 +33,11 @@ from .stream_ui import StreamController
 from .watchlist_ui import WatchlistController
 from .watchlist import WatchlistService
 from .preferences import Preferences
+from .settings import IndicatorSettings,ApplicationSettings,SettingsStore,MemorySettingsStore,SIZES
+from .settings_dialog import SettingsDialog,qcolor
+from .chart_indicators import vwap_series
+from .price_format import price_text
+from .indicator_paint import draw_market,draw_vwap,draw_overlays,font as indicator_font
 from .cancellation import Cancelled, checkpoint, scope
 from .lifecycle import ShutdownWatchdog
 from .engine import Analysis, analyze
@@ -199,12 +204,13 @@ class MarketWorker(QThread):
     progress = Signal(str)
 
     def __init__(self, symbol: str, tf: str, board: str, service: MarketService,
-                 *, refresh=False, overrides=None, provenance=None, stream_batch=(), repair=False):
+                 *, refresh=False, overrides=None, provenance=None, stream_batch=(), repair=False, settings=None):
         super().__init__()
         self.symbol, self.tf, self.board = symbol, tf, board
         self.service, self.refresh = service, refresh
         self.overrides, self.provenance = overrides, provenance
         self.stream_batch, self.repair = stream_batch, repair
+        self.settings=settings
 
     def run(self):
         try:
@@ -212,6 +218,8 @@ class MarketWorker(QThread):
                 if self.stream_batch:
                     self.service.ingest_stream(self.symbol, self.board, self.stream_batch)
                 extra = {'with_minutes': True} if self.repair else {}
+                if self.settings is not None and isinstance(self.service,MarketService):
+                    extra['settings']=self.settings
                 def progress(message):
                     checkpoint()
                     self.progress.emit(message)
@@ -251,6 +259,8 @@ class CandleChart(QWidget):
         self.empty_text = 'Выберите инструмент или откройте CSV'
         self._zone_labels = []
         self.fvg_settings = DisplaySettings()
+        self.indicator_settings=IndicatorSettings()
+        self.vwap,self.vwap_previous=[],[]
         self.fvg_plan = None
         self.viewport = ChartView()
         self.price_range = None
@@ -278,6 +288,11 @@ class CandleChart(QWidget):
     def set_analysis(self, analysis: Analysis, parents: dict[str, Analysis] | None = None):
         self.analysis = analysis
         self.parents = parents or {}
+        cfg=self.indicator_settings
+        self.fvg_settings=DisplaySettings(enabled=self.show_fvg,max_zones=cfg.fvgMaxZones,
+            only_in_flow=cfg.fvgOnlyInFlow,show_lower=cfg.fvgShowM1 if analysis.timeframe=='M1' else cfg.fvgShowM5,
+            higher=tuple(tf for tf,key in [('H1','showH1OnM5'),('H4','showH4OnM5'),('D1','showDOnM5'),('W1','showWOnM5'),('MN1','showMOnM5')] if getattr(cfg,key)))
+        self.vwap,self.vwap_previous=vwap_series(analysis.candles,cfg.vwapAnchor,cfg.vwapSource)
         self.fvg_plan = select_fvg_display(analysis, self.parents,
                                            replace(self.fvg_settings, enabled=self.show_fvg))
         self.times = [c.time.timestamp() for c in analysis.candles]
@@ -285,6 +300,20 @@ class CandleChart(QWidget):
         self.viewport.count = min(self.viewport.count, max(1, len(analysis.candles)))
         self.offset = 0
         self.update()
+
+    def set_settings(self,settings):
+        self.indicator_settings=settings
+        for prop,key in [('show_structure','showStructure'),('show_fvg','fvgEnabled'),
+                         ('show_flow','flowShowLevels'),('show_previous','flowShowPrevious')]:
+            setattr(self,prop,getattr(settings,key))
+        if self.analysis is not None:
+            saved=self.view_state()
+            self.set_analysis(self.analysis,self.parents)
+            self.restore_view(saved)
+        self.update()
+
+    def format_price(self,value):
+        return price_text(value,self.analysis.minimum_tick if self.analysis else .01)
 
     def window(self):
         n = len(self.analysis.candles) if self.analysis else 0
@@ -485,7 +514,11 @@ class CandleChart(QWidget):
     def paintEvent(self, event: QPaintEvent):
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
-        colors = CHART_PALETTES[self.visual_theme]
+        colors = dict(CHART_PALETTES[self.visual_theme])
+        cfg=self.indicator_settings
+        colors.update(structure_up=qcolor(cfg.upColor),structure_down=qcolor(cfg.downColor),
+            flow_lines=tuple(qcolor(getattr(cfg,key)) for key in ('flowColor0','flowColor04','flowColor05','flowColor06','flowColor1')),
+            previous=qcolor(cfg.flowPreviousColor))
         p.fillRect(self.rect(), colors["background"])
         if self.analysis is None or not self.analysis.candles:
             p.setPen(colors["text"])
@@ -506,6 +539,11 @@ class CandleChart(QWidget):
         visible = candles[first:last]
         lowest = min(b.low for b in visible)
         highest = max(b.high for b in visible)
+        if cfg.vwapEnabled and self.analysis.timeframe in ('M1','M5'):
+            plotted=[value for value in self.vwap[first:last] if value is not None]
+            if cfg.vwapShowPrevious:
+                plotted.extend(value for start,end,value in self.vwap_previous if start<last and end>=first)
+            if plotted:lowest,highest=min(lowest,min(plotted)),max(highest,max(plotted))
         if self.include_flow_in_scale and self.analysis.flows:
             st = self.analysis.flows[last - 1]
             if st.lo is not None:
@@ -525,7 +563,7 @@ class CandleChart(QWidget):
             p.setPen(QPen(colors["grid"], 0.8))
             p.drawLine(QPointF(self.x0, Y), QPointF(self.x1, Y))
             p.setPen(colors["text"])
-            p.drawText(QRectF(self.x1 + 8, Y - 11, 80, 20), 0, short_number(value))
+            p.drawText(QRectF(self.x1 + 8, Y - 11, 80, 20), 0, self.format_price(value))
         for j in range(7):
             idx = first + int(j * (count - 1) / 6)
             p.setPen(QPen(colors["grid"], 0.8))
@@ -551,7 +589,10 @@ class CandleChart(QWidget):
                     zone.side, zone.broken, zone.source_tf, stride, parent=zone.parent)
         # Structure with confirmed segments and provisional outside legs.
         if self.show_structure:
-            for seg in self.analysis.segments:
+            segments=[seg for seg in self.analysis.segments if seg.confirmed][-cfg.maxSegments:]
+            if cfg.showDevelopingLeg:
+                segments += [seg for seg in self.analysis.segments if not seg.confirmed]
+            for seg in segments:
                 if seg.a is None or seg.b is None or seg.b < first or seg.a > last:
                     continue
                 a, b = max(seg.a, first), min(seg.b, last - 1)
@@ -564,7 +605,7 @@ class CandleChart(QWidget):
                 ya = seg.pa + (seg.pb - seg.pa) * ratio_a
                 yb = seg.pa + (seg.pb - seg.pa) * ratio_b
                 pen = QPen(colors["structure_up"] if seg.side == 1
-                           else colors["structure_down"], 1.6 if self.visual_theme == "tv" else 2.2)
+                           else colors["structure_down"], cfg.structureWidth)
                 if not seg.confirmed:
                     pen.setStyle(Qt.PenStyle.DashLine)
                 p.setPen(pen)
@@ -580,7 +621,7 @@ class CandleChart(QWidget):
             # A non-inside mother candle stays solid: white if rising, black
             # if falling. Internal status uses the last non-inside mother,
             # not just the immediately preceding candle.
-            hollow = (self.visual_theme == "tv" and
+            hollow = (self.visual_theme == "tv" and cfg.ibEnabled and
                       i < len(self.inside_bars) and self.inside_bars[i])
             wick_color = (QColor("#ededed") if rising else QColor("#242424"))
             p.setPen(QPen(wick_color if self.visual_theme == "tv"
@@ -609,31 +650,37 @@ class CandleChart(QWidget):
                 p.setPen(QPen(outline, 1.0))
                 p.drawRect(body)
         # Current and previous flow 0, 0.4, 0.5, 0.6, 1.0.
-        if self.show_flow and self.analysis.flows:
-            st = self.analysis.flows[last - 1]
+        if self.show_flow and self.analysis.flows and (self.analysis.timeframe not in ('M1','M5') or cfg.flowH1OnM5):
+            st = self.analysis.flows[-1]
             if st.side and st.lo is not None and st.hi is not None:
                 starts = max(first, st.start or first)
                 for t, color in zip((0.0, 0.4, 0.5, 0.6, 1.0),
                                     colors["flow_lines"]):
                     price = st.lo + (st.hi - st.lo) * t
-                    p.setPen(QPen(color, 1.25 if self.visual_theme == "tv" else 1.5))
+                    p.setPen(QPen(color, cfg.flowLineWidth))
                     Y = y(price)
-                    p.drawLine(QPointF(x(starts), Y), QPointF(self.x1, Y))
-                    p.setFont(QFont("Segoe UI", 8))
-                    caption = (f"{t:g} ({short_number(price)})"
+                    right_edge=x(len(candles)-.5)
+                    p.drawLine(QPointF(x(starts), Y), QPointF(right_edge, Y))
+                    p.setFont(indicator_font(cfg.flowFontSize))
+                    caption = (f"{t:g} ({self.format_price(price)})"
                                if self.visual_theme == "tv" else str(t))
-                    p.drawText(QRectF(self.x1 - 122, Y - 17, 116, 15),
-                               int(Qt.AlignmentFlag.AlignRight), caption)
+                    if cfg.flowShowData:
+                        prefix='H1 ' if self.analysis.timeframe in ('M1','M5') else ''
+                        p.drawText(QRectF(right_edge - 190, Y - p.fontMetrics().height()-3, 184, p.fontMetrics().height()),
+                                   int(Qt.AlignmentFlag.AlignRight), prefix+caption)
             if self.show_previous and st.previous:
                 old_start, old_end, old_lo, old_hi, _ = st.previous
                 if old_lo is not None and old_hi is not None:
                     for r in (0.0, 0.4, 0.5, 0.6, 1.0):
                         Y = y(old_lo + (old_hi - old_lo) * r)
-                        pen = QPen(colors["previous"], 0.9)
+                        pen = QPen(colors["previous"], cfg.flowLineWidth)
                         pen.setStyle(Qt.PenStyle.DashLine)
                         p.setPen(pen)
                         p.drawLine(QPointF(x(max(first, old_start)), Y), QPointF(x(min(last - 1, max(first, old_end))), Y))
+        draw_market(self,p,x,y,first,last)
+        draw_vwap(self,p,x,y,first,last)
         p.restore()
+        draw_overlays(self,p)
         # Prevent price-axis tags from overlapping when the crosshair is
         # hovering near the latest close (only presentation, no data mutation).
         latest = candles[last - 1]
@@ -648,13 +695,13 @@ class CandleChart(QWidget):
             p.setPen(colors["price_marker_text"])
             p.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
             p.drawText(QRectF(self.x1 + 5, last_price_y - 10, 80, 20),
-                       int(Qt.AlignmentFlag.AlignCenter), short_number(latest.close))
+                       int(Qt.AlignmentFlag.AlignCenter), self.format_price(latest.close))
         p.setPen(colors["text"])
         p.setFont(QFont("Segoe UI", 10, QFont.Weight.Bold))
         hover_i = self.cursor_index()
         header_bar = candles[hover_i] if hover_i is not None else latest
         p.drawText(QRectF(self.x0, 0, max(150, self.width() - 120), 23), 0,
-                   f"{self.instrument_header}   ·   {self.analysis.timeframe}   {header_bar.time.astimezone(MOSCOW):%d.%m %H:%M}   O {short_number(header_bar.open)}   H {short_number(header_bar.high)}   L {short_number(header_bar.low)}   C {short_number(header_bar.close)}")
+                   f"{self.instrument_header}   ·   {self.analysis.timeframe}   {header_bar.time.astimezone(MOSCOW):%d.%m %H:%M}   O {self.format_price(header_bar.open)}   H {self.format_price(header_bar.high)}   L {self.format_price(header_bar.low)}   C {self.format_price(header_bar.close)}")
         if self.cursor_x is not None and self.x0 <= self.cursor_x <= self.x1 and self.top <= self.cursor_y <= self.bottom:
             pen = QPen(colors["crosshair"], 0.85, Qt.PenStyle.DashLine)
             p.setPen(pen)
@@ -666,7 +713,7 @@ class CandleChart(QWidget):
                        colors["tooltip_bg"])
             p.setPen(colors["tooltip_text"])
             p.drawText(QRectF(self.x1 + 5, self.cursor_y - 10, 80, 20),
-                       int(Qt.AlignmentFlag.AlignCenter), short_number(price))
+                       int(Qt.AlignmentFlag.AlignCenter), self.format_price(price))
             if hover_i is not None:
                 caption = self.axis_time_text()
                 tag_width = p.fontMetrics().horizontalAdvance(caption) + 14
@@ -686,14 +733,11 @@ class CandleChart(QWidget):
             return
         low_y, high_y = min(y0, y1), max(y0, y1)
         height = max(1.5, high_y - low_y)
+        cfg=self.indicator_settings
         if self.visual_theme == "tv":
-            if broken:
-                rgb = (245, 127, 23)
-            elif side == 1:
-                rgb = (0, 51, 42)
-            else:
-                rgb = (128, 25, 34)
-            bg, edge = QColor(*rgb, 38), QColor(*rgb, 179)
+            bg=qcolor(cfg.fvgFilledColor if broken else cfg.fvgBullColor if side==1 else cfg.fvgBearColor)
+            rgb=(bg.red(),bg.green(),bg.blue())
+            edge=QColor(*rgb,179)
         else:
             if broken:
                 bg, edge = QColor(243, 169, 45, 40), QColor(241, 173, 70, 130)
@@ -702,34 +746,39 @@ class CandleChart(QWidget):
             else:
                 bg, edge = QColor(221, 70, 100, 38 if not parent else 28), QColor(204, 74, 95, 135)
         p.fillRect(QRectF(x0, low_y, x1 - x0, height), bg)
-        p.setPen(QPen(edge, 1.0 if self.visual_theme == 'tv' else 0.85))
+        p.setPen(QPen(edge, cfg.fvgBorderWidth))
         p.drawRect(QRectF(x0, low_y, x1 - x0, height))
         strong = QColor(*rgb, 255) if self.visual_theme == 'tv' else edge
-        p.setPen(QPen(strong, 1.0 if self.visual_theme == 'tv' else 0.75, Qt.PenStyle.DotLine))
+        p.setPen(QPen(strong, cfg.fvgMiddleWidth, Qt.PenStyle.DotLine))
         p.drawLine(QPointF(x0, (y0 + y1) / 2), QPointF(x1, (y0 + y1) / 2))
-        if x1 - x0 >= 68 and height >= 18:
+        if x1>x0:
             short_tf = {"D1": "D", "W1": "W", "MN1": "M"}.get(tf, tf)
             label = f"FVG {short_tf}"
-            width = min(98.0, x1 - x0 - 9.0)
-            label_rect = QRectF(x1 - width - 4, low_y + (height - 16) / 2, width, 16)
-            if not any(label_rect.intersects(existing) for existing in self._zone_labels):
-                self._zone_labels.append(label_rect)
-                p.setPen(strong if self.visual_theme == "tv" else CHART_PALETTES["dark"]["text"])
-                p.setFont(QFont("Segoe UI", 8))
-                p.drawText(label_rect, int(Qt.AlignmentFlag.AlignRight |
-                                           Qt.AlignmentFlag.AlignVCenter), label)
+            font_key={'M1':'fvgFontM1','M5':'fvgFontM5','H1':'fvgFontH1','H4':'fvgFontH4','D1':'fvgFontD','W1':'fvgFontW','MN1':'fvgFontM'}[tf]
+            p.setFont(indicator_font(getattr(cfg,font_key)))
+            label_height=p.fontMetrics().height()
+            width=max(1,x1-x0-6)
+            label_rect = QRectF(x1-width-3,low_y+(height-label_height)/2,width,label_height)
+            p.setPen(strong if self.visual_theme=='tv' else CHART_PALETTES['dark']['text'])
+            p.save()
+            p.setClipRect(QRectF(x0,low_y,x1-x0,height),Qt.ClipOperation.IntersectClip)
+            p.drawText(label_rect,int(Qt.AlignmentFlag.AlignRight|Qt.AlignmentFlag.AlignVCenter),label)
+            p.restore()
 
 
 class MainWindow(StreamController, WatchlistController, QMainWindow):
-    def __init__(self, service=None, *, stream_factory=None, startup=None, watchlist_service=None, preferences=None, shutdown=None):
+    def __init__(self, service=None, *, stream_factory=None, startup=None, watchlist_service=None, preferences=None, shutdown=None, settings_store=None):
         super().__init__()
         self.setWindowTitle(f"FlowDesk {__version__} — Структура и FVG · Windows")
         self.setMinimumSize(1060, 690)
         self.resize(1420, 830)
         self.worker: MarketWorker | None = None
-        self.market_service = service or MarketService()
+        self.market_service = service or MarketService(load_metadata=True)
         self.startup = service is None if startup is None else startup
         self.preferences = preferences if preferences is not None else (Preferences() if service is None else None)
+        self.settings_store=settings_store or (SettingsStore() if self.startup else MemorySettingsStore())
+        self.indicator_settings,self.application_settings=self.settings_store.read()
+        self._applying_settings=False
         self.last_saved_context = None
         self._init_stream(stream_factory or (StreamWorker if service is None else None))
         self.pending_market = None
@@ -745,16 +794,19 @@ class MainWindow(StreamController, WatchlistController, QMainWindow):
         self.analysis: Analysis | None = None
         self.parents: dict[str, Analysis] = {}
         self.chart = CandleChart()
+        self.chart.set_settings(self.indicator_settings)
         self._build_ui()
         self.auto_timer = QTimer(self)
         self.auto_timer.setSingleShot(True)
-        self.auto_timer.setInterval(60000)
+        self.auto_timer.setInterval(self.application_settings.refresh_seconds*1000)
         self.auto_timer.timeout.connect(self._auto_refresh)
         self.stream_timer = QTimer(self)
         self.stream_timer.setSingleShot(True)
         self.stream_timer.setInterval(1000)
         self.stream_timer.timeout.connect(self._flush_stream)
         self.auto_checkbox.toggled.connect(self._auto_toggled)
+        self.auto_checkbox.toggled.connect(self._persist_application_controls)
+        self.panel_checkbox.toggled.connect(self._persist_application_controls)
         lists = (WatchlistService() if service is None else None) if watchlist_service is None else watchlist_service
         self._init_lists(lists or None)
         if self.startup:
@@ -770,7 +822,7 @@ class MainWindow(StreamController, WatchlistController, QMainWindow):
             self.chart.empty_text = f"Загрузка {selected['symbol']} с MOEX…"
             QTimer.singleShot(0, self._startup_load)
         else:
-            self._show_data(analyze(demo_data(), "H1"), {}, self.source)
+            self._show_data(analyze(demo_data(), "H1",settings=self.indicator_settings), {}, self.source)
 
     def _build_ui(self):
         container = QWidget()
@@ -805,6 +857,13 @@ class MainWindow(StreamController, WatchlistController, QMainWindow):
         self.export_button = QPushButton("Экспорт диагностики")
         self.export_button.clicked.connect(self.export_diagnostics)
         header.addWidget(self.export_button)
+        self.settings_button=QPushButton('⚙')
+        self.settings_button.setObjectName('settingsButton')
+        self.settings_button.setAccessibleName('Настройки приложения')
+        self.settings_button.setToolTip('Настройки приложения · эталон v2.11')
+        self.settings_button.setFixedWidth(42)
+        self.settings_button.clicked.connect(self.open_settings)
+        header.addWidget(self.settings_button)
         header.addStretch()
         layout.addLayout(header)
         navigation = QHBoxLayout()
@@ -816,11 +875,12 @@ class MainWindow(StreamController, WatchlistController, QMainWindow):
             button.clicked.connect(callback)
             navigation.addWidget(button)
         self.auto_checkbox = QCheckBox("Авто")
-        self.auto_checkbox.setChecked(True)
+        self.auto_checkbox.setChecked(self.application_settings.auto_updates)
         self.auto_checkbox.setToolTip("Поток MOEX ISS+ DEMO. Резерв — HTTP каждые 60 секунд. Внутридневные свечи и котировки задержаны примерно на 15 минут.")
         navigation.addWidget(self.auto_checkbox)
         navigation.addSpacing(10)
         self.panel_checkbox = QCheckBox("Панель")
+        self.panel_checkbox.setChecked(self.application_settings.show_panel)
         self.panel_checkbox.setToolTip("Показать диагностику, последние FVG и события")
         navigation.addWidget(self.panel_checkbox)
         navigation.addStretch()
@@ -860,6 +920,7 @@ class MainWindow(StreamController, WatchlistController, QMainWindow):
         options = QLabel("Отображение")
         options.setObjectName("section")
         panel.addWidget(options)
+        self.display_checkboxes={}
         for label, prop in [
             ("Структурная ломаная", "show_structure"),
             ("FVG и зоны старших ТФ", "show_fvg"),
@@ -867,7 +928,8 @@ class MainWindow(StreamController, WatchlistController, QMainWindow):
             ("Предыдущий поток", "show_previous"),
         ]:
             cb = QCheckBox(label)
-            cb.setChecked(True)
+            cb.setChecked(getattr(self.chart,prop))
+            self.display_checkboxes[prop]=cb
             cb.toggled.connect(lambda value, key=prop: self._toggle(key, value))
             panel.addWidget(cb)
         zone_title = QLabel("Последние FVG")
@@ -898,7 +960,7 @@ class MainWindow(StreamController, WatchlistController, QMainWindow):
         self.right_panel = right
         self.panel_checkbox.toggled.connect(self.right_panel.setVisible)
         # TV preset gives the price chart the maximum available width.
-        self.right_panel.hide()
+        self.right_panel.setVisible(self.application_settings.show_panel)
         splitter.addWidget(self._build_watchlist())
         splitter.setSizes([1090, 0, 260])
         layout.addWidget(splitter, 1)
@@ -954,11 +1016,54 @@ class MainWindow(StreamController, WatchlistController, QMainWindow):
         self.tf.set_theme("dark")
 
     def _toggle(self, key: str, value: bool):
-        setattr(self.chart, key, value)
-        if key == 'show_fvg' and self.analysis is not None:
-            self._show_data(self.analysis, self.parents, self.source)
-        else:
-            self.chart.update()
+        mapping={'show_structure':'showStructure','show_fvg':'fvgEnabled','show_flow':'flowShowLevels','show_previous':'flowShowPrevious'}
+        self._apply_settings(self.indicator_settings.changed(**{mapping[key]:value}),self.application_settings)
+
+    def open_settings(self):
+        dialog=SettingsDialog(self.indicator_settings,self.application_settings,self)
+        dialog.applied.connect(self._apply_settings)
+        dialog.exec()
+
+    def _persist_application_controls(self,*_):
+        if self._applying_settings:return
+        self.application_settings=replace(self.application_settings,auto_updates=self.auto_checkbox.isChecked(),show_panel=self.panel_checkbox.isChecked())
+        try:self.settings_store.write(self.indicator_settings,self.application_settings)
+        except OSError as error:
+            record_exception('settings_save',error)
+            self.status.setText(f'Не удалось сохранить настройки: {error}')
+
+    def _apply_settings(self,indicator,application):
+        recalculate=indicator.calculation_key()!=self.indicator_settings.calculation_key()
+        self.indicator_settings,self.application_settings=indicator,application
+        try:self.settings_store.write(indicator,application)
+        except OSError as error:
+            record_exception('settings_save',error)
+            QMessageBox.warning(self,'Настройки',f'Настройки применены, но не сохранены: {error}')
+        self._applying_settings=True
+        try:
+            self.chart.set_settings(indicator)
+            for prop,cb in self.display_checkboxes.items():
+                cb.blockSignals(True)
+                cb.setChecked(getattr(self.chart,prop))
+                cb.blockSignals(False)
+            self.auto_timer.setInterval(application.refresh_seconds*1000)
+            self.auto_checkbox.setChecked(application.auto_updates)
+            self.panel_checkbox.setChecked(application.show_panel)
+        finally:self._applying_settings=False
+        if recalculate and self.source.startswith('MOEX:'):
+            context=self.desired_market or self.loaded_market
+            if context:
+                request=(*context,False)
+                if self.worker is not None:self.pending_market=request
+                else:self._start_market(request)
+        elif recalculate and self.analysis:
+            series={tf:p.candles for tf,p in self.parents.items()}
+            series[self.analysis.timeframe]=self.analysis.candles
+            updated,parents=analyze_timeframes(series,self.analysis.timeframe,asof=self.analysis.asof,settings=indicator)
+            self._show_data(updated,parents,self.source)
+        elif self.analysis:
+            self._show_data(self.analysis,self.parents,self.source)
+        self._schedule_auto_refresh()
 
     def load_moex(self):
         if self.closing_after_load:
@@ -1009,7 +1114,7 @@ class MainWindow(StreamController, WatchlistController, QMainWindow):
             if tf in series:
                 provenance = self.local_provenance or {self.analysis.timeframe: self.analysis.session_info,
                                                        **{t: a.session_info for t, a in self.parents.items()}}
-                a, parents = analyze_timeframes(series, tf, asof=self.analysis.asof, provenance=provenance)
+                a, parents = analyze_timeframes(series, tf, asof=self.analysis.asof, provenance=provenance,settings=self.indicator_settings)
                 self._show_data(a, parents, self.source)
             else:
                 self.tf.blockSignals(True)
@@ -1044,7 +1149,7 @@ class MainWindow(StreamController, WatchlistController, QMainWindow):
         self.status.setText(f'Открытие {symbol} · {tf}…')
         self.worker = MarketWorker(symbol, tf, board, self.market_service, refresh=refresh,
                                    overrides=dict(self.csv_overrides), provenance=dict(self.csv_provenance),
-                                   stream_batch=stream_batch, repair=repair)
+                                   stream_batch=stream_batch, repair=repair,settings=self.indicator_settings)
         self.worker.automatic = automatic
         self.worker.stream_epoch = self.stream_epoch
         self.worker.loaded.connect(self._loaded)
@@ -1056,6 +1161,10 @@ class MainWindow(StreamController, WatchlistController, QMainWindow):
     def _loaded(self, analysis: Analysis, higher: dict, info: dict):
         context = (info['symbol'], info['board'], info['tf'])
         if context != self.desired_market or self.closing_after_load:
+            return
+        if (getattr(self.worker,'settings',None) is not None and
+            self.worker.settings.calculation_key()!=self.indicator_settings.calculation_key()):
+            self.pending_market=(*self.desired_market,False)
             return
         self.loaded_market = context
         if self.preferences and context != self.last_saved_context:
@@ -1158,7 +1267,7 @@ class MainWindow(StreamController, WatchlistController, QMainWindow):
             self.local_provenance = {tf: {'mode': 'USER_CSV', 'file': Path(path).name}}
             # Never apply a prior H1 CSV from another instrument to a newly
             # opened lower-TF CSV. User explicitly imports the matching H1.
-            analysis, _ = analyze_timeframes({tf: candles}, tf)
+            analysis, _ = analyze_timeframes({tf: candles}, tf,settings=self.indicator_settings)
             self._show_data(analysis, {}, f"CSV: {Path(path).name}")
         except Exception as exc:
             QMessageBox.critical(self, "Ошибка CSV", str(exc))
@@ -1205,7 +1314,7 @@ class MainWindow(StreamController, WatchlistController, QMainWindow):
                                   "session": "USER_SELECTED", "symbol_verified": False,
                                   "observed_asof": (main.asof or datetime.now(timezone.utc)).isoformat()}
                 imported.add(tf)
-            updated, parents = analyze_timeframes(series, main.timeframe, asof=main.asof, provenance=provenance)
+            updated, parents = analyze_timeframes(series, main.timeframe, asof=main.asof, provenance=provenance,settings=self.indicator_settings)
             if self.source.startswith('MOEX:'):
                 self._stop_stream()
                 self.csv_overrides.update({tf: series[tf] for tf in imported})
@@ -1349,6 +1458,9 @@ class MainWindow(StreamController, WatchlistController, QMainWindow):
                 "flow_status": a.flow_status,
                 "flow_source_note": a.flow_source_note,
                 "data_snapshot": self.data_info,
+                "reference_version":"2.11",
+                "indicator_settings":self.indicator_settings.as_dict(),
+                "application_settings":vars(self.application_settings),
                 "last_runtime_error": last_exception(),
                 "fvg_display": self.chart.fvg_plan.as_dict(),
                 "calculation": source_coverage(a),

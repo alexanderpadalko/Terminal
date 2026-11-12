@@ -14,6 +14,7 @@ from typing import Optional
 from bisect import bisect_left, bisect_right
 from datetime import datetime, timedelta
 from .market_data import Candle, candle_close_time
+from .cancellation import checkpoint
 
 
 @dataclass(slots=True)
@@ -184,9 +185,10 @@ class FVG:
 
 
 class FVGEngine:
-    def __init__(self, tf: str, exclude_gaps: bool = True):
+    def __init__(self, tf: str, exclude_gaps: bool = True, max_zones=None):
         self.tf = tf
         self.exclude_gaps = exclude_gaps
+        self.max_zones=max_zones
         self.zones: list[FVG] = []
         self._bars: list[Candle] = []
         self._inside: list[bool] = []
@@ -213,6 +215,8 @@ class FVGEngine:
                     result = FVG(i - 2, i - 1, i, prev2.low, bar.high, -1, source_tf=self.tf)
                 if result:
                     self.zones.append(result)
+                    if self.max_zones is not None and len(self.zones)>self.max_zones:
+                        del self.zones[:-self.max_zones]
         self._bars.append(bar)
         self._inside.append(inside)
         return result
@@ -398,7 +402,7 @@ class FlowEngine:
         high_i = max(range(start, i+1), key=lambda idx: candles[idx].high)
         return Candidate(zone, start, low, high, low_i, high_i, i)
 
-    def step(self, bar: Candle, i: int, structure: StructurePoint, zone: Optional[FVG], candles: list[Candle], pair: PairSnapshot, *, capture=None) -> FlowState:
+    def step(self, bar: Candle, i: int, structure: StructurePoint, zone: Optional[FVG], candles: list[Candle], pair: PairSnapshot, *, capture=None,higher_audit='') -> FlowState:
         self.movement.feed(structure)
         movement = self.movement
         rule = 0
@@ -584,6 +588,10 @@ class Analysis:
     session_info: dict = field(default_factory=dict)  # MOEX source-cleaning provenance
     asof: datetime | None = None
     confirmed_fvg: list[FVG] | None = None  # frozen before live-bar visual updates
+    market: dict = field(default_factory=dict)
+    summary_sources: dict = field(default_factory=dict)
+    reference_version: str = ''
+    minimum_tick: float = .01
 
     def is_confirmed(self, i: int) -> bool:
         return self.asof is None or candle_close_time(self.candles[i], self.timeframe) <= self.asof
@@ -599,7 +607,7 @@ class Analysis:
 
 def _project_h1_flows(
     lower: list[Candle], lower_tf: str, h1: Analysis | None,
-    *, asof: datetime | None = None,
+    *, asof: datetime | None = None, live=False,
 ) -> list[FlowState]:
     """Project *closed* H1 snapshots onto M1/M5 without future data.
 
@@ -640,6 +648,13 @@ def _project_h1_flows(
             prior_close = chart_close
             continue
         h = h1.flows[source_idx]
+        if live and i==len(lower)-1 and (asof is None or candle.time<=asof):
+            live_index=bisect_right(h1_starts,eligible_until)-1
+            if source_idx<live_index<len(h1.flows):
+                developing=h1.flows[live_index]
+                if (developing.live_range and developing.side==h.side and developing.start==h.start):
+                    h=replace(h,lo=min(h.lo,developing.lo) if h.side==-1 else h.lo,
+                              hi=max(h.hi,developing.hi) if h.side==1 else h.hi,live_range=True)
         confirmed_at = h1_ends[source_idx]
         # Preserve old event timing: a Rule 2/3 event occurs on one lower
         # candle, not on every one of the 12/60 candles within an hour.
@@ -687,26 +702,37 @@ def _project_h1_flows(
 def analyze(
     candles: list[Candle], timeframe: str = "H1", exclude_gaps: bool = True,
     *, higher_h1: Analysis | None = None, asof: datetime | None = None,
-    higher_liquidity: dict[str, Analysis] | None = None,
+    higher_liquidity: dict[str, Analysis] | None = None, settings=None, minimum_tick=.01,
 ) -> Analysis:
     """Local structure/FVG; a separate H1 source is mandatory for low-TF flow."""
     if timeframe not in ("M1", "M5", "H1", "H4", "D1", "W1", "MN1"):
         raise ValueError("Неизвестный таймфрейм")
     if asof is not None and asof.tzinfo is None:
         raise ValueError("Время расчёта должно содержать часовой пояс")
+    if settings is None:
+        from .settings import IndicatorSettings
+        settings=IndicatorSettings()
+    if settings is not None:
+        exclude_gaps=settings.fvgExcludeGaps
     structure = StructureEngine()
-    fvg = FVGEngine(timeframe, exclude_gaps)
+    fvg = FVGEngine(timeframe, exclude_gaps,settings.fvgMaxZones)
     pair = PairEngine()
     low_tf = timeframe in ("M1", "M5")
-    flow = None if low_tf else FlowEngine(timeframe)
+    if settings is not None and not low_tf:
+        from .reference_engine import PinnedFlowEngine
+        flow=PinnedFlowEngine(timeframe,settings)
+        flow.context.tick=minimum_tick
+    else:
+        flow = None if low_tf else FlowEngine(timeframe)
     capture_audit = []
     if not low_tf and higher_liquidity is not None:
         from .liquidity import audit_higher_captures
-        consumer = Analysis(candles, [], [], [], [], timeframe, asof=asof)
-        capture_audit = audit_higher_captures(consumer, higher_liquidity, asof=asof)
+        consumer = Analysis(candles, [], [], [], [], timeframe, asof=asof,minimum_tick=minimum_tick)
+        capture_audit = audit_higher_captures(consumer, higher_liquidity, asof=asof, settings=settings)
     pairs = []
     confirmed_fvg = None
     for i, bar in enumerate(candles):
+        if i%256==0:checkpoint()
         closed_at = candle_close_time(bar, timeframe)
         confirmed = asof is None or closed_at <= asof
         if not confirmed and confirmed_fvg is None:
@@ -720,7 +746,8 @@ def analyze(
         if flow is not None:
             if confirmed:
                 state = flow.step(bar, i, sp, zone, candles, ps,
-                                  capture=capture_audit[i].selected if capture_audit else None)
+                                  capture=capture_audit[i].selected if capture_audit else None,
+                                  higher_audit=capture_audit[i].audit_text if capture_audit else '')
                 state.source_tf = timeframe
                 state.source_bar_time = bar.time
                 state.source_confirmed_at = closed_at
@@ -737,7 +764,8 @@ def analyze(
                 if asof is not None and bar.time <= asof and previous.side:
                     preview = deepcopy(flow, {id(flow.history): []})
                     developing = preview.step(bar, i, sp, zone, candles, ps,
-                                              capture=capture_audit[i].selected if capture_audit else None)
+                                              capture=capture_audit[i].selected if capture_audit else None,
+                                              higher_audit=capture_audit[i].audit_text if capture_audit else '')
                     if developing.side == previous.side and developing.start == previous.start:
                         if previous.side == 1 and developing.hi > previous.hi:
                             snapshot.hi = developing.hi
@@ -748,16 +776,25 @@ def analyze(
                             snapshot.range_low_at = developing.range_low_at
                             snapshot.live_range = True
                 flow.history.append(snapshot)
+        if settings is not None and flow is not None and confirmed and flow.last_pair is not None:
+            ps=flow.last_pair
         pairs.append(ps)
     if low_tf:
-        projected = _project_h1_flows(candles, timeframe, higher_h1, asof=asof)
+        projected = _project_h1_flows(candles, timeframe, higher_h1, asof=asof,live=settings is not None)
         origin = "H1_CONFIRMED_CANDLES" if higher_h1 is not None and higher_h1.candles else "H1_UNAVAILABLE"
         note = "Поток H1; только закрытые H1 свечи" if higher_h1 is not None and higher_h1.candles else "Ряд H1 отсутствует; направление потока не рассчитывается"
-        return Analysis(candles, structure.current_segments(), fvg.zones, projected, pairs,
+        result = Analysis(candles, structure.current_segments(), fvg.zones, projected, pairs,
                         timeframe, "H1", origin, note, asof=asof,
                         confirmed_fvg=confirmed_fvg)
-    result = Analysis(candles, structure.current_segments(), fvg.zones, flow.history, pairs,
+    else:
+        result = Analysis(candles, structure.current_segments(), fvg.zones, flow.history, pairs,
                       timeframe, timeframe, "LOCAL_PRELIMINARY", "Поток по закрытым свечам; алгоритм ещё не сверен с Pine",
                       asof=asof, confirmed_fvg=confirmed_fvg)
     result.liquidity_audit = capture_audit
+    result.minimum_tick=minimum_tick
+    if settings is not None:
+        from .reference_engine import market_state
+        result.market=market_state(result,settings)
+        result.reference_version='2.11'
     return result
+

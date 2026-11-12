@@ -25,7 +25,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: FlowDesk-0.2.24-ISSPlus-Live-Evidence
+          name: FlowDesk-0.2.25-ISSPlus-Live-Evidence
           path: |
             issplus-live-result.json
             issplus-live-cache.sqlite3
@@ -70,7 +70,10 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -r requirements-build.txt
       - name: Run calculation tests
-        run: python -m unittest discover -s tests -v
+        run: |
+          python tools/build_v211_reference.py
+          python tools/build_v211_settings.py
+          python -m unittest discover -s tests -v
       - name: Refresh daily instrument list and verify RFUD sources
         run: python -u tools/check_watchlist_live.py
       - name: Audit FVG display on actual SBER candles
@@ -81,6 +84,7 @@ jobs:
           $env:QT_QPA_PLATFORM='offscreen'
           python -c "from PySide6.QtWidgets import QApplication; from flowdesk.gui import MainWindow; app = QApplication([]); w=MainWindow(); print('GUI constructed:', w.windowTitle()); w.close()"
           python tools/preview_ui.py
+          python tools/preview_settings.py
       - name: Build portable Windows executable
         run: python -m PyInstaller --clean --noconfirm --windowed --onedir --name FlowDesk --collect-all tzdata --collect-all websockets --add-data "flowdesk/data;flowdesk/data" main.py
       - name: Verify packaged process exits after WM_CLOSE
@@ -88,23 +92,26 @@ jobs:
       - name: Publish entire standalone directory
         uses: actions/upload-artifact@v4
         with:
-          name: FlowDesk-0.2.24-Windows-x64
+          name: FlowDesk-0.2.25-Windows-x64
           path: dist/FlowDesk/
           if-no-files-found: error
           retention-days: 30
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: FlowDesk-0.2.24-Preview
+          name: FlowDesk-0.2.25-Preview
           path: |
             ui-preview.png
             candle-time-preview.png
             fvg-display-preview.png
+            settings-chart-preview.png
+            settings-dialog-preview.png
+            settings-ui-result.json
           retention-days: 30
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: FlowDesk-0.2.24-Instrument-List-Evidence
+          name: FlowDesk-0.2.25-Instrument-List-Evidence
           path: |
             watchlist-live-result.json
             flowdesk/data/watchlist_seed.json
@@ -112,13 +119,13 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: FlowDesk-0.2.24-Process-Exit-Evidence
+          name: FlowDesk-0.2.25-Process-Exit-Evidence
           path: shutdown-exe-result.json
           retention-days: 30
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: FlowDesk-0.2.24-FVG-Display-Evidence
+          name: FlowDesk-0.2.25-FVG-Display-Evidence
           path: |
             fvg-display-live-result.json
             fvg-display-live-cache.sqlite3

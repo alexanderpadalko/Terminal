@@ -10,7 +10,8 @@ from .market_data import Candle, TIMEFRAMES, normalize
 def analyze_timeframes(series: dict[str, list[Candle]], display_tf: str,
                        *, asof: datetime | None = None,
                        provenance: dict[str, dict] | None = None,
-                       cached: dict[str, Analysis] | None = None
+                       cached: dict[str, Analysis] | None = None,
+                       settings=None
                        ) -> tuple[Analysis, dict[str, Analysis]]:
     """Analyze longest TF first, without shortening the calculation history.
 
@@ -21,7 +22,17 @@ def analyze_timeframes(series: dict[str, list[Candle]], display_tf: str,
     if display_tf not in TIMEFRAMES or not series.get(display_tf):
         raise ValueError("Нет свечей выбранного таймфрейма")
     asof = asof if asof is not None else datetime.now(timezone.utc)
+    if settings is None:
+        from .settings import IndicatorSettings
+        settings=IndicatorSettings()
     analyses: dict[str, Analysis] = {}
+    minimum_tick=next((data['minimum_tick'] for data in (provenance or {}).values() if data.get('minimum_tick')), .01)
+    limited={}
+    if settings is not None:
+        for tf in ('MN1','W1','D1','H4'):
+            if series.get(tf):
+                limited[tf]=analyze(normalize(series[tf])[-settings.liquidityHistoryBars:],tf,
+                    asof=asof,higher_liquidity=limited,settings=settings,minimum_tick=minimum_tick)
     for tf in reversed(TIMEFRAMES[TIMEFRAMES.index(display_tf):]):
         if not series.get(tf):
             continue
@@ -30,9 +41,15 @@ def analyze_timeframes(series: dict[str, list[Candle]], display_tf: str,
             continue
         result = analyze(normalize(series[tf]), tf, asof=asof,
                          higher_h1=analyses.get("H1"),
-                         higher_liquidity=analyses if tf in ("H1", "H4", "D1", "W1", "MN1") else None)
+                         higher_liquidity=(limited if settings is not None else analyses) if tf in ("H1", "H4", "D1", "W1", "MN1") else None,
+                         settings=settings,minimum_tick=minimum_tick)
         result.session_info = dict((provenance or {}).get(tf, {}))
         analyses[tf] = result
+    if settings is not None:
+        summary={**limited}
+        if analyses.get('H1'):summary['H1']=analyses['H1']
+        for result in analyses.values():
+            result.summary_sources=summary
     main = analyses.pop(display_tf)
     return main, analyses
 

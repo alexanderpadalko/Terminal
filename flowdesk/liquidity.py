@@ -15,13 +15,13 @@ if TYPE_CHECKING:
     from .engine import Analysis
 
 SOURCES = ("MN1", "W1", "D1")  # Most distant -> closest (tie goes to closest).
-HIGHER_SOURCES = {"H1": SOURCES, "H4": SOURCES, "D1": ("MN1", "W1"),
+HIGHER_SOURCES = {"H1": SOURCES+("H4",), "H4": SOURCES, "D1": ("MN1", "W1"),
                   "W1": ("MN1",), "MN1": ()}
 
 
 def period_end(candle: Candle, tf: str) -> datetime:
     """Calendar source-bar close, not a guessed close from the next trade."""
-    if tf not in SOURCES:
+    if tf not in (*SOURCES,'H4'):
         raise ValueError("Unknown higher timeframe")
     return candle_close_time(candle, tf)
 
@@ -36,6 +36,8 @@ class Capture:
     from_fvg: bool
     zone_top: float | None = None
     zone_bottom: float | None = None
+    detail: str = ''
+    audit: str = ''
 
 
 @dataclass(slots=True)
@@ -58,6 +60,7 @@ class CaptureState:
     selection_reason: str = ""
     consumer_tf: str = "H1"
     confirmed: bool = True
+    audit_text: str = ''
 
 
 @dataclass(slots=True)
@@ -82,7 +85,7 @@ def select_pine_capture(source_active: dict[str, Capture | None]) -> Capture | N
     history retains it for restoration after a later FVG cancellation.
     """
     chosen = None
-    for tf in SOURCES:
+    for tf in (*SOURCES,'H4'):
         candidate = source_active.get(tf)
         if candidate is not None and (chosen is None or
                                       candidate.captured_at >= chosen.captured_at):
@@ -91,7 +94,7 @@ def select_pine_capture(source_active: dict[str, Capture | None]) -> Capture | N
 
 
 def audit_higher_captures(h1: "Analysis", sources: dict[str, "Analysis"],
-                          *, asof: datetime | None = None) -> list[CaptureState]:
+                          *, asof: datetime | None = None, settings=None) -> list[CaptureState]:
     """Project each strictly higher source after its close on the consumer TF.
 
     Matches Pine's important safeguards: strict sweeps, no ambiguous both-side
@@ -101,6 +104,9 @@ def audit_higher_captures(h1: "Analysis", sources: dict[str, "Analysis"],
     This preliminary model is intentionally not advertised as a parity-exact
     clone of request.security() / barmerge session behavior.
     """
+    if settings is not None:
+        from .reference_liquidity import audit_captures
+        return audit_captures(h1,sources,asof=asof,settings=settings)
     if h1.timeframe not in HIGHER_SOURCES:
         raise ValueError("Higher liquidity requires H1/H4/D1/W1/MN1 consumer")
     source_tfs = HIGHER_SOURCES[h1.timeframe]
@@ -301,3 +307,4 @@ def serialize_audit(audit: list[CaptureState]) -> dict:
             "reason": last_closed.selection_reason,
         }),
     }
+

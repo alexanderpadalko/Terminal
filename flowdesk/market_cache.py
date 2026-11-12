@@ -39,6 +39,7 @@ class MarketSnapshot:
     native_higher: dict = field(default_factory=dict)
     analyses: dict = field(default_factory=dict)
     series: dict = field(default_factory=dict)
+    calculation_key: str = ''
 
     def sources(self, sessions=None):
         if not self.series:
@@ -117,12 +118,13 @@ class SnapshotStore:
 
 
 class MarketService:
-    def __init__(self, path: str | Path | None = None, *, clock=None, feed_delay=PUBLIC_FEED_DELAY):
+    def __init__(self, path: str | Path | None = None, *, clock=None, feed_delay=PUBLIC_FEED_DELAY,load_metadata=False):
         self.store = SnapshotStore(path or Path.home() / '.flowdesk' / 'market_cache_v1.sqlite3')
         self.clock = clock or (lambda: datetime.now(timezone.utc))
         if feed_delay < timedelta(0):
             raise ValueError('Задержка источника не может быть отрицательной')
         self.feed_delay = feed_delay
+        self.load_metadata=load_metadata
         self.memory = OrderedDict()
 
     @staticmethod
@@ -160,6 +162,12 @@ class MarketService:
                 raise ValueError('После исключения аукциона нет минутных свечей')
             minutes = normalize((minutes or []) + clean)
         metadata = dict(fetched_meta)
+        minimum_tick=(previous.metadata.get('minimum_tick') if previous else None)
+        if self.load_metadata and minimum_tick is None:
+            from .market_data import security_tick
+            minimum_tick=security_tick(symbol,board,requested_at.astimezone(MOSCOW).date().isoformat())
+        metadata['minimum_tick']=minimum_tick
+        metadata['minimum_tick_source']='MOEX_MINSTEP' if minimum_tick else 'DEFAULT_0.01_UNVERIFIED'
         if previous:
             metadata['latest_fetch'] = fetched_meta
             # Overlapping pages cannot be added to raw/auction totals without
@@ -207,8 +215,11 @@ class MarketService:
         self.memory[key] = snapshot
 
     def view(self, symbol, board, tf, *, refresh=False, overrides=None, provenance=None, progress=None,
-             with_minutes=False):
+             with_minutes=False, settings=None):
         symbol, board = symbol.strip().upper(), board.strip().upper()
+        if settings is None:
+            from .settings import IndicatorSettings
+            settings=IndicatorSettings()
         if tf not in TIMEFRAMES:
             raise ValueError('Неизвестный таймфрейм')
         progress = progress or (lambda text: None)
@@ -255,7 +266,12 @@ class MarketService:
         while len(self.memory) > 4:
             self.memory.popitem(last=False)
         series = snapshot.sources(sessions)
+        calculation_key=settings.calculation_key() if settings is not None else 'legacy-v204'
+        if snapshot.calculation_key!=calculation_key:
+            snapshot.analyses={}
+            snapshot.calculation_key=calculation_key
         source_provenance = {t: {**bundle_source_info(snapshot.metadata, t),
+                                  'minimum_tick':snapshot.metadata.get('minimum_tick'),
                                   'first': bars[0].time.isoformat(), 'last': bars[-1].time.isoformat(),
                                   'bars': len(bars), 'snapshot_asof': snapshot.asof.isoformat()}
                              for t, bars in series.items()}
@@ -269,13 +285,13 @@ class MarketService:
                         cutoff = observed
                         warning = (warning + ' · ' if warning else '') + f'Расчёт ограничен снимком незакрытого CSV {source_tf}; обновите импорт для продолжения'
             main, parents = analyze_timeframes({**series, **overrides}, tf, asof=cutoff,
-                                               provenance={**source_provenance, **(provenance or {})})
+                                               provenance={**source_provenance, **(provenance or {})},settings=settings)
         else:
             first_tf = 'M1' if snapshot.minutes else 'H1'
             if any(t not in snapshot.analyses for t in series if TIMEFRAMES.index(t) >= TIMEFRAMES.index(first_tf)):
                 progress('Расчёт потоков по загруженной истории')
                 main, parents = analyze_timeframes(series, first_tf, asof=snapshot.asof,
-                                                   provenance=source_provenance, cached=snapshot.analyses)
+                                                   provenance=source_provenance, cached=snapshot.analyses,settings=settings)
                 snapshot.analyses = {main.timeframe: main, **parents}
             main = snapshot.analyses[tf]
             parents = {t: a for t, a in snapshot.analyses.items()

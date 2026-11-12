@@ -14,7 +14,7 @@ DEPENDENTS = {
     'MN1': {'W1', 'D1', 'H4', 'H1', 'M5', 'M1'},
     'W1': {'D1', 'H4', 'H1', 'M5', 'M1'},
     'D1': {'H4', 'H1', 'M5', 'M1'},
-    'H1': {'H4', 'M5', 'M1'}, 'H4': set(), 'M1': {'M5'}, 'M5': set(),
+    'H1': {'H4', 'M5', 'M1'}, 'H4': {'H1','M5','M1'}, 'M1': {'M5'}, 'M5': set(),
 }
 
 
@@ -111,6 +111,7 @@ def merge_stream(saved, events, sessions):
                 c for c in bars if candle_close_time(c, tf) <= cutoff]:
             invalid.update(DEPENDENTS[tf])
     snapshot.analyses = {tf: a for tf, a in saved.analyses.items() if tf not in invalid}
+    snapshot.calculation_key=saved.calculation_key
     changes = {tf: [c for c in values.values() if c != next((b for b in raw[tf] if b.time == c.time), None)]
                for tf, values in updates.items()}
     return snapshot, changes
