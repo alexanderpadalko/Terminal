@@ -14,7 +14,7 @@ from PySide6.QtWidgets import QApplication
 from flowdesk.gui import MainWindow
 
 app = QApplication([])
-window = MainWindow()
+window = MainWindow(startup=False, watchlist_service=False)
 window.setAttribute(Qt.WidgetAttribute.WA_DontShowOnScreen)
 window.resize(1440, 900)
 window.show()
@@ -32,3 +32,4 @@ for i in range(0, len(encoded), 4096):
     print(encoded[i:i + 4096])
 print('UI_PREVIEW_PNG_END')
 window.close()
+

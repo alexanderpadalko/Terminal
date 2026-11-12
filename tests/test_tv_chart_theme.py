@@ -111,7 +111,7 @@ class TestTradingViewAppearance(unittest.TestCase):
         chart.close()
 
     def test_dragging_plot_translates_x_and_y_without_rescaling_price(self):
-        w = MainWindow()
+        w = MainWindow(startup=False, watchlist_service=False)
         w.resize(1300, 850)
         w.show()
         self.app.processEvents()
@@ -146,7 +146,7 @@ class TestTradingViewAppearance(unittest.TestCase):
         w.close()
 
     def test_permanent_dark_chrome_and_instrument_header(self):
-        w = MainWindow()
+        w = MainWindow(startup=False, watchlist_service=False)
         self.assertEqual(w.chart.visual_theme, "tv")
         self.assertFalse(hasattr(w, "visual_style"))
         self.assertIn("background: #1c1c1c", w.styleSheet())
@@ -160,7 +160,7 @@ class TestTradingViewAppearance(unittest.TestCase):
         w.close()
 
     def test_dragging_time_and_price_axes_changes_only_view(self):
-        w = MainWindow()
+        w = MainWindow(startup=False, watchlist_service=False)
         w.resize(1300, 850)
         w.show()
         self.app.processEvents()
@@ -198,3 +198,4 @@ class TestTradingViewAppearance(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+

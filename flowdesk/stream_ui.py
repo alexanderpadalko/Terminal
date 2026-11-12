@@ -58,6 +58,11 @@ class StreamController:
                 not self.loaded_market or not self.source.startswith('MOEX:') or self.csv_overrides):
             return
         key = self.loaded_market[:2]
+        if key[1] == 'RFUD':
+            self.stream_state = 'MOEX ISS · RFUD · HTTP, обновление 60 с'
+            self.feed_label.show()
+            self._feed_text()
+            return
         if key[1] != 'TQBR' or key == self.stream_disabled_key:
             return
         if self.stream_worker is not None and self.stream_key == key:

@@ -46,7 +46,11 @@ class MarketSnapshot:
                 raise ValueError('В снимке нет готовых свечей Д/Н/М MOEX; требуется загрузка')
             self.series = {'H1': self.hours}
             self.series.update(self.native_higher)
-            self.series['H4'] = aggregate_moex_h4(self.hours, auction_overrides=sessions)
+            if self.board == 'RFUD':
+                from .futures_data import aggregate_h4
+                self.series['H4'] = aggregate_h4(self.hours)
+            else:
+                self.series['H4'] = aggregate_moex_h4(self.hours, auction_overrides=sessions)
             if self.minutes:
                 self.series['M1'] = self.minutes
                 self.series['M5'] = aggregate(self.minutes, 'M5')
@@ -180,10 +184,10 @@ class MarketService:
                                for tf, bars in native_higher.items()}
         for tf in ('H1', 'H4', 'M1', 'M5'):
             metadata['sources'][tf] = {**fetched_meta.get('sources', {}).get(tf, {}),
-                                        'mode': 'MOEX_CLEAN_INTRADAY',
+                                        'mode': 'MOEX_RFUD_NATIVE_CANDLES' if board == 'RFUD' else 'MOEX_CLEAN_INTRADAY',
                                         'symbol': symbol, 'board': board, 'iss_interval': MOEX_INTERVALS[tf],
                                         'native_higher': False, 'opening_auction_excluded': True,
-                                        'higher_from_clean_h1': tf == 'H4',
+                                        'higher_from_clean_h1': tf == 'H4' and board != 'RFUD',
                                         'snapshot_asof': asof.isoformat()}
         return MarketSnapshot(symbol, board, asof, hours, minutes, metadata, native_higher)
 

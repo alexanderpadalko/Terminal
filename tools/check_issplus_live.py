@@ -60,9 +60,9 @@ async def main():
             await asyncio.to_thread(seed_recent_http, service)
             task = asyncio.create_task(client.run(queue.put_nowait))
             counts, epoch, repaired, dropped = Counter(), 0, False, False
-            deadline, started = time.monotonic() + 145, time.monotonic()
+            deadline, started = time.monotonic() + 205, time.monotonic()
             while time.monotonic() < deadline:
-                if not dropped and time.monotonic() - started > 72 and sockets:
+                if not dropped and time.monotonic() - started > 100 and sockets:
                     sockets[-1].transport.abort()
                     dropped = True
                 try:

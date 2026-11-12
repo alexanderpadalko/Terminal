@@ -309,6 +309,9 @@ def exclude_opening_auction(candles: list[Candle], tf: str,
     """
     if tf not in ("M1", "M5", "H1"):
         raise ValueError("Аукцион можно исключать только из исходных M1/M5/H1 до агрегации")
+    if board.upper() == 'RFUD':
+        from .futures_data import clean as clean_futures
+        return clean_futures(candles, tf)
     clean = []
     for candle in candles:
         local = candle.time.astimezone(MOSCOW)
@@ -358,7 +361,13 @@ def _iss_download(symbol: str, interval: int, *, days: int, limit: int,
     now = datetime.now(MOSCOW)
     frm = (now - timedelta(days=days)).date().isoformat()
     to = now.date().isoformat()
-    urlbase = f"https://iss.moex.com/iss/engines/stock/markets/shares/boards/{board}/securities/{symbol}/candles.json"
+    if board.upper() == 'RFUD':
+        from .futures_data import iss_symbol
+        symbol = iss_symbol(symbol)
+        market_path = 'futures/markets/forts'
+    else:
+        market_path = 'stock/markets/shares'
+    urlbase = f"https://iss.moex.com/iss/engines/{market_path}/boards/{board}/securities/{symbol}/candles.json"
     all_bars = deque(maxlen=limit)
     start = 0
     for _ in range(600):
@@ -465,7 +474,11 @@ def download_moex(symbol: str, tf: str, days: int | None = None,
                                    timeout=timeout, board=board)
             hourly = exclude_opening_auction(native, "H1", board=board,
                                              overrides=auction_overrides)
-        result = hourly if tf == "H1" else aggregate_moex_h4(hourly, auction_overrides=auction_overrides)
+        if tf == 'H4' and board.upper() == 'RFUD':
+            from .futures_data import aggregate_h4
+            result = aggregate_h4(hourly)
+        else:
+            result = hourly if tf == "H1" else aggregate_moex_h4(hourly, auction_overrides=auction_overrides)
     if not result:
         raise ValueError("После исключения аукционов не осталось торговых свечей")
     return result[-limit:]
@@ -478,6 +491,10 @@ def load_moex_session_bundle(symbol: str, display_tf: str, *, board: str = "TQBR
                              higher_history_days: dict[str, int] | None = None
                              ) -> tuple[list[Candle], dict[str, list[Candle]], dict]:
     """Download cleaned H1 plus independent native D/W/M with intact OHLCV."""
+    if board.upper() == 'RFUD':
+        from .futures_data import bundle
+        return bundle(symbol, display_tf, display_limit=display_limit, history_days=history_days,
+                      higher_history_days=higher_history_days)
     if display_tf not in TIMEFRAMES:
         raise ValueError(f"Неподдерживаемый ТФ: {display_tf}")
     # Important: settlement dates must not shift chart D1/W1/MN1 bars.
@@ -596,3 +613,4 @@ def infer_timeframe(candles: list[Candle]) -> str | None:
     if 27 * 86400 <= typical <= 33 * 86400:
         return "MN1"
     return None
+

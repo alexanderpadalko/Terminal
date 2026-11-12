@@ -26,6 +26,9 @@ from .chart_view import ChartView, inside_mother_bars
 from .market_cache import MarketService
 from .stream_worker import StreamWorker
 from .stream_ui import StreamController
+from .watchlist_ui import WatchlistController
+from .watchlist import WatchlistService
+from .preferences import Preferences
 from .engine import Analysis, analyze
 from .pipeline import analyze_timeframes, source_coverage
 from .liquidity import serialize_audit
@@ -231,6 +234,7 @@ class CandleChart(QWidget):
         self.show_previous = True
         self.visual_theme = "tv"
         self.instrument_header = "DEMO · SYNTHETIC"
+        self.empty_text = 'Выберите инструмент или откройте CSV'
         self._zone_labels = []
         self.viewport = ChartView()
         self.price_range = None
@@ -417,6 +421,8 @@ class CandleChart(QWidget):
             index = first + math.floor((self.cursor_x - self.x0) / max(.01, stride))
             if first <= index < last:
                 self.crosshair.emit(index)
+            else:
+                self.crosshair.emit(-1)
         self.update()
 
     def mouseDoubleClickEvent(self, event):
@@ -445,6 +451,7 @@ class CandleChart(QWidget):
 
     def leaveEvent(self, event):
         self.cursor_x = self.cursor_y = None
+        self.crosshair.emit(-1)
         self.update()
 
     def paintEvent(self, event: QPaintEvent):
@@ -454,7 +461,7 @@ class CandleChart(QWidget):
         p.fillRect(self.rect(), colors["background"])
         if self.analysis is None or not self.analysis.candles:
             p.setPen(colors["text"])
-            p.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, "Загрузите CSV или инструмент MOEX")
+            p.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, self.empty_text)
             return
         candles = self.analysis.candles
         first, last = self.window()
@@ -691,14 +698,17 @@ class CandleChart(QWidget):
                                            Qt.AlignmentFlag.AlignVCenter), label)
 
 
-class MainWindow(StreamController, QMainWindow):
-    def __init__(self, service=None, *, stream_factory=None):
+class MainWindow(StreamController, WatchlistController, QMainWindow):
+    def __init__(self, service=None, *, stream_factory=None, startup=None, watchlist_service=None, preferences=None):
         super().__init__()
         self.setWindowTitle(f"FlowDesk {__version__} — Структура и FVG · Windows")
         self.setMinimumSize(1060, 690)
         self.resize(1420, 830)
         self.worker: MarketWorker | None = None
         self.market_service = service or MarketService()
+        self.startup = service is None if startup is None else startup
+        self.preferences = preferences if preferences is not None else (Preferences() if service is None else None)
+        self.last_saved_context = None
         self._init_stream(stream_factory or (StreamWorker if service is None else None))
         self.pending_market = None
         self.desired_market = None
@@ -722,7 +732,22 @@ class MainWindow(StreamController, QMainWindow):
         self.stream_timer.setInterval(1000)
         self.stream_timer.timeout.connect(self._flush_stream)
         self.auto_checkbox.toggled.connect(self._auto_toggled)
-        self._show_data(analyze(demo_data(), "H1"), {}, self.source)
+        lists = (WatchlistService() if service is None else None) if watchlist_service is None else watchlist_service
+        self._init_lists(lists or None)
+        if self.startup:
+            selected = self.preferences.read() if self.preferences else {'symbol': 'SBER', 'board': 'TQBR', 'tf': 'H1'}
+            self.symbol.setText(selected['symbol'])
+            self.board.setCurrentText(selected['board'])
+            self.tf.blockSignals(True)
+            self.tf.setCurrentText(selected['tf'])
+            self.tf.blockSignals(False)
+            self.source = f"MOEX: {selected['symbol']} / {selected['board']}"
+            self.status.setText(f"Загрузка {selected['symbol']}…")
+            self.candle_time.setText('Свеча: — · загрузка данных MOEX')
+            self.chart.empty_text = f"Загрузка {selected['symbol']} с MOEX…"
+            QTimer.singleShot(0, self._startup_load)
+        else:
+            self._show_data(analyze(demo_data(), "H1"), {}, self.source)
 
     def _build_ui(self):
         container = QWidget()
@@ -737,19 +762,16 @@ class MainWindow(StreamController, QMainWindow):
         header.addSpacing(12)
         header.addWidget(QLabel("Режим:"))
         self.board = QComboBox()
-        self.board.addItems(["TQBR", "TQTF", "TQTD", "SPEQ", "TQOB"])
+        self.board.addItems(["TQBR", "RFUD", "TQTF", "TQTD", "SPEQ", "TQOB"])
         self.board.setToolTip("Режим торгов MOEX (для акций обычно TQBR)")
         header.addWidget(self.board)
         self.symbol = QLineEdit("SBER")
         self.symbol.setFixedWidth(110)
-        self.symbol.setPlaceholderText("Тикер")
+        self.symbol.setPlaceholderText("Тикер · Enter")
         header.addWidget(self.symbol)
         self.symbol.returnPressed.connect(self.load_moex)
         self.tf = TimeframeBar()
         header.addWidget(self.tf)
-        self.load_button = QPushButton("Обновить MOEX")
-        self.load_button.clicked.connect(self.load_moex)
-        header.addWidget(self.load_button)
         self.csv_button = QPushButton("Открыть CSV")
         self.csv_button.clicked.connect(self.open_csv)
         header.addWidget(self.csv_button)
@@ -780,7 +802,6 @@ class MainWindow(StreamController, QMainWindow):
         navigation.addWidget(self.panel_checkbox)
         navigation.addStretch()
         self.data_age = QLabel('')
-        navigation.addWidget(self.data_age)
         layout.addLayout(navigation)
         self.banner = QLabel("ПРЕДВАРИТЕЛЬНЫЕ РАСЧЁТЫ • совпадение с TradingView не подтверждено • без выставления заявок")
         self.banner.setObjectName("warning")
@@ -855,11 +876,19 @@ class MainWindow(StreamController, QMainWindow):
         self.panel_checkbox.toggled.connect(self.right_panel.setVisible)
         # TV preset gives the price chart the maximum available width.
         self.right_panel.hide()
+        splitter.addWidget(self._build_watchlist())
+        splitter.setSizes([1090, 0, 260])
         layout.addWidget(splitter, 1)
         self.status = QLabel()
         self.status.setObjectName("status")
         self.status.setWordWrap(True)
         layout.addWidget(self.status)
+        footer = QHBoxLayout()
+        self.candle_time = QLabel('Свеча: —')
+        footer.addWidget(self.candle_time)
+        footer.addStretch()
+        footer.addWidget(self.data_age)
+        layout.addLayout(footer)
         self.chart.crosshair.connect(self._hover)
         self.tf.currentTextChanged.connect(self._timeframe_changed)
         self._style()
@@ -906,8 +935,17 @@ class MainWindow(StreamController, QMainWindow):
         self.chart.update()
 
     def load_moex(self):
+        if self.closing_after_load:
+            return
         self.stream_disabled_key = None
         self._request_market(refresh=True)
+
+    def _startup_load(self):
+        if self.closing_after_load or self.worker is not None or not self.auto_checkbox.isChecked():
+            return
+        context = (self.symbol.text().strip().upper(), self.board.currentText(), self.tf.currentText())
+        self.desired_market = context
+        self._start_market((*context, False), automatic=True)
 
     def _schedule_auto_refresh(self, *_):
         if (self.auto_checkbox.isChecked() and self.loaded_market and
@@ -973,7 +1011,6 @@ class MainWindow(StreamController, QMainWindow):
         symbol, board, tf, refresh = request
         if self.loaded_market is None or self.loaded_market[:2] != request[:2]:
             self.csv_overrides, self.csv_provenance = {}, {}
-        self.load_button.setEnabled(False)
         self.export_button.setEnabled(False)
         self.csv_button.setEnabled(False)
         self.h1_button.setEnabled(False)
@@ -994,6 +1031,10 @@ class MainWindow(StreamController, QMainWindow):
         if context != self.desired_market or self.closing_after_load:
             return
         self.loaded_market = context
+        if self.preferences and context != self.last_saved_context:
+            self.preferences.write(*context)
+            self.last_saved_context = context
+        self._highlight_instrument()
         self.data_info = info
         if (self.worker.repair and self.worker.stream_epoch == self.stream_epoch and
                 context[:2] == self.stream_key and info.get('tier') == 'network'):
@@ -1005,6 +1046,8 @@ class MainWindow(StreamController, QMainWindow):
         self._show_data(analysis, higher, f"MOEX: {info['symbol']} / {info['board']}")
 
     def _failed(self, error: str):
+        if self.startup and self.analysis is None and getattr(self.worker, 'automatic', False) and not self.closing_after_load:
+            QTimer.singleShot(30000, self._startup_load)
         if getattr(self.worker, 'stream_batch', ()) and error.startswith('StreamGap:'):
             self.stream_needs_repair = self.stream_repair_pending = True
         elif getattr(self.worker, 'repair', False) or getattr(self.worker, 'stream_batch', ()):
@@ -1033,7 +1076,7 @@ class MainWindow(StreamController, QMainWindow):
             request, self.pending_market = self.pending_market, None
             self._start_market(request)
             return
-        for control in (self.load_button, self.csv_button, self.h1_button, self.export_button):
+        for control in (self.csv_button, self.h1_button, self.export_button):
             control.setEnabled(True)
         if self.analysis:
             self.tf.blockSignals(True)
@@ -1048,9 +1091,13 @@ class MainWindow(StreamController, QMainWindow):
             self.stream_timer.start()
 
     def closeEvent(self, event):
+        self.closing_after_load = True
         self.auto_timer.stop()
         self._stop_stream()
-        if self.worker is not None or self.retiring_streams:
+        self.list_timer.stop()
+        if self.list_worker is not None:
+            self.list_worker.requestInterruption()
+        if self.worker is not None or self.retiring_streams or self.list_worker is not None:
             self.closing_after_load = True
             self.pending_market = None
             self.hide()
@@ -1149,6 +1196,7 @@ class MainWindow(StreamController, QMainWindow):
             self.feed_label.hide()
         self.analysis = analysis
         self.parents = parents
+        self._candle_timestamp()
         if source.startswith("MOEX:"):
             ticker = source.split(":", 1)[1].split("/", 1)[0].strip()
             self.chart.instrument_header = f"{ticker} · MOEX"
@@ -1220,7 +1268,7 @@ class MainWindow(StreamController, QMainWindow):
             if self.data_info.get('stream_received_at') and self.data_info['tier'] == 'stream':
                 requested = datetime.fromisoformat(self.data_info['stream_received_at']).astimezone(MOSCOW)
             delay = self.data_info.get('feed_delay_seconds', 0)
-            self.data_age.setText(f'{origin} · {requested:%H:%M:%S} МСК' + (f' · задержка ≈{delay // 60} мин' if delay else ''))
+            self.data_age.setText(f'Получено {requested:%H:%M:%S} МСК · {origin}' + (f' · задержка ≈{delay // 60} мин' if delay else ''))
             self.data_age.setToolTip(f'Получение / запрос: {requested:%d.%m.%Y %H:%M:%S} МСК\nРасчёт закрытых свечей до: {observed:%d.%m.%Y %H:%M:%S} МСК')
             if self.data_info.get('warning'):
                 self.status.setText(self.status.text() + ' · ' + self.data_info['warning'])
@@ -1235,12 +1283,25 @@ class MainWindow(StreamController, QMainWindow):
 
     def _hover(self, i: int):
         if not self.analysis or i < 0 or i >= len(self.analysis.candles):
+            self._candle_timestamp()
             return
+        self._candle_timestamp(i)
         bar = self.analysis.candles[i]
         flow = self.analysis.flows[i]
         dirtext = "LONG" if flow.side == 1 else "SHORT" if flow.side == -1 else "WAIT"
         h1_info = (f" · H1 закрыта {flow.source_confirmed_at.strftime('%d.%m %H:%M')}" if flow.source_confirmed_at else "")
         self.hover_info.setText(f"{bar.time.strftime('%d.%m.%Y %H:%M')} · O {short_number(bar.open)} · H {short_number(bar.high)} · L {short_number(bar.low)} · C {short_number(bar.close)} · {dirtext}{h1_info}")
+
+    def _candle_timestamp(self, index=None):
+        if not self.analysis or not self.analysis.candles:
+            self.candle_time.setText('Свеча: —')
+            return
+        bar = self.analysis.candles[-1 if index is None else index]
+        stamp = bar.time.astimezone(MOSCOW)
+        title = 'Последняя свеча' if index is None else 'Свеча под курсором'
+        self.candle_time.setText(f'{title}: {stamp:%d.%m.%Y %H:%M} МСК')
+        end = candle_close_time(bar, self.analysis.timeframe).astimezone(MOSCOW)
+        self.candle_time.setToolTip(f'Биржевое начало свечи: {stamp:%d.%m.%Y %H:%M:%S} МСК\nКонец периода: {end:%d.%m.%Y %H:%M:%S} МСК')
 
     def export_diagnostics(self):
         if not self.analysis:
@@ -1286,7 +1347,8 @@ class MainWindow(StreamController, QMainWindow):
                 "rule1_mode": "APPLIED_TO_CONFIRMED_FLOW",
                 "higher_timeframes": {
                     tf: {
-                        "source": ("MOEX_NATIVE_CANDLES" if p.session_info.get("native_higher") else "MOEX_CLEAN_H1_PHYSICAL_CALENDAR"
+                        "source": ("MOEX_NATIVE_CANDLES" if p.session_info.get("native_higher") else "MOEX_RFUD_NATIVE_H1"
+                                   if p.session_info.get("market") == 'futures' else "MOEX_CLEAN_H1_PHYSICAL_CALENDAR"
                                    if p.session_info.get("higher_from_clean_h1") else "CSV_OR_SUPPLIED_HIGHER_TF"),
                         "source_info": p.session_info,
                         "coverage": source_coverage(p),
