@@ -88,11 +88,11 @@ class TestGuiNavigation(unittest.TestCase):
         self.app.processEvents()
         x = round(chart.x0 + (chart.x1 - chart.x0) * .3)
         fraction = (x - chart.x0) / (chart.x1 - chart.x0)
-        before = chart.window()
-        anchor = before[0] + fraction * (before[1] - before[0])
+        before = chart.viewport.bounds(len(chart.times))
+        anchor = before[0] + fraction * chart.viewport.span
         self.wheel(QPoint(x, 100))
-        after = chart.window()
-        self.assertLessEqual(abs(anchor - after[0] - fraction * (after[1] - after[0])), .5)
+        after = chart.viewport.bounds(len(chart.times))
+        self.assertAlmostEqual(anchor, after[0] + fraction * chart.viewport.span, places=9)
 
     def test_drag_and_end_key_return_to_latest(self):
         chart = self.window.chart
@@ -299,3 +299,4 @@ class TestGuiNavigation(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+

@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
+from .cancellation import checkpoint, pause
 
 from .moex_calendar import (CLOSED, EXTRA, REGULAR, SessionOverride,
                             stock_session_kind, stock_trading_date,
@@ -371,22 +372,25 @@ def _iss_download(symbol: str, interval: int, *, days: int, limit: int,
     all_bars = deque(maxlen=limit)
     start = 0
     for _ in range(600):
+        checkpoint()
         params = urllib.parse.urlencode({"interval": interval, "from": frm, "till": to,
                                          "start": start, "iss.meta": "off", "iss.only": "candles"})
         req = urllib.request.Request(urlbase + "?" + params,
                                      headers={"User-Agent": "FlowDesk/0.2.10 (confirmed source candles)",
                                               "Accept": "application/json"})
         for attempt in range(3):
+            checkpoint()
             try:
                 with urllib.request.urlopen(req, timeout=timeout) as response:
                     payload = json.load(response)
+                checkpoint()
                 break
             except (urllib.error.URLError, ConnectionError, TimeoutError) as exc:
                 if isinstance(exc, urllib.error.HTTPError) and exc.code not in (429, 500, 502, 503, 504):
                     raise
                 if attempt == 2:
                     raise
-                time_module.sleep(attempt + 1)
+                pause(attempt + 1)
         table = payload.get("candles", {})
         fields, chunk = table.get("columns", []), table.get("data", [])
         if not chunk:

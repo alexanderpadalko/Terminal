@@ -79,14 +79,14 @@ class TestTradingViewAppearance(unittest.TestCase):
         image = chart.grab().toImage()
         self.assertFalse(image.isNull())
         self.assertEqual(chart.inside_bars, [False, True, True, False, True, True, False])
-        count = len(bars)
-        stride = (chart.x1 - chart.x0) / count
+        left, _ = chart.viewport.bounds(len(bars))
+        stride = (chart.x1 - chart.x0) / chart.viewport.span
 
         def body_color(i, x_offset=5):
             candle = bars[i]
             mid = (candle.open + candle.close) / 2
             y = round(chart.bottom - (mid - 7.0) / 5.0 * (chart.bottom - chart.top))
-            x = round(chart.x0 + (i + 0.5) * stride + x_offset)
+            x = round(chart.x0 + (i + 0.5 - left) * stride + x_offset)
             return image.pixelColor(x, y).name()
 
         self.assertEqual(body_color(0), "#ffffff")
@@ -144,6 +144,26 @@ class TestTradingViewAppearance(unittest.TestCase):
         # A further horizontal-only pan must preserve the Y range even
         # after the visible candle window changes.
         w.close()
+
+    def test_one_pixel_drag_tracks_mouse_without_changing_candle_spacing(self):
+        chart = CandleChart()
+        chart.resize(970, 600)
+        chart.set_analysis(analyze(demo_data(), 'H1'))
+        chart.viewport.offset = 90
+        chart.show()
+        self.app.processEvents()
+        before = chart.viewport.bounds(len(chart.times))
+        spacing = (chart.x1 - chart.x0) / chart.viewport.span
+        start = QPoint(400, 200)
+        QTest.mousePress(chart, Qt.MouseButton.LeftButton, pos=start)
+        for dx in (1, 2, 30, -8, 0):
+            QTest.mouseMove(chart, start + QPoint(dx, 0))
+            self.app.processEvents()
+            after = chart.viewport.bounds(len(chart.times))
+            self.assertAlmostEqual((before[0] - after[0]) * spacing, dx, places=7)
+            self.assertAlmostEqual(spacing, (chart.x1 - chart.x0) / chart.viewport.span)
+        QTest.mouseRelease(chart, Qt.MouseButton.LeftButton, pos=start)
+        chart.close()
 
     def test_permanent_dark_chrome_and_instrument_header(self):
         w = MainWindow(startup=False, watchlist_service=False)

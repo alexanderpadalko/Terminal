@@ -25,7 +25,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: FlowDesk-0.2.20-ISSPlus-Live-Evidence
+          name: FlowDesk-0.2.21-ISSPlus-Live-Evidence
           path: |
             issplus-live-result.json
             issplus-live-cache.sqlite3
@@ -81,25 +81,33 @@ jobs:
           python tools/preview_ui.py
       - name: Build portable Windows executable
         run: python -m PyInstaller --clean --noconfirm --windowed --onedir --name FlowDesk --collect-all tzdata --collect-all websockets --add-data "flowdesk/data;flowdesk/data" main.py
+      - name: Verify packaged process exits after WM_CLOSE
+        run: python -u tools/check_exe_shutdown.py dist/FlowDesk/FlowDesk.exe
       - name: Publish entire standalone directory
         uses: actions/upload-artifact@v4
         with:
-          name: FlowDesk-0.2.20-Windows-x64
+          name: FlowDesk-0.2.21-Windows-x64
           path: dist/FlowDesk/
           if-no-files-found: error
           retention-days: 30
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: FlowDesk-0.2.20-Preview
+          name: FlowDesk-0.2.21-Preview
           path: ui-preview.png
           retention-days: 30
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: FlowDesk-0.2.20-Instrument-List-Evidence
+          name: FlowDesk-0.2.21-Instrument-List-Evidence
           path: |
             watchlist-live-result.json
             flowdesk/data/watchlist_seed.json
+          retention-days: 30
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: FlowDesk-0.2.21-Process-Exit-Evidence
+          path: shutdown-exe-result.json
           retention-days: 30
 

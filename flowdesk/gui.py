@@ -29,6 +29,8 @@ from .stream_ui import StreamController
 from .watchlist_ui import WatchlistController
 from .watchlist import WatchlistService
 from .preferences import Preferences
+from .cancellation import Cancelled, checkpoint, scope
+from .lifecycle import ShutdownWatchdog
 from .engine import Analysis, analyze
 from .pipeline import analyze_timeframes, source_coverage
 from .liquidity import serialize_audit
@@ -202,16 +204,23 @@ class MarketWorker(QThread):
 
     def run(self):
         try:
-            if self.stream_batch:
-                self.service.ingest_stream(self.symbol, self.board, self.stream_batch)
-            extra = {'with_minutes': True} if self.repair else {}
-            main, higher, info = self.service.view(
-                self.symbol, self.board, self.tf, refresh=self.refresh,
-                overrides=self.overrides, provenance=self.provenance,
-                progress=self.progress.emit, **extra)
-            if self.stream_batch:
-                info['tier'] = 'stream'
-            self.loaded.emit(main, higher, info)
+            with scope(self.isInterruptionRequested):
+                if self.stream_batch:
+                    self.service.ingest_stream(self.symbol, self.board, self.stream_batch)
+                extra = {'with_minutes': True} if self.repair else {}
+                def progress(message):
+                    checkpoint()
+                    self.progress.emit(message)
+                main, higher, info = self.service.view(
+                    self.symbol, self.board, self.tf, refresh=self.refresh,
+                    overrides=self.overrides, provenance=self.provenance,
+                    progress=progress, **extra)
+                checkpoint()
+                if self.stream_batch:
+                    info['tier'] = 'stream'
+                self.loaded.emit(main, higher, info)
+        except Cancelled:
+            pass
         except Exception as e:
             self.failed.emit(f"{type(e).__name__}: {e}")
 
@@ -264,6 +273,7 @@ class CandleChart(QWidget):
         self.parents = parents or {}
         self.times = [c.time.timestamp() for c in analysis.candles]
         self.inside_bars = inside_mother_bars(analysis.candles)
+        self.viewport.count = min(self.viewport.count, max(1, len(analysis.candles)))
         self.offset = 0
         self.update()
 
@@ -283,6 +293,7 @@ class CandleChart(QWidget):
         _, end = self.window()
         return {'count': self.viewport.count, 'offset': self.offset,
                 'end': self.analysis.candles[end - 1].time.timestamp() if self.analysis and end and self.offset else None,
+                'end_fraction': self.viewport.bounds(len(self.times))[1] - end,
                 'price_range': self.price_range, 'flow_scale': self.include_flow_in_scale,
                 'right_padding': self.viewport.right_padding}
 
@@ -292,10 +303,10 @@ class CandleChart(QWidget):
         if state['end'] is not None:
             ends = self.times
             end = bisect.bisect_right(ends, state['end'])
-            self.offset = max(0, len(ends) - end) if end else 0
+            self.offset = max(0, len(ends) - end - state.get('end_fraction', 0)) if end else 0
         self.price_range = state['price_range']
         self.include_flow_in_scale = state['flow_scale']
-        self.viewport.right_padding = max(0, min(250, state.get('right_padding', 16)))
+        self.viewport.right_padding = max(0, min(self.viewport.span - 1, state.get('right_padding', 16)))
         self.update()
 
     def latest(self):
@@ -328,17 +339,16 @@ class CandleChart(QWidget):
     def wheelEvent(self, event):
         if not self.analysis:
             return
-        delta = event.angleDelta().y() or event.angleDelta().x()
+        pixels = event.pixelDelta()
+        delta = event.angleDelta().y() or event.angleDelta().x() or pixels.y() or pixels.x()
         if not delta:
             return
         if event.position().x() > self.x1 or event.modifiers() & Qt.KeyboardModifier.ControlModifier:
-            self._zoom_price(0.82 if delta > 0 else 1.22, event.position().y())
+            self._zoom_price(math.exp(-delta * .00165), event.position().y())
         elif event.modifiers() & Qt.KeyboardModifier.ShiftModifier or event.angleDelta().x():
-            self.viewport.pan(round(self.viewport.count * (0.12 if delta > 0 else -0.12)), len(self.analysis.candles))
+            self.viewport.pan(self.viewport.span * delta * .001, len(self.analysis.candles))
         else:
-            # The right margin is a fixed number of empty slots; when
-            # zooming, it cancels out of the pixel-to-candle anchor.
-            self.viewport.zoom(0.82 if delta > 0 else 1.22,
+            self.viewport.zoom(math.exp(-delta * .00165),
                                (event.position().x() - self.x0) / max(1, self.x1 - self.x0),
                                len(self.analysis.candles))
         event.accept()
@@ -394,9 +404,8 @@ class CandleChart(QWidget):
                 self.viewport.count = self.drag_count
                 self.viewport.offset = self.drag_offset
                 self.viewport.right_padding = self.drag_padding
-                # Keep the same real candle under the cursor while the
-                # visible candle count changes; right padding stays fixed.
-                fraction = (self.drag_origin.x() - self.x0) / max(1, self.x1 - self.x0)
+                # Time-scale stretching keeps the right edge fixed.
+                fraction = 1.0
                 factor = math.exp(max(-5.0, min(5.0, -dx * 0.009)))
                 self.viewport.zoom(factor, fraction, len(self.analysis.candles))
             elif self.drag_mode == "pan":
@@ -404,9 +413,8 @@ class CandleChart(QWidget):
                 # candles; vertical translation moves the entire price axis
                 # while preserving its scale. Both are relative to mouse
                 # PRESS, so no drift accumulates while dragging.
-                first, last = self.window()
-                stride = (self.x1 - self.x0) / max(1, last - first + self.drag_padding)
-                drag_bars = round(dx / max(0.01, stride))
+                stride = (self.x1 - self.x0) / self.viewport.span
+                drag_bars = dx / max(0.01, stride)
                 self.viewport.drag_chart(drag_bars, len(self.analysis.candles),
                                          start_offset=self.drag_offset,
                                          start_padding=self.drag_padding)
@@ -416,9 +424,9 @@ class CandleChart(QWidget):
                     self.price_range = (lo + shift, hi + shift)
         if self.analysis:
             first, last = self.window()
-            count = max(1, last - first)
-            stride = (self.x1 - self.x0) / max(1, count + self.viewport.right_padding)
-            index = first + math.floor((self.cursor_x - self.x0) / max(.01, stride))
+            left, _ = self.viewport.bounds(len(self.analysis.candles))
+            stride = (self.x1 - self.x0) / self.viewport.span
+            index = math.floor(left + (self.cursor_x - self.x0) / max(.01, stride))
             if first <= index < last:
                 self.crosshair.emit(index)
             else:
@@ -438,7 +446,7 @@ class CandleChart(QWidget):
         if key == Qt.Key.Key_End:
             self.latest()
         elif key == Qt.Key.Key_Home:
-            self.offset = max(0, len(self.analysis.candles) - self.viewport.count)
+            self.viewport.pan(len(self.analysis.candles), len(self.analysis.candles))
         elif key in (Qt.Key.Key_Left, Qt.Key.Key_Right):
             self.viewport.pan(round(self.viewport.count * (0.15 if key == Qt.Key.Key_Left else -0.15)), len(self.analysis.candles))
         elif key in (Qt.Key.Key_Plus, Qt.Key.Key_Equal, Qt.Key.Key_Minus):
@@ -471,9 +479,10 @@ class CandleChart(QWidget):
         self.top, self.bottom = 30, max(130, self.height() - 72)
         count = last - first
         span = max(1, self.x1 - self.x0)
-        stride = span / max(1, count + self.viewport.right_padding)
+        left_edge, _ = self.viewport.bounds(len(candles))
+        stride = span / self.viewport.span
         def x(index: int):
-            return self.x0 + (index - first + 0.5) * stride
+            return self.x0 + (index - left_edge + 0.5) * stride
         visible = candles[first:last]
         lowest = min(b.low for b in visible)
         highest = max(b.high for b in visible)
@@ -633,7 +642,7 @@ class CandleChart(QWidget):
                        int(Qt.AlignmentFlag.AlignCenter), short_number(latest.close))
         p.setPen(colors["text"])
         p.setFont(QFont("Segoe UI", 10, QFont.Weight.Bold))
-        hover_i = first + math.floor((self.cursor_x - self.x0) / max(.01, stride)) if self.cursor_x is not None else -1
+        hover_i = math.floor(left_edge + (self.cursor_x - self.x0) / max(.01, stride)) if self.cursor_x is not None else -1
         header_bar = candles[hover_i] if first <= hover_i < last and self.cursor_y is not None and self.top <= self.cursor_y <= self.bottom else latest
         p.drawText(QRectF(self.x0, 0, max(150, self.width() - 120), 23), 0,
                    f"{self.instrument_header}   ·   {self.analysis.timeframe}   {header_bar.time:%d.%m %H:%M}   O {short_number(header_bar.open)}   H {short_number(header_bar.high)}   L {short_number(header_bar.low)}   C {short_number(header_bar.close)}")
@@ -699,7 +708,7 @@ class CandleChart(QWidget):
 
 
 class MainWindow(StreamController, WatchlistController, QMainWindow):
-    def __init__(self, service=None, *, stream_factory=None, startup=None, watchlist_service=None, preferences=None):
+    def __init__(self, service=None, *, stream_factory=None, startup=None, watchlist_service=None, preferences=None, shutdown=None):
         super().__init__()
         self.setWindowTitle(f"FlowDesk {__version__} — Структура и FVG · Windows")
         self.setMinimumSize(1060, 690)
@@ -718,6 +727,7 @@ class MainWindow(StreamController, WatchlistController, QMainWindow):
         self.csv_overrides, self.csv_provenance = {}, {}
         self.local_series, self.local_provenance = {}, {}
         self.closing_after_load = False
+        self.shutdown_watchdog = shutdown
         self.source = "DEMO (синтетические свечи)"
         self.analysis: Analysis | None = None
         self.parents: dict[str, Analysis] = {}
@@ -1092,10 +1102,15 @@ class MainWindow(StreamController, WatchlistController, QMainWindow):
             self.stream_timer.start()
 
     def closeEvent(self, event):
+        if self.shutdown_watchdog is not None:
+            self.shutdown_watchdog.arm()
         self.closing_after_load = True
+        self.pending_market = None
         self.auto_timer.stop()
         self._stop_stream()
         self.list_timer.stop()
+        if self.worker is not None:
+            self.worker.requestInterruption()
         if self.list_worker is not None:
             self.list_worker.requestInterruption()
         if self.worker is not None or self.retiring_streams or self.list_worker is not None:
@@ -1424,7 +1439,9 @@ def run():
     import sys
     app = QApplication(sys.argv)
     app.setApplicationName("FlowDesk")
-    window = MainWindow()
+    shutdown = ShutdownWatchdog()
+    app.aboutToQuit.connect(shutdown.arm)
+    window = MainWindow(shutdown=shutdown)
     window.show()
     return app.exec()
 
