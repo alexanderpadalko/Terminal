@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
 
 from . import __version__
 from .chart_view import ChartView, inside_mother_bars, time_axis_zoom_factor
+from .chart_time import candle_time_text
 from .market_cache import MarketService
 from .stream_worker import StreamWorker
 from .stream_ui import StreamController
@@ -337,6 +338,20 @@ class CandleChart(QWidget):
         span = max(1e-8, (hi - lo) * factor)
         self.price_range = (anchor - fraction * span, anchor + (1 - fraction) * span)
 
+    def cursor_index(self):
+        if (not self.analysis or self.cursor_x is None or self.cursor_y is None
+                or not self.x0 <= self.cursor_x <= self.x1 or not self.top <= self.cursor_y <= self.bottom):
+            return None
+        first, last = self.window()
+        left, _ = self.viewport.bounds(len(self.analysis.candles))
+        stride = (self.x1 - self.x0) / self.viewport.span
+        index = math.floor(left + (self.cursor_x - self.x0) / max(.01, stride))
+        return index if first <= index < last else None
+
+    def axis_time_text(self):
+        index = self.cursor_index()
+        return candle_time_text(self.analysis.candles[index], self.analysis.timeframe) if index is not None else ''
+
     def wheelEvent(self, event):
         if not self.analysis:
             return
@@ -426,14 +441,8 @@ class CandleChart(QWidget):
                     shift = dy * (hi - lo) / max(1, self.bottom - self.top)
                     self.price_range = (lo + shift, hi + shift)
         if self.analysis:
-            first, last = self.window()
-            left, _ = self.viewport.bounds(len(self.analysis.candles))
-            stride = (self.x1 - self.x0) / self.viewport.span
-            index = math.floor(left + (self.cursor_x - self.x0) / max(.01, stride))
-            if first <= index < last:
-                self.crosshair.emit(index)
-            else:
-                self.crosshair.emit(-1)
+            index = self.cursor_index()
+            self.crosshair.emit(index if index is not None else -1)
         self.update()
 
     def mouseDoubleClickEvent(self, event):
@@ -645,14 +654,14 @@ class CandleChart(QWidget):
                        int(Qt.AlignmentFlag.AlignCenter), short_number(latest.close))
         p.setPen(colors["text"])
         p.setFont(QFont("Segoe UI", 10, QFont.Weight.Bold))
-        hover_i = math.floor(left_edge + (self.cursor_x - self.x0) / max(.01, stride)) if self.cursor_x is not None else -1
-        header_bar = candles[hover_i] if first <= hover_i < last and self.cursor_y is not None and self.top <= self.cursor_y <= self.bottom else latest
+        hover_i = self.cursor_index()
+        header_bar = candles[hover_i] if hover_i is not None else latest
         p.drawText(QRectF(self.x0, 0, max(150, self.width() - 120), 23), 0,
-                   f"{self.instrument_header}   ·   {self.analysis.timeframe}   {header_bar.time:%d.%m %H:%M}   O {short_number(header_bar.open)}   H {short_number(header_bar.high)}   L {short_number(header_bar.low)}   C {short_number(header_bar.close)}")
+                   f"{self.instrument_header}   ·   {self.analysis.timeframe}   {header_bar.time.astimezone(MOSCOW):%d.%m %H:%M}   O {short_number(header_bar.open)}   H {short_number(header_bar.high)}   L {short_number(header_bar.low)}   C {short_number(header_bar.close)}")
         if self.cursor_x is not None and self.x0 <= self.cursor_x <= self.x1 and self.top <= self.cursor_y <= self.bottom:
             pen = QPen(colors["crosshair"], 0.85, Qt.PenStyle.DashLine)
             p.setPen(pen)
-            snap_x = x(min(last - 1, max(first, hover_i)))
+            snap_x = x(hover_i) if hover_i is not None else self.cursor_x
             p.drawLine(QPointF(snap_x, self.top), QPointF(snap_x, self.bottom))
             p.drawLine(QPointF(self.x0, self.cursor_y), QPointF(self.x1, self.cursor_y))
             price = lowest + (self.bottom - self.cursor_y) / max(1, self.bottom - self.top) * (highest - lowest)
@@ -661,11 +670,13 @@ class CandleChart(QWidget):
             p.setPen(colors["tooltip_text"])
             p.drawText(QRectF(self.x1 + 5, self.cursor_y - 10, 80, 20),
                        int(Qt.AlignmentFlag.AlignCenter), short_number(price))
-            p.fillRect(QRectF(snap_x - 65, self.bottom + 5, 130, 22),
-                       colors["tooltip_bg"])
-            p.drawText(QRectF(snap_x - 65, self.bottom + 5, 130, 22),
-                       int(Qt.AlignmentFlag.AlignCenter),
-                       header_bar.time.strftime('%d.%m.%Y %H:%M'))
+            if hover_i is not None:
+                caption = self.axis_time_text()
+                tag_width = p.fontMetrics().horizontalAdvance(caption) + 14
+                tag_x = max(self.x0, min(self.x1 - tag_width, snap_x - tag_width / 2))
+                tag = QRectF(tag_x, self.bottom + 5, tag_width, 22)
+                p.fillRect(tag, colors["tooltip_bg"])
+                p.drawText(tag, int(Qt.AlignmentFlag.AlignCenter), caption)
         p.setPen(colors["text"])
         p.setFont(QFont("Segoe UI", 8))
         p.drawText(QRectF(self.x0, self.height() - 32, self.width() - 170, 20), 0,
@@ -898,9 +909,9 @@ class MainWindow(StreamController, WatchlistController, QMainWindow):
         layout.addWidget(self.status)
         footer = QHBoxLayout()
         self.candle_time = QLabel('Свеча: —')
-        footer.addWidget(self.candle_time)
-        footer.addStretch()
         footer.addWidget(self.data_age)
+        footer.addStretch()
+        footer.addWidget(self.candle_time)
         layout.addLayout(footer)
         self.chart.crosshair.connect(self._hover)
         self.tf.currentTextChanged.connect(self._timeframe_changed)
@@ -1215,7 +1226,6 @@ class MainWindow(StreamController, WatchlistController, QMainWindow):
             self.feed_label.hide()
         self.analysis = analysis
         self.parents = parents
-        self._candle_timestamp()
         if source.startswith("MOEX:"):
             ticker = source.split(":", 1)[1].split("/", 1)[0].strip()
             self.chart.instrument_header = f"{ticker} · MOEX"
@@ -1229,6 +1239,7 @@ class MainWindow(StreamController, WatchlistController, QMainWindow):
             self.chart.restore_view(saved_view)
         else:
             self.chart.reset_view()
+        self._candle_timestamp(self.chart.cursor_index())
         self.tf.blockSignals(True)
         self.tf.setCurrentText(analysis.timeframe)
         self.tf.blockSignals(False)
@@ -1286,8 +1297,7 @@ class MainWindow(StreamController, WatchlistController, QMainWindow):
             requested = datetime.fromisoformat(self.data_info.get('requested_at', self.data_info['asof'])).astimezone(MOSCOW)
             if self.data_info.get('stream_received_at') and self.data_info['tier'] == 'stream':
                 requested = datetime.fromisoformat(self.data_info['stream_received_at']).astimezone(MOSCOW)
-            delay = self.data_info.get('feed_delay_seconds', 0)
-            self.data_age.setText(f'Получено {requested:%H:%M:%S} МСК · {origin}' + (f' · задержка ≈{delay // 60} мин' if delay else ''))
+            self.data_age.setText(f'MOEX ISS · {origin}')
             self.data_age.setToolTip(f'Получение / запрос: {requested:%d.%m.%Y %H:%M:%S} МСК\nРасчёт закрытых свечей до: {observed:%d.%m.%Y %H:%M:%S} МСК')
             if self.data_info.get('warning'):
                 self.status.setText(self.status.text() + ' · ' + self.data_info['warning'])
@@ -1317,8 +1327,8 @@ class MainWindow(StreamController, WatchlistController, QMainWindow):
             return
         bar = self.analysis.candles[-1 if index is None else index]
         stamp = bar.time.astimezone(MOSCOW)
-        title = 'Последняя свеча' if index is None else 'Свеча под курсором'
-        self.candle_time.setText(f'{title}: {stamp:%d.%m.%Y %H:%M} МСК')
+        title = 'Начало последней свечи' if index is None else 'Начало свечи под курсором'
+        self.candle_time.setText(f'{title}: {candle_time_text(bar, self.analysis.timeframe)}')
         end = candle_close_time(bar, self.analysis.timeframe).astimezone(MOSCOW)
         self.candle_time.setToolTip(f'Биржевое начало свечи: {stamp:%d.%m.%Y %H:%M:%S} МСК\nКонец периода: {end:%d.%m.%Y %H:%M:%S} МСК')
 

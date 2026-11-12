@@ -5,6 +5,7 @@ from datetime import datetime
 
 from flowdesk.iss_plus import FeedError, IssPlusClient, PacketDecoder, StompParser, encode_frame, fixed
 from flowdesk.market_data import MOSCOW
+from flowdesk.chart_time import candle_time_text
 
 NOW = datetime(2026, 11, 11, 12, 16, tzinfo=MOSCOW)
 
@@ -15,6 +16,16 @@ def packet(columns, rows, kind='snapshot'):
 
 
 class TestProtocol(unittest.TestCase):
+    def test_candle_label_uses_from_and_never_receipt_or_publication_time(self):
+        received = datetime(2026, 11, 12, 11, 38, 43, tzinfo=MOSCOW)
+        d = PacketDecoder('SBER', 'TQBR', 1)
+        body = packet(['FROM', 'OPEN', 'HIGH', 'LOW', 'CLOSE', 'VOLUME'],
+                      [['2026-11-12 11:23:00', 10, 12, 9, 11, 100]])
+        event = d.decode({'subscription': 'M1'}, body, received)
+        self.assertEqual(event.received_at, received)
+        self.assertEqual(event.candles[0].time, received.replace(minute=23, second=0))
+        self.assertEqual(candle_time_text(event.candles[0], 'M1'), '1м · 12.11.2026 11:23 МСК')
+
     def test_fragmented_utf8_bytes_and_heartbeats(self):
         parser = StompParser()
         body = 'Свеча'

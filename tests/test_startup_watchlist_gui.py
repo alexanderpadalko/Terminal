@@ -62,7 +62,7 @@ class TestStartupWatchlistGui(unittest.TestCase):
         self.settle(w)
         last = w.analysis.candles[-1].time.astimezone(MOSCOW).strftime('%d.%m.%Y %H:%M')
         self.assertIn(last, w.candle_time.text())
-        self.assertIn('Получено', w.data_age.text())
+        self.assertNotIn('Получено', w.data_age.text())
         w._hover(1)
         self.assertIn(w.analysis.candles[1].time.strftime('%d.%m.%Y %H:%M'), w.candle_time.text())
         w._hover(-1)
