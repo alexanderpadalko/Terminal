@@ -303,7 +303,8 @@ class CandleChart(QWidget):
         if state['end'] is not None:
             ends = self.times
             end = bisect.bisect_right(ends, state['end'])
-            self.offset = max(0, len(ends) - end - state.get('end_fraction', 0)) if end else 0
+            self.offset = max(0, len(ends) - end + state.get('right_padding', 16)
+                              - state.get('end_fraction', 0)) if end else 0
         self.price_range = state['price_range']
         self.include_flow_in_scale = state['flow_scale']
         self.viewport.right_padding = max(0, min(self.viewport.span - 1, state.get('right_padding', 16)))

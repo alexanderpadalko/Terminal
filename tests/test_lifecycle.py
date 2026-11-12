@@ -1,4 +1,5 @@
 import json
+from contextlib import closing
 import os
 from pathlib import Path
 import sqlite3
@@ -54,6 +55,6 @@ class TestProcessExit(unittest.TestCase):
                 self.assertNotIn('QThread: Destroyed', result.stderr)
                 info = json.loads((Path(directory)/'close.json').read_text())
                 self.assertLess(time.time() - info['closed_at'], 5)
-                with sqlite3.connect(Path(directory)/'probe.sqlite3') as db:
+                with closing(sqlite3.connect(Path(directory)/'probe.sqlite3')) as db:
                     self.assertEqual(db.execute('PRAGMA integrity_check').fetchone()[0], 'ok')
                     self.assertEqual(db.execute('SELECT value FROM state').fetchone()[0], 'committed')

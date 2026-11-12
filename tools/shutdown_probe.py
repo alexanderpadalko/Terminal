@@ -1,5 +1,6 @@
 """Run in a CHILD process only: exercise explicit close against stuck workers."""
 import asyncio
+from contextlib import closing
 import json
 import os
 from pathlib import Path
@@ -22,7 +23,7 @@ def main():
     os.environ['QT_QPA_PLATFORM'] = 'offscreen'
     app = QApplication([])
     gate = threading.Event()
-    with sqlite3.connect(directory/'probe.sqlite3') as db:
+    with closing(sqlite3.connect(directory/'probe.sqlite3')) as db, db:
         db.execute('CREATE TABLE state(value TEXT)')
         db.execute("INSERT INTO state VALUES('committed')")
 
@@ -30,7 +31,7 @@ def main():
         def view(self, symbol, board, tf, **kw):
             if scenario == 'http':
                 # An interrupted SQLite transaction must roll back on exit.
-                with sqlite3.connect(directory/'probe.sqlite3') as db:
+                with closing(sqlite3.connect(directory/'probe.sqlite3')) as db, db:
                     db.execute("UPDATE state SET value='uncommitted'")
                     gate.wait()
             return analyze(demo_data(), tf), {}, {'symbol': symbol, 'board': board, 'tf': tf, 'tier': 'memory',
