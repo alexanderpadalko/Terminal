@@ -4,6 +4,11 @@ on:
     branches: [codex/flowdesk-0.2.9-confirmed-bars]
     paths:
       - flowdesk/gui.py
+      - flowdesk/app_icon.py
+      - flowdesk/assets/flowdesk_icon.png.base64
+      - tools/build_app_icon.py
+      - tests/test_app_icon.py
+      - build_windows.bat
       - tests/test_tv_chart_theme.py
       - .github/workflows/flowdesk-tv-style-qa.yml
 permissions:
@@ -24,6 +29,8 @@ jobs:
         shell: pwsh
         run: |
           $env:QT_QPA_PLATFORM='offscreen'
+          python tools/build_v211_reference.py
+          python tools/build_v211_settings.py
           python -m unittest discover -s tests -v
       - name: Render TradingView UI preview on Windows
         shell: pwsh
@@ -34,13 +41,15 @@ jobs:
           Get-Content ui-preview-base64.txt | ForEach-Object { Write-Output $_ }
       - name: Install pinned Windows packager
         run: python -m pip install PyInstaller==6.22.3
+      - name: Generate application icon for EXE and taskbar
+        run: python tools/build_app_icon.py
       - name: Build portable FlowDesk Windows application
-        run: python -m PyInstaller --clean --noconfirm --windowed --onedir --name FlowDesk --collect-all tzdata main.py
+        run: python -m PyInstaller --clean --noconfirm --windowed --onedir --name FlowDesk --icon flowdesk/assets/flowdesk.ico --add-data "flowdesk/assets;flowdesk/assets" --collect-all tzdata --collect-all websockets --add-data "flowdesk/data;flowdesk/data" main.py
       - name: Upload portable Windows application
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: FlowDesk-0.2.18-TV-Wicks-Pan-Windows-x64
+          name: FlowDesk-0.2.26-Taskbar-Icon-Windows-x64
           path: dist/FlowDesk/
           if-no-files-found: warn
           retention-days: 30
