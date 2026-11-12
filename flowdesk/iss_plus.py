@@ -9,6 +9,7 @@ import re
 import time
 
 from .market_data import Candle, MOSCOW, candle_close_time, parse_time, period_floor
+from .runtime_errors import record_exception
 
 ENDPOINT = 'wss://iss.moex.com/infocx/v3/websocket'
 INTERVALS = {'M1': 'M1', 'H1': 'H1', 'D1': 'D1', 'W1': 'W1', 'MN1': 'm1'}
@@ -244,6 +245,7 @@ class IssPlusClient:
                 status('unavailable', str(exc))
                 return
             except Exception as exc:
+                record_exception('issplus_reconnect', exc)
                 status('reconnecting', f'{type(exc).__name__}: {exc}')
                 delay = self.backoffs[min(failures, len(self.backoffs) - 1)]
                 failures += 1
