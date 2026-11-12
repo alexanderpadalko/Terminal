@@ -30,6 +30,43 @@ def future_inputs():
 
 
 class TestWatchlist(unittest.TestCase):
+    def test_refresh_fetches_each_missing_date_and_keeps_twenty_latest_sessions(self):
+        catalog, all_rows = stock_inputs()
+        # A weekday-only, already verified seed through November 2.
+        seed_days = [date(2026, 10, 6) + timedelta(days=i) for i in range(28)]
+        seed_days = [d for d in seed_days if d.weekday() < 5][-20:]
+        history = [{'TRADEDATE': d.isoformat(), 'SECID': c['SECID'], 'VALUE': 100 + i}
+                   for d in seed_days for i, c in enumerate(catalog)]
+        old_futures, contracts = future_inputs()
+        old_futures = [asdict(r) for r in roll_futures(old_futures, contracts, date(2026, 11, 2))]
+        instruments = [asdict(Instrument(c['SECID'], 'TQBR', c.get('SHORTNAME', c['SECID']), 'stock')) for c in catalog[:40]]
+        requested = []
+        def fetch(path, params):
+            if 'history/' in path:
+                self.assertIn('date', params)
+                requested.append(params['date'])
+                d = date.fromisoformat(params['date'])
+                rows = ([] if d.weekday() >= 5 or d == date(2026, 11, 4) else
+                    [{'TRADEDATE': d.isoformat(), 'SECID': c['SECID'], 'VALUE': 200 + i} for i, c in enumerate(catalog)])
+                cols = ['TRADEDATE', 'SECID', 'VALUE']
+                return {'history': {'columns': cols, 'data': [[r[k] for k in cols] for r in rows]},
+                        'history.cursor': {'columns': ['TOTAL'], 'data': [[len(rows)]]}}
+            rows = contracts if 'futures/' in path else catalog
+            cols = sorted({k for r in rows for k in r})
+            return {'securities': {'columns': cols, 'data': [[r.get(k) for k in cols] for r in rows]}}
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'list.json'
+            path.write_text(json.dumps({'slot': '2026-11-03', 'history': history,
+                'instruments': instruments + old_futures}), encoding='utf-8')
+            service = WatchlistService(path, clock=lambda: datetime(2026, 11, 12, 9, tzinfo=MOSCOW), fetch=fetch)
+            value = service.refresh()
+            self.assertEqual(len(value['window']), 20)
+            self.assertIn('2026-11-03', value['window'])
+            self.assertIn('2026-11-10', value['window'])
+            self.assertEqual(value['window'][-1], '2026-11-11')
+            self.assertTrue({(date(2026, 11, 3) + timedelta(days=i)).isoformat() for i in range(9)} <= set(requested))
+            self.assertFalse({d.isoformat() for d in seed_days} & set(requested))
+
     def test_only_40_equities_and_preferred_separate_last20_completed(self):
         catalog, rows = stock_inputs()
         cutoff = date(2026, 9, 20)

@@ -13,7 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from flowdesk.iss_plus import IssPlusClient, fixed
 from flowdesk.market_cache import MarketService, MarketSnapshot, CACHE_POLICY, PUBLIC_FEED_DELAY
 from flowdesk.market_data import (_iss_download, exclude_opening_auction, load_moex_session_bundle,
-                                 load_session_overrides)
+                                 load_session_overrides, candle_close_time)
 from flowdesk.pipeline import analyze_timeframes
 from flowdesk.stream_cache import StreamGap
 
@@ -43,7 +43,8 @@ async def main():
     output = Path('issplus-live-result.json')
     result = {'started': datetime.now(timezone.utc).isoformat(), 'counts': {}, 'statuses': [],
               'errors': [], 'http_repairs': 0, 'stream_batches': 0, 'accepted_batches': 0,
-              'minute_updates': 0, 'ready_epochs': [], 'delay_samples': [],
+              'minute_updates': 0, 'minute_ohlc_changes': 0, 'minute_confirmation_updates': 0,
+              'new_minute_keys': 0, 'ready_epochs': [], 'delay_samples': [],
               'trade_changes_after_repair': 0, 'seed_history_days': {'H1': 7, 'M1': 3, 'higher': 120}}
     sockets = []
     async def connector(*args, **kwargs):
@@ -58,6 +59,8 @@ async def main():
         with tempfile.TemporaryDirectory() as directory:
             service = MarketService(Path(directory) / 'cache.sqlite3')
             await asyncio.to_thread(seed_recent_http, service)
+            initial = service.memory[next(iter(service.memory))]
+            print('HTTP_TAIL', initial.asof.isoformat(), initial.minutes[-1].time.isoformat(), flush=True)
             task = asyncio.create_task(client.run(queue.put_nowait))
             counts, epoch, repaired, dropped = Counter(), 0, False, False
             deadline, started = time.monotonic() + 205, time.monotonic()
@@ -109,9 +112,18 @@ async def main():
                             after = service.memory[key]
                             if after is not before:
                                 result['accepted_batches'] += 1
-                                if event.timeframe == 'M1' and before.minutes != after.minutes:
-                                    result['minute_updates'] += 1
-                                    print('M1_APPLIED', after.minutes[-1].time.isoformat(), after.asof.isoformat(), flush=True)
+                                if event.timeframe == 'M1':
+                                    changed = before.minutes != after.minutes
+                                    confirmed = sum(candle_close_time(c, 'M1') <= after.asof for c in after.minutes) > sum(
+                                        candle_close_time(c, 'M1') <= before.asof for c in before.minutes)
+                                    result['minute_ohlc_changes'] += int(changed)
+                                    result['minute_confirmation_updates'] += int(confirmed)
+                                    result['new_minute_keys'] += len({c.time for c in after.minutes} - {c.time for c in before.minutes})
+                                    if changed or confirmed:
+                                        result['minute_updates'] += 1
+                                    print('M1_APPLIED', 'ohlc_changed=', changed, 'confirmed=', confirmed,
+                                        'source=', [c.time.isoformat() for c in event.candles],
+                                        'tail=', after.minutes[-1].time.isoformat(), 'asof=', after.asof.isoformat(), flush=True)
                             a, _, info = await asyncio.to_thread(service.view, 'SBER', 'TQBR', 'M1')
                             result['stream_batches'] += 1
                             if info.get('stream_repair_required'):

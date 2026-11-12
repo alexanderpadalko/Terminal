@@ -101,6 +101,16 @@ class TestStreamCache(unittest.TestCase):
         with self.assertRaises(ValueError):
             merge_stream(saved, [event('M1', [replace(candle(BASE), close=100)])], {})
 
+    def test_ready_minute_can_confirm_an_identical_http_prefetched_row(self):
+        saved = snapshot()
+        bar = candle(BASE + timedelta(minutes=30))
+        saved.minutes.append(bar)
+        saved.asof = BASE + timedelta(minutes=30, seconds=30)
+        merged, _ = merge_stream(saved, [event('M1', [bar])], {})
+        self.assertEqual(merged.minutes, saved.minutes)
+        self.assertGreater(merged.asof, saved.asof)
+        self.assertEqual(merged.asof, BASE + timedelta(minutes=31))
+
     def test_later_native_hour_cannot_seal_missing_earlier_partial_hour(self):
         saved = snapshot()
         later_hour = candle(BASE + timedelta(hours=1))

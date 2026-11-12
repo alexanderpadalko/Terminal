@@ -941,7 +941,8 @@ class MainWindow(StreamController, WatchlistController, QMainWindow):
         self._request_market(refresh=True)
 
     def _startup_load(self):
-        if self.closing_after_load or self.worker is not None or not self.auto_checkbox.isChecked():
+        if (self.closing_after_load or self.worker is not None or self.analysis is not None
+                or not self.auto_checkbox.isChecked()):
             return
         context = (self.symbol.text().strip().upper(), self.board.currentText(), self.tf.currentText())
         self.desired_market = context

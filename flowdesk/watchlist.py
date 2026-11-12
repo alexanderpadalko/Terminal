@@ -18,6 +18,7 @@ ROOT = 'https://iss.moex.com/iss/'
 TERMS = ('SI', 'CR', 'MX', 'EU', 'RI', 'ED')
 PERPETUALS = (('USDRUBF', 'USDRUB.P'), ('CNYRUBF', 'CNYRUB.P'),
               ('EURRUBF', 'EURRUB.P'), ('IMOEXF', 'IRUS.P'))
+HISTORY_POLICY = 'TQBR_EXPLICIT_DAILY_HISTORY_V2'
 
 
 @dataclass(frozen=True)
@@ -182,7 +183,8 @@ class WatchlistService:
         return None
 
     def due(self, value):
-        return not value or value.get('slot') != slot_date(self.clock()).isoformat()
+        return (not value or value.get('slot') != slot_date(self.clock()).isoformat()
+                or value.get('history_policy') != HISTORY_POLICY)
 
     @staticmethod
     def history(value):
@@ -198,14 +200,25 @@ class WatchlistService:
         cutoff = slot - timedelta(days=1)
         old = self.cached() or {}
         history = self.history(old)
-        start = (date.fromisoformat(max(r['TRADEDATE'] for r in history)) + timedelta(days=1)
+        start = (date.fromisoformat(min(r['TRADEDATE'] for r in history))
                  if history else cutoff - timedelta(days=60))
         start = max(start, cutoff - timedelta(days=60))
+        known_days = {r['TRADEDATE'] for r in history}
         additions = []
-        if start <= cutoff:
-            additions = pages('history/engines/stock/markets/shares/boards/TQBR/securities.json', 'history',
-                              {'from': start.isoformat(), 'till': cutoff.isoformat(), 'tradingsession': 3,
-                               'history.columns': 'BOARDID,TRADEDATE,SECID,VALUE'}, fetch=self.fetch, cancelled=cancelled)
+        day = start
+        while day <= cutoff:
+            if day.isoformat() in known_days:
+                day += timedelta(days=1)
+                continue
+            daily = pages('history/engines/stock/markets/shares/boards/TQBR/securities.json', 'history',
+                          {'date': day.isoformat(), 'tradingsession': 3,
+                           'history.columns': 'BOARDID,TRADEDATE,SECID,VALUE'}, fetch=self.fetch, cancelled=cancelled)
+            if any(r['TRADEDATE'] != day.isoformat() for r in daily):
+                raise ValueError(f'MOEX вернула другую дату вместо {day}')
+            if not daily and stock_session_kind(day) == REGULAR:
+                raise ValueError(f'Пропущен завершённый торговый день {day}')
+            additions.extend(daily)
+            day += timedelta(days=1)
         catalog = pages('engines/stock/markets/shares/boards/TQBR/securities.json', 'securities',
                         {'securities.columns': 'SECID,BOARDID,SHORTNAME,SECTYPE'}, fetch=self.fetch, cancelled=cancelled)
         stocks, history, days = rank_stocks(history + additions, catalog, cutoff)
@@ -218,7 +231,7 @@ class WatchlistService:
                           {'securities.columns': 'SECID,SHORTNAME,LASTTRADEDATE,ASSETCODE'},
                           fetch=self.fetch, cancelled=cancelled)
         futures = roll_futures(old.get('instruments', []), contracts, slot)
-        value = self.validate({'schema': 1, 'slot': slot.isoformat(), 'generated_at': now.isoformat(),
+        value = self.validate({'schema': 1, 'history_policy': HISTORY_POLICY, 'slot': slot.isoformat(), 'generated_at': now.isoformat(),
             'window': days, 'history': history, 'instruments': [asdict(r) for r in stocks + futures],
             'rule': 'TQBR ordinary/preferred, 20 completed sessions; fixed 6 term + 4 perpetual; roll at expiry 06 MSK'})
         self.path.parent.mkdir(parents=True, exist_ok=True)
