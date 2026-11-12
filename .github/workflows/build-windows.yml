@@ -25,7 +25,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: FlowDesk-0.2.23-ISSPlus-Live-Evidence
+          name: FlowDesk-0.2.24-ISSPlus-Live-Evidence
           path: |
             issplus-live-result.json
             issplus-live-cache.sqlite3
@@ -73,6 +73,8 @@ jobs:
         run: python -m unittest discover -s tests -v
       - name: Refresh daily instrument list and verify RFUD sources
         run: python -u tools/check_watchlist_live.py
+      - name: Audit FVG display on actual SBER candles
+        run: python -u tools/check_fvg_display_live.py
       - name: Smoke test Qt (headless)
         shell: pwsh
         run: |
@@ -86,22 +88,23 @@ jobs:
       - name: Publish entire standalone directory
         uses: actions/upload-artifact@v4
         with:
-          name: FlowDesk-0.2.23-Windows-x64
+          name: FlowDesk-0.2.24-Windows-x64
           path: dist/FlowDesk/
           if-no-files-found: error
           retention-days: 30
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: FlowDesk-0.2.23-Preview
+          name: FlowDesk-0.2.24-Preview
           path: |
             ui-preview.png
             candle-time-preview.png
+            fvg-display-preview.png
           retention-days: 30
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: FlowDesk-0.2.23-Instrument-List-Evidence
+          name: FlowDesk-0.2.24-Instrument-List-Evidence
           path: |
             watchlist-live-result.json
             flowdesk/data/watchlist_seed.json
@@ -109,7 +112,15 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: FlowDesk-0.2.23-Process-Exit-Evidence
+          name: FlowDesk-0.2.24-Process-Exit-Evidence
           path: shutdown-exe-result.json
+          retention-days: 30
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: FlowDesk-0.2.24-FVG-Display-Evidence
+          path: |
+            fvg-display-live-result.json
+            fvg-display-live-cache.sqlite3
           retention-days: 30
 

@@ -63,5 +63,24 @@ encoded = base64.b64encode(destination.read_bytes()).decode()
 for i in range(0, len(encoded), 4096):
     print(encoded[i:i + 4096])
 print('CANDLE_TIME_PREVIEW_PNG_END')
+cache = Path('fvg-display-live-cache.sqlite3')
+if cache.exists():
+    from flowdesk.market_cache import MarketService
+    service = MarketService(cache)
+    analysis, parents, info = service.view('SBER', 'TQBR', 'M1')
+    window.data_info = info
+    window._show_data(analysis, parents, 'MOEX: SBER / TQBR')
+    window.chart.instrument_header = 'SBER · MOEX · КОРОТКАЯ QA-ИСТОРИЯ'
+    window.chart.viewport.count = 90
+    window.chart.cursor_x = window.chart.cursor_y = None
+    window.chart.update()
+    app.processEvents()
+    destination = Path('fvg-display-preview.png')
+    window.grab().save(str(destination), 'PNG')
+    print('FVG_DISPLAY_PREVIEW_PNG_BEGIN')
+    encoded = base64.b64encode(destination.read_bytes()).decode()
+    for i in range(0, len(encoded), 4096):
+        print(encoded[i:i + 4096])
+    print('FVG_DISPLAY_PREVIEW_PNG_END')
 window.close()
 

@@ -9,6 +9,7 @@ import bisect
 import json
 import math
 import random
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -24,6 +25,8 @@ from PySide6.QtWidgets import (
 from . import __version__
 from .chart_view import ChartView, inside_mother_bars, time_axis_zoom_factor
 from .chart_time import candle_time_text
+from .fvg_display import DisplaySettings, select_fvg_display
+from .runtime_errors import record_exception, last_exception
 from .market_cache import MarketService
 from .stream_worker import StreamWorker
 from .stream_ui import StreamController
@@ -223,6 +226,7 @@ class MarketWorker(QThread):
         except Cancelled:
             pass
         except Exception as e:
+            record_exception('market_worker', e)
             self.failed.emit(f"{type(e).__name__}: {e}")
 
 
@@ -246,6 +250,8 @@ class CandleChart(QWidget):
         self.instrument_header = "DEMO · SYNTHETIC"
         self.empty_text = 'Выберите инструмент или откройте CSV'
         self._zone_labels = []
+        self.fvg_settings = DisplaySettings()
+        self.fvg_plan = None
         self.viewport = ChartView()
         self.price_range = None
         self.last_price_range = None
@@ -272,6 +278,8 @@ class CandleChart(QWidget):
     def set_analysis(self, analysis: Analysis, parents: dict[str, Analysis] | None = None):
         self.analysis = analysis
         self.parents = parents or {}
+        self.fvg_plan = select_fvg_display(analysis, self.parents,
+                                           replace(self.fvg_settings, enabled=self.show_fvg))
         self.times = [c.time.timestamp() for c in analysis.candles]
         self.inside_bars = inside_mother_bars(analysis.candles)
         self.viewport.count = min(self.viewport.count, max(1, len(analysis.candles)))
@@ -530,28 +538,17 @@ class CandleChart(QWidget):
         # Labels are de-duplicated by position for adjacent/overlapping zones.
         self._zone_labels = []
         if self.show_fvg:
-            local_zones = self.analysis.fvg[-300:]
-            for z in local_zones:
-                if z.created < first - 450 or z.start >= last:
+            for zone in self.fvg_plan.zones:
+                # Source timestamps are period boundaries, not the open of
+                # the breaking bar. A broken zone ends at its confirmed close.
+                a = bisect.bisect_left(self.times, zone.left_time.timestamp())
+                b = bisect.bisect_left(self.times, zone.right_time.timestamp())
+                if b <= first or a >= last or b <= a:
                     continue
-                right = min(last - 1, z.broken if z.broken is not None else last - 1)
-                left = max(first, z.start)
-                if right < left:
-                    continue
-                self._draw_zone(p, x(left) - stride / 2, x(right) + stride / 2, y(z.top), y(z.bottom), z.side, z.broken is not None, z.source_tf, stride)
-            for parent_tf, parent in self.parents.items():
-                if not parent.candles:
-                    continue
-                times = self.times
-                for z in parent.published_fvg[-14:]:
-                    left_ts = parent.candles[z.start].time.timestamp()
-                    right_ts = parent.candles[z.broken].time.timestamp() if z.broken is not None else candles[-1].time.timestamp()
-                    a = bisect.bisect_left(times, left_ts)
-                    b = bisect.bisect_right(times, right_ts) - 1
-                    if b < first or a >= last or b < a:
-                        continue
-                    left, right = max(first, a), min(last - 1, b)
-                    self._draw_zone(p, x(left) - stride / 2, x(right) + stride / 2, y(z.top), y(z.bottom), z.side, z.broken is not None, parent_tf, stride, parent=True)
+                left_x = self.x0 + (a - left_edge) * stride
+                right_x = self.x0 + (b - left_edge) * stride
+                self._draw_zone(p, left_x, right_x, y(zone.top), y(zone.bottom),
+                    zone.side, zone.broken, zone.source_tf, stride, parent=zone.parent)
         # Structure with confirmed segments and provisional outside legs.
         if self.show_structure:
             for seg in self.analysis.segments:
@@ -691,11 +688,12 @@ class CandleChart(QWidget):
         height = max(1.5, high_y - low_y)
         if self.visual_theme == "tv":
             if broken:
-                bg, edge = QColor(176, 135, 68, 16), QColor(117, 94, 58, 75)
+                rgb = (245, 127, 23)
             elif side == 1:
-                bg, edge = QColor(26, 111, 89, 34 if parent else 26), QColor(16, 89, 72, 115)
+                rgb = (0, 51, 42)
             else:
-                bg, edge = QColor(151, 42, 57, 45 if parent else 35), QColor(131, 38, 50, 115)
+                rgb = (128, 25, 34)
+            bg, edge = QColor(*rgb, 38), QColor(*rgb, 179)
         else:
             if broken:
                 bg, edge = QColor(243, 169, 45, 40), QColor(241, 173, 70, 130)
@@ -704,9 +702,10 @@ class CandleChart(QWidget):
             else:
                 bg, edge = QColor(221, 70, 100, 38 if not parent else 28), QColor(204, 74, 95, 135)
         p.fillRect(QRectF(x0, low_y, x1 - x0, height), bg)
-        p.setPen(QPen(edge, 0.85))
+        p.setPen(QPen(edge, 1.0 if self.visual_theme == 'tv' else 0.85))
         p.drawRect(QRectF(x0, low_y, x1 - x0, height))
-        p.setPen(QPen(edge, 0.75, Qt.PenStyle.DotLine))
+        strong = QColor(*rgb, 255) if self.visual_theme == 'tv' else edge
+        p.setPen(QPen(strong, 1.0 if self.visual_theme == 'tv' else 0.75, Qt.PenStyle.DotLine))
         p.drawLine(QPointF(x0, (y0 + y1) / 2), QPointF(x1, (y0 + y1) / 2))
         if x1 - x0 >= 68 and height >= 18:
             short_tf = {"D1": "D", "W1": "W", "MN1": "M"}.get(tf, tf)
@@ -715,7 +714,7 @@ class CandleChart(QWidget):
             label_rect = QRectF(x1 - width - 4, low_y + (height - 16) / 2, width, 16)
             if not any(label_rect.intersects(existing) for existing in self._zone_labels):
                 self._zone_labels.append(label_rect)
-                p.setPen(edge if self.visual_theme == "tv" else CHART_PALETTES["dark"]["text"])
+                p.setPen(strong if self.visual_theme == "tv" else CHART_PALETTES["dark"]["text"])
                 p.setFont(QFont("Segoe UI", 8))
                 p.drawText(label_rect, int(Qt.AlignmentFlag.AlignRight |
                                            Qt.AlignmentFlag.AlignVCenter), label)
@@ -956,7 +955,10 @@ class MainWindow(StreamController, WatchlistController, QMainWindow):
 
     def _toggle(self, key: str, value: bool):
         setattr(self.chart, key, value)
-        self.chart.update()
+        if key == 'show_fvg' and self.analysis is not None:
+            self._show_data(self.analysis, self.parents, self.source)
+        else:
+            self.chart.update()
 
     def load_moex(self):
         if self.closing_after_load:
@@ -1275,7 +1277,7 @@ class MainWindow(StreamController, WatchlistController, QMainWindow):
                                  f"<br>№1: включено · приоритет №2 → №1 → №3")
         events = [(analysis.candles[s.i].time.strftime("%d.%m %H:%M"), s.diagnosis) for s in analysis.flows if s.rule in (1, 2, 3)]
         self.events.setPlainText("\n".join(f"{t}  {reason}" for t, reason in events[-18:][::-1]) or "Нет подтверждённых событий №1/№2/№3 (или ряд H1 отсутствует)")
-        zones = analysis.fvg[-17:][::-1]
+        zones = self.chart.fvg_plan.zones
         self.zones_table.setRowCount(len(zones))
         for i, z in enumerate(zones):
             values = [f"{z.source_tf} {'↑' if z.side == 1 else '↓'} {'×' if not z.active else ''}", short_number(z.bottom), short_number(z.top)]
@@ -1289,7 +1291,7 @@ class MainWindow(StreamController, WatchlistController, QMainWindow):
         coverage = " · ".join(
             f"{tf}: {p.confirmed_bars} закрытых ({p.candles[0].time:%d.%m.%Y}–{p.candles[-1].time:%d.%m.%Y})"
             for tf, p in parents.items() if p.candles and tf in ("D1", "W1", "MN1"))
-        self.status.setText(f"{source} · {len(analysis.candles)} свечей ({analysis.confirmed_bars} закрытых) · {len(analysis.fvg)} FVG{session_desc} · {analysis.flow_source_note} · {coverage} · НЕ сверено с Pine")
+        self.status.setText(f"{source} · {len(analysis.candles)} свечей ({analysis.confirmed_bars} закрытых) · FVG: {len(zones)} показано ({len(analysis.fvg)} своих в расчёте){session_desc} · {analysis.flow_source_note} · {coverage} · НЕ сверено с Pine")
         if self.data_info:
             observed = datetime.fromisoformat(self.data_info['asof']).astimezone(MOSCOW)
             origin = {'memory': 'Сохранённые данные', 'disk': 'Сохранённые данные',
@@ -1347,6 +1349,8 @@ class MainWindow(StreamController, WatchlistController, QMainWindow):
                 "flow_status": a.flow_status,
                 "flow_source_note": a.flow_source_note,
                 "data_snapshot": self.data_info,
+                "last_runtime_error": last_exception(),
+                "fvg_display": self.chart.fvg_plan.as_dict(),
                 "calculation": source_coverage(a),
                 "session_info": a.session_info if a.session_info else {
                     "mode": "CSV_SESSION_FILTERED_FOR_M1_M5_H1_OR_ASSUMED_FOR_HIGHER",

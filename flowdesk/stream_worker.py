@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from PySide6.QtCore import QThread, Signal
 
 from .iss_plus import FeedEvent, IssPlusClient
+from .runtime_errors import record_exception
 
 
 class StreamWorker(QThread):
@@ -36,6 +37,7 @@ class StreamWorker(QThread):
             except asyncio.CancelledError:
                 pass
             except Exception as exc:
+                record_exception('stream_worker', exc)
                 self.event.emit(FeedEvent('status', self.symbol, self.board, 1, datetime.now(timezone.utc),
                                           state='unavailable', detail=f'{type(exc).__name__}: {exc}'))
             finally:
