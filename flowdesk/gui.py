@@ -882,7 +882,7 @@ class MainWindow(StreamController, WatchlistController, QMainWindow):
         navigation.addStretch()
         self.data_age = QLabel('')
         layout.addLayout(navigation)
-         self.feed_label = QLabel('')
+        self.feed_label = QLabel('')
         self.feed_label.setWordWrap(True)
         self.feed_label.hide()
         layout.addWidget(self.feed_label)
