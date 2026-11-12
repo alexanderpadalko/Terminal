@@ -10,6 +10,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import sqlite3
 import threading
+from contextlib import closing
 
 from .finam_api import FinamAPI, FRAMES, symbol_name
 from .market_data import Candle, normalize, candle_close_time
@@ -39,7 +40,7 @@ class FinamMarketService:
     def _upsert(self, symbol, timeframe, bars):
         if not bars:
             return
-        with self._connection() as db:
+        with closing(self._connection()) as db, db:
             db.executemany("""INSERT OR REPLACE INTO candles
                 (symbol,tf,ts,o,h,l,c,v,closes_at) VALUES (?,?,?,?,?,?,?,?,?)""",
                 ((symbol,timeframe,b.time.isoformat(),b.open,b.high,b.low,b.close,
@@ -47,7 +48,7 @@ class FinamMarketService:
                  for b in bars))
 
     def _series(self, symbol):
-        with self._connection() as db:
+        with closing(self._connection()) as db, db:
             rows = db.execute("""SELECT tf,ts,o,h,l,c,v,closes_at FROM candles
                 WHERE symbol=? ORDER BY ts""", (symbol,)).fetchall()
         series = {tf: [] for tf in FRAMES}
