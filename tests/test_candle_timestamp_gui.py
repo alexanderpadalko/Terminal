@@ -48,6 +48,10 @@ class TestCandleTimestampGui(unittest.TestCase):
         chart = self.w.chart
         left, _ = chart.viewport.bounds(len(chart.times))
         x = chart.x0 + (index+.5-left) * (chart.x1-chart.x0) / chart.viewport.span
+        # Consecutive windows can occupy the same screen coordinates. Force
+        # an actual cursor move; QTest otherwise omits an unchanged position.
+        QTest.mouseMove(chart, QPoint(round(chart.x0+3), round(chart.top+3)))
+        QTest.qWait(5)
         QTest.mouseMove(chart, QPoint(round(x), round((chart.top+chart.bottom)/2)))
         self.app.processEvents()
 
