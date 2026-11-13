@@ -36,7 +36,7 @@ class TestSettingsGui(unittest.TestCase):
         self.assertEqual(dialog.tabs.count(),8)
         self.assertEqual(dialog.tabs.tabText(0),"Настройки графика")
         self.assertEqual(dialog.tabs.tabText(1),"Структурное движение")
-        self.assertEqual(len(dialog.chart_controls),8)
+        self.assertEqual(len(dialog.chart_controls),9)
         self.assertFalse(any("TradingView" in control.toolTip()
                              for control in dialog.controls.values()))
         applied=[]
