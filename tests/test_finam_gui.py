@@ -246,6 +246,71 @@ class TestFinamGui(unittest.TestCase):
         # The working instrument list is unaffected by the removed checkbox.
         self.assertGreater(self.window.examples.count(),0)
 
+    def test_embedded_fvg_filter_or_unknown_section_and_chart_persist(self):
+        from PySide6.QtWidgets import QLabel
+        from flowdesk.finam_screener import ScanResult
+        from flowdesk.finam_universe import RU_STOCKS
+        by_label={i.label:i for i in self.window.universe[RU_STOCKS]}
+        self.assertTrue(all(name in by_label for name in ("SBER","LKOH")))
+        sber,lkoh=by_label["SBER"],by_label["LKOH"]
+        self.assertEqual(tuple(self.window.screen_buttons),
+                         ("H1","H4","D","W","M"))
+        self.assertFalse(any(b.isChecked() for b in
+                             self.window.screen_buttons.values()))
+        initial=[self.window.examples.item(i) for i in
+                 range(self.window.examples.count())]
+        self.assertEqual(len(initial),41)
+        self.window.screen_results[sber.symbol]=ScanResult(
+            sber.symbol,(1,-1,0,0,0))
+        self.window.screen_results[lkoh.symbol]=ScanResult(
+            lkoh.symbol,(0,1,0,-1,0))
+        self.window._populate_universe()
+        self.select("LKOH")
+        self.settle()
+        analysis=self.window.chart.analysis
+        self.assertIsNotNone(analysis)
+        self.window.screen_buttons["H1"].setChecked(True)
+        rows=[self.window.examples.item(i) for i in
+              range(self.window.examples.count())]
+        visible=[row for row in rows if not row.isHidden()]
+        self.assertTrue(any("SBER · " in item.text() for item in visible))
+        self.assertFalse(any("LKOH · " in item.text() for item in visible))
+        self.assertTrue(any(item.text().startswith("НЕТ ДАННЫХ") for item in visible))
+        self.assertIs(self.window.chart.analysis,analysis)
+        self.assertEqual(self.window.current[0],"LKOH")
+        sber_row=next(row for row in visible if row.text().startswith("SBER"))
+        badges=[label.text() for label in
+                self.window.examples.itemWidget(sber_row).findChildren(QLabel)]
+        self.assertIn("H1",badges)
+        self.assertIn("H4",badges) # All badges, not only selected TF.
+        self.window.screen_buttons["W"].setChecked(True)
+        rows=[self.window.examples.item(i) for i in
+              range(self.window.examples.count())]
+        self.assertTrue(any("LKOH · " in row.text() for row in rows
+                            if not row.isHidden()))
+        self.window.screen_buttons["H1"].setChecked(False)
+        self.window.screen_buttons["W"].setChecked(False)
+        self.assertEqual(self.window.examples.count(),41)
+        self.assertIs(self.window.chart.analysis,analysis)
+
+    def test_scanner_missing_history_stays_neutral_not_short(self):
+        from PySide6.QtWidgets import QLabel
+        from flowdesk.finam_screener import ScanResult
+        from flowdesk.finam_universe import RU_STOCKS
+        sber=next(i for i in self.window.universe[RU_STOCKS]
+                  if i.label=="SBER")
+        self.window.screen_results[sber.symbol]=ScanResult(
+            sber.symbol,(None,None,None,None,None))
+        self.window.screen_buttons["D"].setChecked(True)
+        visible=[self.window.examples.item(i) for i in
+                 range(self.window.examples.count())
+                 if not self.window.examples.item(i).isHidden()]
+        sber_row=next(row for row in visible if row.text().startswith("SBER"))
+        tags=[label.text() for label in
+              self.window.examples.itemWidget(sber_row).findChildren(QLabel)]
+        self.assertIn("нет данных",tags)
+        self.assertNotIn("D",tags)
+
     def test_known_future_expiry_is_visible_in_compact_sidebar(self):
         from flowdesk.finam_universe import Item, US_FUTURES
         entry=self.window.universe[US_FUTURES][0]
