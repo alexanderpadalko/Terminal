@@ -12,6 +12,7 @@ from PySide6.QtWidgets import QApplication
 from flowdesk.gui import CHART_PALETTES, CandleChart, MainWindow, demo_data
 from flowdesk.engine import analyze
 from flowdesk.market_data import Candle, MOSCOW
+from flowdesk.settings import ApplicationSettings, IndicatorSettings
 
 
 class TestTradingViewAppearance(unittest.TestCase):
@@ -108,6 +109,63 @@ class TestTradingViewAppearance(unittest.TestCase):
                 self.assertLessEqual(abs(channel - 0x89), 8, pixel)
                 self.assertEqual(pixel[1:3], pixel[3:5])
                 self.assertEqual(pixel[3:5], pixel[5:7])
+        chart.close()
+
+    def test_hollow_inside_is_visible_in_finam_dark_theme_and_toggle_repaints(self):
+        start=datetime(2026,11,11,7,tzinfo=MOSCOW)
+        ohlc=[
+            (9,11,8,10),         # solid bullish mother
+            (9.6,10.5,8.8,9.1), # hollow bearish inside
+            (9.2,10.1,8.9,9.9), # hollow bullish inside
+            (10,12,7,8),        # solid bearish breakout
+        ]
+        bars=[Candle(start+timedelta(hours=i),op,hi,lo,cl,1000)
+              for i,(op,hi,lo,cl) in enumerate(ohlc)]
+        chart=CandleChart()
+        chart.resize(1100,720)
+        chart.set_theme('dark')
+        chart.set_settings(IndicatorSettings().changed(ibEnabled=True))
+        chart.set_chart_colors(ApplicationSettings(
+            chart_candle_up='#11BB44FF',
+            chart_candle_down='#DD3355FF',
+            chart_outline_up='#FAFAFAFF',
+            chart_outline_down='#FFFF00FF',
+            chart_wick_up='#EEEEEEFF',
+            chart_wick_down='#EEEEEEFF',
+            chart_background='#161616FF',
+            chart_grid='#00000000'))
+        chart.set_analysis(analyze(bars,'H1'))
+        chart.viewport.count=4
+        chart.viewport.right_padding=0
+        chart.price_range=(6.0,13.0)
+        chart.show_structure=chart.show_fvg=chart.show_flow=False
+        chart.show_previous=False
+        chart.show()
+        self.app.processEvents()
+        self.assertEqual(chart.inside_bars,[False,True,True,False])
+
+        def sample(i):
+            picture=chart.grab().toImage()
+            left,_=chart.viewport.bounds(len(bars))
+            stride=(chart.x1-chart.x0)/chart.viewport.span
+            # +/-5 px is safely inside the body, not on the wick/outline.
+            px=round(chart.x0+(i+0.5-left)*stride+5)
+            center=(bars[i].open+bars[i].close)/2
+            py=round(chart.bottom-(center-6)/7*(chart.bottom-chart.top))
+            return picture.pixelColor(px,py).name()
+
+        self.assertEqual(sample(0),'#11bb44')
+        self.assertEqual(sample(1),'#161616')
+        self.assertEqual(sample(2),'#161616')
+        self.assertEqual(sample(3),'#dd3355')
+        chart.set_settings(IndicatorSettings().changed(ibEnabled=False))
+        self.app.processEvents()
+        self.assertEqual(sample(1),'#dd3355')
+        self.assertEqual(sample(2),'#11bb44')
+        chart.set_settings(IndicatorSettings().changed(ibEnabled=True))
+        self.app.processEvents()
+        self.assertEqual(sample(1),'#161616')
+        self.assertEqual(sample(2),'#161616')
         chart.close()
 
     def test_dragging_plot_translates_x_and_y_without_rescaling_price(self):

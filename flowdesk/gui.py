@@ -36,7 +36,7 @@ from .stream_ui import StreamController
 from .watchlist_ui import WatchlistController
 from .watchlist import WatchlistService
 from .preferences import Preferences
-from .settings import IndicatorSettings,ApplicationSettings,SettingsStore,MemorySettingsStore,SIZES
+from .settings import IndicatorSettings,ApplicationSettings,SettingsStore,MemorySettingsStore,SIZES,CHART_COLOR_FIELDS
 from .settings_dialog import SettingsDialog,qcolor
 from .chart_indicators import vwap_series
 from .price_format import price_text
@@ -270,6 +270,7 @@ class CandleChart(QWidget):
         self._zone_labels = []
         self.fvg_settings = DisplaySettings()
         self.indicator_settings=IndicatorSettings()
+        self.chart_color_overrides={}
         self.vwap,self.vwap_previous=[],[]
         self.fvg_plan = None
         self.flow_plan = None
@@ -368,6 +369,15 @@ class CandleChart(QWidget):
             saved=self.view_state()
             self.set_analysis(self.analysis,self.parents)
             self.restore_view(saved)
+        self.update()
+
+    def set_chart_colors(self, application):
+        """Apply appearance-only colors without recalculating candle data."""
+        self.chart_color_overrides={
+            key:getattr(application,key) for key,_ in CHART_COLOR_FIELDS
+            if getattr(application,key) is not None
+        }
+        self._surface_key=None
         self.update()
 
     def set_price_tick(self, tick):
@@ -590,12 +600,14 @@ class CandleChart(QWidget):
     def paintEvent(self, event: QPaintEvent):
         key=(id(self.analysis),id(self.fvg_plan),id(self.flow_plan),id(self.indicator_settings),
              self.width(),self.height(),self.devicePixelRatioF(),self.visual_theme,self.exchange,self.display_price_tick,
+             tuple(sorted(self.chart_color_overrides.items())),
              self.viewport.count,self.viewport.offset,self.viewport.right_padding,
              tuple(self.price_range) if self.price_range is not None else None,
              self.include_flow_in_scale,self.show_structure,self.show_fvg,self.show_flow,self.show_previous,self.empty_text)
         if self._surface_key!=key:
             ratio=self.devicePixelRatioF()
             self._surface=QPixmap(math.ceil(self.width()*ratio),math.ceil(self.height()*ratio))
+            self._surface.fill(Qt.GlobalColor.transparent)
             self._surface.setDevicePixelRatio(ratio)
             background=QPainter(self._surface)
             background.setRenderHint(QPainter.RenderHint.Antialiasing)
@@ -615,6 +627,17 @@ class CandleChart(QWidget):
         colors.update(structure_up=qcolor(cfg.upColor),structure_down=qcolor(cfg.downColor),
             flow_lines=tuple(qcolor(getattr(cfg,key)) for key in ('flowColor0','flowColor04','flowColor05','flowColor06','flowColor1')),
             previous=qcolor(cfg.flowPreviousColor))
+        appearance={
+            'chart_candle_up':'candle_up', 'chart_candle_down':'candle_down',
+            'chart_outline_up':'candle_up_outline',
+            'chart_outline_down':'candle_down_outline',
+            'chart_background':'background','chart_grid':'grid',
+            'chart_wick_up':'wick_up','chart_wick_down':'wick_down',
+        }
+        for setting, palette in appearance.items():
+            value=self.chart_color_overrides.get(setting)
+            if value is not None:
+                colors[palette]=qcolor(value)
         p.fillRect(self.rect(), colors["background"])
         if self.analysis is None or not self.analysis.candles:
             p.setPen(colors["text"])
@@ -717,11 +740,14 @@ class CandleChart(QWidget):
             # A non-inside mother candle stays solid: white if rising, black
             # if falling. Internal status uses the last non-inside mother,
             # not just the immediately preceding candle.
-            hollow = (self.visual_theme == "tv" and cfg.ibEnabled and
-                      i < len(self.inside_bars) and self.inside_bars[i])
-            wick_color = (QColor("#ededed") if rising else QColor("#242424"))
-            p.setPen(QPen(wick_color if self.visual_theme == "tv"
-                          else (colors["wick"] or color),
+            # Finam defaults to the dark chart theme. Inside candles must
+            # be hollow in both modes, not only the light reference theme.
+            hollow = (cfg.ibEnabled and i < len(self.inside_bars)
+                      and self.inside_bars[i])
+            wick_color=colors.get("wick_up" if rising else "wick_down")
+            if wick_color is None:
+                wick_color=(QColor("#ededed") if rising else QColor("#242424")) if self.visual_theme == "tv" else (colors["wick"] or color)
+            p.setPen(QPen(wick_color,
                           0.9 if self.visual_theme == "tv" else 1.2))
             body_w = max(2.0, min(18.0, stride * 0.62))
             a, b = y(bar.open), y(bar.close)
@@ -739,10 +765,12 @@ class CandleChart(QWidget):
                            QPointF(center, y(bar.low)))
             if not hollow:
                 p.fillRect(body, color)
-            if self.visual_theme == "tv":
-                outline = (QColor("#e4e4e4") if rising else QColor("#474747")) if hollow else (
-                    colors["candle_up_outline"] if rising else
-                    colors["candle_down_outline"])
+            outline_key="chart_outline_up" if rising else "chart_outline_down"
+            outline=colors["candle_up_outline"] if rising else colors["candle_down_outline"]
+            if hollow and self.visual_theme == "tv" and outline_key not in self.chart_color_overrides:
+                outline=QColor("#e4e4e4") if rising else QColor("#474747")
+            # Dark-theme hollow bodies must have a visible outline.
+            if self.visual_theme == "tv" or hollow or outline_key in self.chart_color_overrides:
                 p.setPen(QPen(outline, 1.0))
                 p.drawRect(body)
         # Current and previous flow 0, 0.4, 0.5, 0.6, 1.0.
@@ -917,6 +945,7 @@ class MainWindow(StreamController, WatchlistController, QMainWindow):
         self.parents: dict[str, Analysis] = {}
         self.chart = CandleChart()
         self.chart.set_settings(self.indicator_settings)
+        self.chart.set_chart_colors(self.application_settings)
         self._build_ui()
         self.auto_timer = QTimer(self)
         self.auto_timer.setSingleShot(True)
@@ -1313,6 +1342,7 @@ class MainWindow(StreamController, WatchlistController, QMainWindow):
         self._applying_settings=True
         try:
             self.chart.set_settings(indicator)
+            self.chart.set_chart_colors(application)
             for prop,cb in self.display_checkboxes.items():
                 cb.blockSignals(True)
                 cb.setChecked(getattr(self.chart,prop))

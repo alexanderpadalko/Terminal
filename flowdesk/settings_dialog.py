@@ -7,7 +7,8 @@ from PySide6.QtWidgets import (
     QLabel, QPushButton, QScrollArea, QSlider, QSpinBox, QTabWidget,
     QToolButton, QVBoxLayout, QWidget,
 )
-from .settings import IndicatorSettings, ApplicationSettings, specifications
+from .settings import (IndicatorSettings, ApplicationSettings, specifications,
+                       CHART_COLOR_FIELDS, CHART_THEME_DEFAULTS)
 
 
 def qcolor(value):
@@ -200,6 +201,21 @@ class SettingsDialog(QDialog):
         self.tabs=QTabWidget()
         self.tabs.setUsesScrollButtons(True)
         layout.addWidget(self.tabs,1)
+        # Presentation colors are not Pine inputs and are stored separately
+        # in ApplicationSettings. This tab always precedes structure settings.
+        colors_widget=QWidget()
+        colors_form=QFormLayout(colors_widget)
+        colors_form.setFieldGrowthPolicy(
+            QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
+        self.chart_controls={}
+        theme='dark' if finam_only else 'tv'
+        for field,label in CHART_COLOR_FIELDS:
+            value=getattr(application,field) or CHART_THEME_DEFAULTS[theme][field]
+            button=ColorButton(value,colors_widget)
+            button.setObjectName('chart_'+field)
+            self.chart_controls[field]=button
+            colors_form.addRow(label,button)
+        self.tabs.addTab(colors_widget,'Настройки графика')
         for group in dict.fromkeys(x['group'] for x in specifications()):
             widget=QWidget()
             form=QFormLayout(widget)
@@ -286,10 +302,12 @@ class SettingsDialog(QDialog):
             elif spec['type']=='color':value=control.value
             else:value=control.currentText()
             values[spec['variable']]=value
+        colors={field:button.value for field,button in self.chart_controls.items()}
         return IndicatorSettings(values),ApplicationSettings(
             True if self.finam_only else self.auto.isChecked(),
             self.refresh.value(),self.panel.isChecked(),
-            True if self.finam_only else self.http.isChecked())
+            True if self.finam_only else self.http.isChecked(),
+            **colors)
 
     def apply(self):
         self.applied.emit(*self.values())
@@ -299,6 +317,9 @@ class SettingsDialog(QDialog):
         super().accept()
 
     def restore_defaults(self):
+        theme='dark' if self.finam_only else 'tv'
+        for field,button in self.chart_controls.items():
+            button.set_value(CHART_THEME_DEFAULTS[theme][field])
         for spec in specifications():
             if spec['variable']=="showDevelopingLeg":
                 continue

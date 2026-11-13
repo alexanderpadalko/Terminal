@@ -185,6 +185,7 @@ class FinamWindow(QMainWindow):
         self.chart=CandleChart()
         self.chart.set_theme("dark")
         self.chart.set_settings(self.indicator_settings)
+        self.chart.set_chart_colors(self.app_settings)
         self.chart.empty_text="Добавьте токен Finam в настройках и выберите инструмент"
         split.addWidget(self.chart)
         side=QFrame()
@@ -379,6 +380,7 @@ class FinamWindow(QMainWindow):
         self.app_settings=replace(application,auto_updates=True,allow_http=True)
         self.settings_store.write(indicator,self.app_settings)
         self.chart.set_settings(indicator)
+        self.chart.set_chart_colors(self.app_settings)
         self.http_timer.setInterval(self.app_settings.refresh_seconds*1000)
         self._schedule_http()
         self._start_stream()
