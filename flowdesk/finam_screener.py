@@ -60,15 +60,21 @@ def _price(value):
     return parsed if isfinite(parsed) and parsed > 0 else None
 
 
-def quote_last(response):
-    """Only accept the explicitly named LAST trade price, not bid/ask/close."""
+def quote_last(response, symbol=None):
+    """Return LAST only from the exact requested symbol, never a neighbour."""
     if not isinstance(response, dict):
         return None
     quotes=response.get("quote")
     if isinstance(quotes, list):
-        response=next((item for item in quotes if isinstance(item,dict)), {})
+        response=next((item for item in quotes
+                       if isinstance(item,dict) and
+                       (not symbol or not item.get("symbol") or
+                        item["symbol"].upper()==symbol.upper())), {})
     elif isinstance(quotes, dict):
         response=quotes
+    if symbol and response.get("symbol") and (
+            str(response["symbol"]).upper()!=symbol.upper()):
+        return None
     price=response.get("last")
     return _price(price)
 
@@ -156,7 +162,7 @@ def scan_one(service, ticker, mic, settings, *, cancelled=lambda:False,
     price=None
     origin=""
     try:
-        price=quote_last(service.api.latest_quote(symbol))
+        price=quote_last(service.api.latest_quote(symbol),symbol)
         if price is not None:
             origin="finam_last"
     except Exception:
