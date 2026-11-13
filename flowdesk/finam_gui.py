@@ -173,7 +173,7 @@ class FinamWindow(QMainWindow):
         self.channel.setAlignment(Qt.AlignmentFlag.AlignCenter)
         header.addWidget(self.channel)
         self.settings_btn=QPushButton("⚙")
-        self.settings_btn.setToolTip("Настройки индикатора v2.11")
+        self.settings_btn.setToolTip("Настройки FlowDesk · индикатор и токен Finam")
         self.settings_btn.clicked.connect(self._settings)
         header.addWidget(self.settings_btn)
         outer.addLayout(header)
