@@ -21,6 +21,7 @@ CHART_COLOR_FIELDS = (
     ('chart_wick_down', 'Фитиль нисходящей свечи'),
     ('chart_background', 'Фон графика'),
     ('chart_grid', 'Сетка графика'),
+    ('chart_axis_text', 'Текст шкалы'),
 )
 CHART_THEME_DEFAULTS = {
     'tv': {
@@ -32,6 +33,7 @@ CHART_THEME_DEFAULTS = {
         'chart_wick_down': '#242424FF',
         'chart_background': '#898989FF',
         'chart_grid': '#A0A0A02D',
+        'chart_axis_text': '#292B2FFF',
     },
     'dark': {
         'chart_candle_up': '#20C997FF',
@@ -42,6 +44,7 @@ CHART_THEME_DEFAULTS = {
         'chart_wick_down': '#F46B82FF',
         'chart_background': '#0C131EFF',
         'chart_grid': '#202B3BFF',
+        'chart_axis_text': '#B7C3D5FF',
     },
 }
 
@@ -80,6 +83,10 @@ class IndicatorSettings:
         # Last forming leg is a fixed display rule, including when opening
         # older settings files that stored this option as false.
         self._values["showDevelopingLeg"]=True
+        # Debug overlays are not user-facing features. Keep the 74-field
+        # manifest for old saved files, but never activate these two flags.
+        self._values["showMarketStatusInput"]=False
+        self._values["fvgMtfDiagnostics"]=False
 
     def __getattr__(self,key):
         values=self.__dict__.get('_values',{})
@@ -109,6 +116,7 @@ class ApplicationSettings:
     chart_wick_down: str | None = None
     chart_background: str | None = None
     chart_grid: str | None = None
+    chart_axis_text: str | None = None
 
     def __post_init__(self):
         if (type(self.auto_updates) is not bool or type(self.show_panel) is not bool
