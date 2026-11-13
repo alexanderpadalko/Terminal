@@ -38,7 +38,7 @@ jobs:
         shell: pwsh
         run: |
           $env:QT_QPA_PLATFORM='offscreen'
-          python -c "from PySide6.QtWidgets import QApplication; from flowdesk.finam_gui import FinamWindow; app=QApplication([]); w=FinamWindow(); assert 'Finam Trade API' in w.windowTitle(); assert w.http.text()=='HTTP'; w.close(); print('FINAM_ONLY_WINDOW_OK')"
+          python -c "from PySide6.QtWidgets import QApplication; from flowdesk.finam_gui import FinamWindow; app=QApplication([]); w=FinamWindow(); assert 'Finam Trade API' in w.windowTitle(); assert w.app_settings.auto_updates and w.app_settings.allow_http; assert not hasattr(w, 'http') and not hasattr(w, 'auto'); w.close(); print('FINAM_ONLY_WINDOW_OK')"
       - name: Prepare FlowDesk taskbar and EXE icon
         run: python tools/build_app_icon.py
       - name: Build portable Windows EXE (Finam only)
