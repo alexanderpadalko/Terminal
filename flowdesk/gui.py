@@ -737,17 +737,18 @@ class CandleChart(QWidget):
                 candles, first, last, left_edge, stride, self.exchange.local):
             center = x(idx)
             label_width = max(48, p.fontMetrics().horizontalAdvance(caption) + 12)
-            label_left = center - label_width / 2
-            if (label_left < self.x0 + 2 or
-                    center + label_width / 2 > self.x1 - 2 or
-                    label_left < last_label_right + 10):
+            # Keep a real bar's label visible even if its center is very
+            # close to a plot edge; the grid line remains at the true bar.
+            label_left = max(self.x0 + 2, min(
+                center - label_width / 2, self.x1 - label_width - 2))
+            if label_left < last_label_right + 10:
                 continue
             p.setPen(QPen(colors["grid"], 0.8))
             p.drawLine(QPointF(center, self.top), QPointF(center, self.bottom))
             p.setPen(axis_text)
             p.drawText(QRectF(label_left, self.bottom + 10, label_width, 20),
                        int(Qt.AlignmentFlag.AlignCenter), caption)
-            last_label_right = center + label_width / 2
+            last_label_right = label_left + label_width
         p.save()
         p.setClipRect(QRectF(self.x0, self.top, self.x1 - self.x0, self.bottom - self.top))
         # FVG backgrounds and edges: local zones preserve break candle bounds.
