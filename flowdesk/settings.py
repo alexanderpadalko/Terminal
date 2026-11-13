@@ -10,6 +10,40 @@ REFERENCE_SHA256='CC2E1422F6D865C7D4814B7FF7CD4EEA82F87EB89642E8EF5F158A47B85D05
 SOURCES=('open','high','low','close','hl2','hlc3','ohlc4','volume')
 SIZES={'tiny':8,'small':10,'normal':14,'large':20,'huge':36}
 CALCULATION_KEYS=('fvgExcludeGaps','fvgMaxZones','liquidityHistoryBars','enableMarketStructureInput','showMarketOnlyOnH1')
+# Chart-only appearance is separate from the 74 pinned Pine inputs. None means
+# the palette selected by the chart theme, preserving legacy settings.
+CHART_COLOR_FIELDS = (
+    ('chart_candle_up', 'Восходящая свеча'),
+    ('chart_candle_down', 'Нисходящая свеча'),
+    ('chart_outline_up', 'Контур восходящей свечи'),
+    ('chart_outline_down', 'Контур нисходящей свечи'),
+    ('chart_wick_up', 'Фитиль восходящей свечи'),
+    ('chart_wick_down', 'Фитиль нисходящей свечи'),
+    ('chart_background', 'Фон графика'),
+    ('chart_grid', 'Сетка графика'),
+)
+CHART_THEME_DEFAULTS = {
+    'tv': {
+        'chart_candle_up': '#FFFFFFFF',
+        'chart_candle_down': '#111111FF',
+        'chart_outline_up': '#F8F8F8FF',
+        'chart_outline_down': '#141414FF',
+        'chart_wick_up': '#EDEDEDFF',
+        'chart_wick_down': '#242424FF',
+        'chart_background': '#898989FF',
+        'chart_grid': '#A0A0A02D',
+    },
+    'dark': {
+        'chart_candle_up': '#20C997FF',
+        'chart_candle_down': '#F46B82FF',
+        'chart_outline_up': '#20C997FF',
+        'chart_outline_down': '#F46B82FF',
+        'chart_wick_up': '#20C997FF',
+        'chart_wick_down': '#F46B82FF',
+        'chart_background': '#0C131EFF',
+        'chart_grid': '#202B3BFF',
+    },
+}
 
 
 @lru_cache(maxsize=1)
@@ -67,6 +101,14 @@ class ApplicationSettings:
     refresh_seconds: int = 60
     show_panel: bool = False
     allow_http: bool = False  # Explicit opt-in for network-based candle history.
+    chart_candle_up: str | None = None
+    chart_candle_down: str | None = None
+    chart_outline_up: str | None = None
+    chart_outline_down: str | None = None
+    chart_wick_up: str | None = None
+    chart_wick_down: str | None = None
+    chart_background: str | None = None
+    chart_grid: str | None = None
 
     def __post_init__(self):
         if (type(self.auto_updates) is not bool or type(self.show_panel) is not bool
@@ -74,6 +116,12 @@ class ApplicationSettings:
             raise ValueError('Invalid application settings')
         if type(self.refresh_seconds) is not int or not 10<=self.refresh_seconds<=3600:
             raise ValueError('Интервал обновления должен быть от 10 до 3600 секунд')
+        for key,_ in CHART_COLOR_FIELDS:
+            value=getattr(self,key)
+            if value is not None:
+                if not isinstance(value,str) or not re.fullmatch(r'#[0-9A-Fa-f]{8}',value):
+                    raise ValueError('Неверный цвет графика: '+key)
+                object.__setattr__(self,key,value.upper())
 
 
 class SettingsStore:
