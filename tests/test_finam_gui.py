@@ -120,19 +120,16 @@ class TestFinamGui(unittest.TestCase):
         self.assertFalse(self.window.mic.isVisible())
         self.assertFalse(any("AAPL" in s for s in rows))
 
-    def test_expiry_report_shows_all_eight_without_secret_or_api_body(self):
-        from flowdesk.finam_universe import Item, US_FUTURES
-        self.assertIn("Диагностика экспираций",self.window.expiry_report_button.text())
-        entry=self.window.universe[US_FUTURES][0]
-        self.window.universe[US_FUTURES][0]=Item(
-            entry.label,entry.name,entry.group,"NQZ26@XCME",True,
-            "экспирация не подтверждена; Finam GetAsset: поле даты пустое; "
-            "CME NQ: HTTP 403")
-        report=self.window._expiry_report_text()
-        self.assertIn("NQZ26@XCME",report)
-        self.assertIn("HTTP 403",report)
-        self.assertIn("поле даты пустое",report)
-        self.assertNotIn("Bearer ",report)
+    def test_diagnostic_controls_and_technical_rows_are_not_visible(self):
+        from PySide6.QtWidgets import QPushButton
+        self.assertFalse(self.window.feed.isVisible())
+        self.assertFalse(self.window.universe_info.isVisible())
+        buttons=[button.text() for button in
+                 self.window.findChildren(QPushButton)]
+        self.assertFalse(any("Диагностик" in text or
+                             "Копировать отчёт" in text or
+                             "Проверить повторно" in text for text in buttons))
+        self.assertFalse(hasattr(self.window,"_show_expiry_report"))
 
     def test_known_future_expiry_is_visible_in_compact_sidebar(self):
         from flowdesk.finam_universe import Item, US_FUTURES
