@@ -108,6 +108,8 @@ class FinamWindow(QMainWindow):
         self.catalog_worker = None
         self.catalog_ready = False
         self.catalog_error = ""
+        self.roll_notes=[]
+        self.moex_status=""
         self.universe, self.ranking_status = compose_universe()
         self._make_ui()
         self.feed_timer = QTimer(self)
@@ -270,12 +272,14 @@ class FinamWindow(QMainWindow):
                     row.setForeground(Qt.GlobalColor.gray)
                     row.setToolTip("Для открытия необходим точный тикер@MIC из каталога Finam. Не подменяем похожим контрактом.")
                 else:
-                    row.setToolTip(entry.symbol)
+                    row.setToolTip(entry.symbol+
+                                   ("\n"+entry.source if entry.source else ""))
                 self.examples.addItem(row)
         self.universe_info.setText(
             "Акции: "+self.ranking_status+
-            " · без запросов MOEX. Контракты сверяются с Finam; "
-            "недоступные не подменяются."+
+            " · графики только Finam; обороты акций и фьючерсов РФ — MOEX ISS."+
+            (" · "+self.moex_status if self.moex_status else "")+
+            " · контракт без подтверждённой экспирации/ликвидности не подменяется."+
             (" · Каталог: "+self.catalog_error if self.catalog_error else "")
         )
         self._filter_universe(current)
@@ -305,28 +309,53 @@ class FinamWindow(QMainWindow):
         self.catalog_worker=FinamCatalogWorker(self.service.api,self)
         self.catalog_worker.loaded.connect(self._catalog_loaded)
         self.catalog_worker.failed.connect(self._catalog_failed)
+        self.catalog_worker.progress.connect(self._catalog_progress)
         self.catalog_worker.finished.connect(self._catalog_finished)
         self.catalog_worker.start()
 
     def _catalog_loaded(self,assets):
         if self.closing:return
         self.catalog_ready=True
-        self.catalog_error=""
-        self.universe,self.ranking_status=compose_universe(assets)
+        payload=assets if isinstance(assets,dict) else {}
+        self.catalog_error=payload.get("finam_error","")
+        raw=payload.get("assets",assets if isinstance(assets,list) else [])
+        self.universe,self.ranking_status=compose_universe(raw)
+        if isinstance(payload.get("stocks"),list) and len(payload["stocks"])==20:
+            self.universe[RU_STOCKS]=payload["stocks"]
+            self.ranking_status=payload.get("ranking_status",self.ranking_status)
+        for group in (US_FUTURES,RU_FUTURES):
+            self.universe[group]=[
+                payload.get("futures",{}).get(group+":"+contract.label,contract)
+                for contract in self.universe[group]
+            ]
+        self.moex_status=payload.get("moex_status","")
+        self.roll_notes=payload.get("roll_notes",[])
         self._populate_universe()
         if self._pending_restore:
             restored=self._pending_restore
             self._pending_restore=None
-            if is_in_universe(restored,self.universe):
-                ticker,mic=restored.split("@",1)
+            matched=payload.get("roll_map",{}).get(restored.upper(),restored)
+            if is_in_universe(matched,self.universe):
+                ticker,mic=matched.split("@",1)
                 self.symbol_edit.setText(ticker)
                 self.mic.setCurrentText(mic)
-                self._load(refresh=False)
-                self._start_stream()
+                self.ui_prefs.setValue("ticker",ticker)
+                self.ui_prefs.setValue("mic",mic)
+                if matched.upper()!=restored.upper():
+                    self.status.setText("Контракт автоматически переключён по экспирации и оборотам: "+matched)
             else:
-                self.status.setText("Сохранённый контракт отсутствует в активном каталоге Finam.")
-                self._load(refresh=False)
-                self._start_stream()
+                self.status.setText("Сохранённый контракт недоступен. Открыта первая акция из топ-20.")
+                fallback=next((i for i in self.universe[RU_STOCKS] if i.verified),None)
+                if fallback:
+                    ticker,mic=fallback.symbol.split("@",1)
+                    self.symbol_edit.setText(ticker)
+                    self.mic.setCurrentText(mic)
+            self._load(refresh=False)
+            self._start_stream()
+
+    def _catalog_progress(self,message):
+        if not self.closing and self.catalog_worker is not None:
+            self.universe_info.setText(message+"\nАкции: "+self.ranking_status)
 
     def _catalog_failed(self,error):
         if self.closing:return

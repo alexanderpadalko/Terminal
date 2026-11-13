@@ -194,7 +194,12 @@ class WatchlistService:
             return json.loads(zlib.decompress(base64.b64decode(value['history_zlib'])))
         return []
 
-    def refresh(self, cancelled=lambda: False):
+    def refresh(self, cancelled=lambda: False, *, stocks_only=False):
+        """When stocks_only, refresh exact share turnover without touching futures.
+
+        The Finam terminal has its own expiry + liquidity rollover; legacy
+        RFUD roll_futures must never block updating the stock ranking.
+        """
         now = self.clock()
         slot = slot_date(now)
         cutoff = slot - timedelta(days=1)
@@ -227,13 +232,20 @@ class WatchlistService:
             expected -= timedelta(days=1)
         if days[-1] < expected.isoformat():
             raise ValueError(f'Не получены завершённые торги {expected}; сохранён прежний список')
-        contracts = pages('engines/futures/markets/forts/boards/RFUD/securities.json', 'securities',
-                          {'securities.columns': 'SECID,SHORTNAME,LASTTRADEDATE,ASSETCODE'},
-                          fetch=self.fetch, cancelled=cancelled)
-        futures = roll_futures(old.get('instruments', []), contracts, slot)
+        if stocks_only:
+            # Reuse the 10 validated old rows only to preserve the on-disk
+            # cache schema. They are NEVER used for the Finam futures UI.
+            futures=[Instrument(**row) for row in old['instruments']
+                     if row['kind']!='stock']
+        else:
+            contracts = pages('engines/futures/markets/forts/boards/RFUD/securities.json', 'securities',
+                              {'securities.columns': 'SECID,SHORTNAME,LASTTRADEDATE,ASSETCODE'},
+                              fetch=self.fetch, cancelled=cancelled)
+            futures = roll_futures(old.get('instruments', []), contracts, slot)
         value = self.validate({'schema': 1, 'history_policy': HISTORY_POLICY, 'slot': slot.isoformat(), 'generated_at': now.isoformat(),
             'window': days, 'history': history, 'instruments': [asdict(r) for r in stocks + futures],
-            'rule': 'TQBR ordinary/preferred, 20 completed sessions; fixed 6 term + 4 perpetual; roll at expiry 06 MSK'})
+            'rule': ('TQBR shares: 20 completed sessions, exact VALUE; futures preserved for Finam' if stocks_only
+                     else 'TQBR ordinary/preferred, 20 completed sessions; fixed 6 term + 4 perpetual; roll at expiry 06 MSK')})
         self.path.parent.mkdir(parents=True, exist_ok=True)
         temp = self.path.with_suffix('.tmp')
         temp.write_text(json.dumps(value, ensure_ascii=False), encoding='utf-8')

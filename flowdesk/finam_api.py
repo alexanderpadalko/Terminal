@@ -122,6 +122,7 @@ class FinamAPI:
         self._exact_symbols = {}
         self._asset_ticks = {}
         self._asset_retry_after = {}  # throttle optional metadata errors
+        self._asset_details = {}
 
     def exchange_symbol(self, normalized_symbol):
         """Preserve exact ticker casing in Finam API requests (e.g. SiZ6)."""
@@ -233,6 +234,40 @@ class FinamAPI:
             cursor=str(next_cursor)
         raise FinamAPIError("Finam: справочник не завершён, лимит 150 страниц")
 
+    def _readonly_asset_get(self, path):
+        try:
+            return self._json("GET",path,token=self.access_key())
+        except FinamAPIError as exc:
+            if exc.http_status != 401:
+                raise
+            return self._json("GET",path,token=self.access_key(force=True))
+
+    def asset_details(self,symbol):
+        """Authoritative expiry/specification of ticker@MIC; GET only."""
+        if not SAFE_SYMBOL.fullmatch(symbol):
+            raise ValueError("Некорректный символ Finam")
+        key=symbol.upper()
+        with self._lock:
+            if key in self._asset_details:
+                return self._asset_details[key]
+        path="/v1/assets/"+quote(self.exchange_symbol(symbol),safe="")
+        detail=self._readonly_asset_get(path)
+        if not isinstance(detail,dict):
+            raise FinamAPIError("Finam вернул неверную карточку инструмента")
+        with self._lock:
+            self._asset_details[key]=detail
+        return detail
+
+    def latest_quote(self,symbol):
+        """Cumulative venue quote turnover/volume, never a trade request."""
+        if not SAFE_SYMBOL.fullmatch(symbol):
+            raise ValueError("Некорректный символ Finam")
+        path="/v1/instruments/"+quote(self.exchange_symbol(symbol),safe="")+"/quotes/latest"
+        answer=self._readonly_asset_get(path)
+        if not isinstance(answer,dict):
+            raise FinamAPIError("Finam вернул неверную последнюю котировку")
+        return answer
+
     def asset_tick_size(self, symbol):
         """Read display precision from GET /v1/assets/{symbol}; no price-history HTTP.
 
@@ -248,14 +283,8 @@ class FinamAPI:
                 return self._asset_ticks[key]
             if time.monotonic() < self._asset_retry_after.get(key,0):
                 return None
-        path = "/v1/assets/" + quote(self.exchange_symbol(symbol), safe="")
         try:
-            try:
-                asset = self._json("GET", path, token=self.access_key())
-            except FinamAPIError as exc:
-                if exc.http_status != 401:
-                    raise
-                asset = self._json("GET", path, token=self.access_key(force=True))
+            asset = self.asset_details(symbol)
         except FinamAPIError:
             # A metadata outage must not stall each incoming WebSocket bar.
             with self._lock:
