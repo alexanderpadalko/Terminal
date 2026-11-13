@@ -32,6 +32,8 @@ class TestSettingsGui(unittest.TestCase):
                              "TradingView" in widget.text()
                              for widget in dialog.findChildren(QLabel)))
         self.assertEqual(dialog.tabs.count(),7)
+        self.assertFalse(any("TradingView" in control.toolTip()
+                             for control in dialog.controls.values()))
         applied=[]
         dialog.applied.connect(lambda *values:applied.append(values))
         dialog.controls['fvgMaxZones'].setValue(7)
