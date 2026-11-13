@@ -25,8 +25,10 @@ class TestSettingsGui(unittest.TestCase):
 
     def test_dialog_exposes_73_editable_values_and_cancel_does_not_apply(self):
         dialog=SettingsDialog(IndicatorSettings(),ApplicationSettings())
-        self.assertEqual(len(dialog.controls),73)
-        self.assertNotIn("showDevelopingLeg",dialog.controls)
+        self.assertEqual(len(dialog.controls),71)
+        for obsolete in ("showDevelopingLeg","showMarketStatusInput",
+                         "fvgMtfDiagnostics"):
+            self.assertNotIn(obsolete,dialog.controls)
         self.assertEqual(dialog.windowTitle(),"Настройки FlowDesk")
         self.assertFalse(any("Эталон" in widget.text() or
                              "TradingView" in widget.text()
@@ -49,13 +51,29 @@ class TestSettingsGui(unittest.TestCase):
         self.app.processEvents()
         button=dialog.controls["upColor"]
         self.assertIsInstance(button,ColorButton)
-        self.assertEqual(sum(map(len,palette_colors())),70)
+        self.assertEqual(len(palette_colors()),8)
+        self.assertTrue(all(len(row)==10 for row in palette_colors()))
+        self.assertEqual(sum(map(len,palette_colors())),80)
+        self.assertEqual(palette_colors()[1][4],"#089981")
+        self.assertEqual(palette_colors()[6][4],"#056656")
+        self.assertEqual(palette_colors()[7][9],"#880E4F")
         button.choose()
         self.app.processEvents()
         popup=button._palette
         self.assertIsNotNone(popup)
-        self.assertEqual(len(popup.swatches),70)
+        self.assertEqual(len(popup.swatches),80)
+        # Initially the original up-color is a real swatch; it is marked.
+        selected=[swatch for swatch,rgb in popup.swatches if swatch.isChecked()]
+        self.assertEqual(len(selected),1)
+        self.assertEqual(selected[0].rgb,"#056656")
+        self.assertFalse(popup.custom_button.isChecked())
+        popup._apply_rgb("#089981")
+        self.assertEqual([swatch.rgb for swatch,_ in popup.swatches
+                          if swatch.isChecked()],["#089981"])
+        self.assertFalse(popup.custom_button.isChecked())
         popup._apply_rgb("#123456")
+        self.assertFalse(any(swatch.isChecked() for swatch,_ in popup.swatches))
+        self.assertTrue(popup.custom_button.isChecked())
         self.assertEqual(button.value,"#123456FF")
         popup.transparency.setValue(40)
         self.assertEqual(button.value,"#12345699")
@@ -74,6 +92,13 @@ class TestSettingsGui(unittest.TestCase):
             popup._custom_color()
         self.assertEqual(button.value,"#A1B2C3FF")
         self.assertEqual(dialog.values()[0].upColor,"#A1B2C3FF")
+        self.assertTrue(popup.custom_button.isChecked())
+        # Selection marker has a white outer ring, even on dark colors.
+        popup._apply_rgb("#056656")
+        self.app.processEvents()
+        selected_cell=next(cell for cell,rgb in popup.swatches if rgb=="#056656")
+        self.assertTrue(selected_cell.isChecked())
+        self.assertGreater(selected_cell.grab().toImage().pixelColor(1,11).red(),185)
         self.assertEqual(opacity_percent("#00000080"),50)
         self.assertEqual(rgba_value("#ABCDEF",75),"#ABCDEF40")
         popup.hide()
@@ -89,19 +114,37 @@ class TestSettingsGui(unittest.TestCase):
                 dlg.chart_controls['chart_candle_up'].set_value('#118844FF')
                 dlg.chart_controls['chart_background'].set_value('#202A36FF')
                 dlg.chart_controls['chart_grid'].set_value('#BBCCDD55')
+                dlg.chart_controls['chart_axis_text'].set_value('#F0E0D0FF')
                 indicator,application=dlg.values()
                 store.write(indicator,application)
                 _,loaded=SettingsStore(store.path).read()
                 self.assertEqual(loaded.chart_candle_up,'#118844FF')
                 self.assertEqual(loaded.chart_background,'#202A36FF')
                 self.assertEqual(loaded.chart_grid,'#BBCCDD55')
+                self.assertEqual(loaded.chart_axis_text,'#F0E0D0FF')
                 chart=CandleChart()
                 chart.resize(850,570)
                 chart.set_chart_colors(loaded)
+                from flowdesk.engine import analyze
+                from flowdesk.gui import demo_data
+                chart.set_analysis(analyze(demo_data(),"H1"))
                 chart.show()
                 self.app.processEvents()
-                self.assertEqual(chart.grab().toImage().pixelColor(3,3).name(),
-                                 '#202a36')
+                image=chart.grab().toImage()
+                self.assertEqual(image.pixelColor(3,3).name(),'#202a36')
+                self.assertEqual(chart._surface_context[0]["axis_text"].name(),
+                                 '#f0e0d0')
+                # Price/time tick labels both use the configured text color.
+                def light_pixels(bounds):
+                    x0,y0,x1,y1=bounds
+                    return sum(image.pixelColor(x,y).red()>195 and
+                               image.pixelColor(x,y).green()>165 and
+                               image.pixelColor(x,y).blue()>145
+                               for y in range(y0,y1,2) for x in range(x0,x1,2))
+                self.assertGreater(light_pixels(
+                    (chart.x1+8,chart.top,chart.width()-3,chart.bottom)),0)
+                self.assertGreater(light_pixels(
+                    (chart.x0,chart.bottom+10,chart.x1,chart.bottom+34)),0)
                 chart.close()
             finally:
                 dlg.close()
