@@ -178,6 +178,37 @@ class TestFinamGui(unittest.TestCase):
         self.assertTrue(persisted.allow_http and persisted.auto_updates)
         self.assertEqual(persisted.refresh_seconds,120)
 
+    def test_finam_settings_hide_unused_panel_and_candle_explanation(self):
+        from PySide6.QtWidgets import QCheckBox, QLabel
+        from flowdesk.settings_dialog import SettingsDialog
+        for original in (False, True):
+            app=ApplicationSettings(False,90,original,False)
+            dialog=SettingsDialog(self.window.indicator_settings,app,
+                                  finam_only=True,token_action=lambda _:None)
+            try:
+                self.assertIsNone(dialog.panel)
+                self.assertIsNone(dialog.auto)
+                self.assertIsNone(dialog.http)
+                labels=[widget.text() for widget in dialog.findChildren(QLabel)]
+                self.assertFalse(any("Показывать боковую панель" in label or
+                                     "Время свечи" in label or
+                                     "готовые свечи Finam" in label
+                                     for label in labels))
+                dialog.refresh.setValue(120)
+                _,edited=dialog.values()
+                self.assertEqual(edited.refresh_seconds,120)
+                self.assertEqual(edited.show_panel,original)
+                self.assertTrue(edited.allow_http and edited.auto_updates)
+                self.assertIn("Finam",dialog.token_button.text())
+                dialog.restore_defaults()
+                _,reset=dialog.values()
+                self.assertEqual(reset.refresh_seconds,60)
+                self.assertEqual(reset.show_panel,original)
+            finally:
+                dialog.close()
+        # The working instrument list is unaffected by the removed checkbox.
+        self.assertGreater(self.window.examples.count(),0)
+
     def test_known_future_expiry_is_visible_in_compact_sidebar(self):
         from flowdesk.finam_universe import Item, US_FUTURES
         entry=self.window.universe[US_FUTURES][0]
