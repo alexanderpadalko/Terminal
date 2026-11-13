@@ -120,6 +120,20 @@ class TestFinamGui(unittest.TestCase):
         self.assertFalse(self.window.mic.isVisible())
         self.assertFalse(any("AAPL" in s for s in rows))
 
+    def test_expiry_report_shows_all_eight_without_secret_or_api_body(self):
+        from flowdesk.finam_universe import Item, US_FUTURES
+        self.assertIn("Диагностика экспираций",self.window.expiry_report_button.text())
+        entry=self.window.universe[US_FUTURES][0]
+        self.window.universe[US_FUTURES][0]=Item(
+            entry.label,entry.name,entry.group,"NQZ26@XCME",True,
+            "экспирация не подтверждена; Finam GetAsset: поле даты пустое; "
+            "CME NQ: HTTP 403")
+        report=self.window._expiry_report_text()
+        self.assertIn("NQZ26@XCME",report)
+        self.assertIn("HTTP 403",report)
+        self.assertIn("поле даты пустое",report)
+        self.assertNotIn("Bearer ",report)
+
     def test_unlisted_stock_cannot_replace_selected_chart(self):
         self.select("SBER")
         self.settle()
