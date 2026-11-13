@@ -4,6 +4,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from functools import partial
 from pathlib import Path
+import re
 import sys
 
 from PySide6.QtCore import QSettings, QThread, QTimer, Qt, Signal
@@ -274,6 +275,12 @@ class FinamWindow(QMainWindow):
                        " · не подтверждён Finam" if not entry.verified else "")
                 if entry.verified and "экспирация не подтверждена" in entry.source:
                     state+=" · эксп. ?"
+                elif entry.verified and group!=RU_STOCKS:
+                    known=re.search(r"(?:действует до |новая дата )(\\d{4}-\\d{2}-\\d{2})",
+                                    entry.source)
+                    if known:
+                        stamp=known.group(1)
+                        state+=" · до "+stamp[8:10]+"."+stamp[5:7]
                 row=QListWidgetItem(entry.label+" · "+entry.name+state)
                 row.setData(Qt.ItemDataRole.UserRole,entry.symbol if entry.verified else "")
                 if not entry.verified:
