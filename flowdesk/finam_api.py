@@ -248,6 +248,11 @@ class FinamAPI:
                 raise
             return self._json("GET",path,token=self.access_key(force=True))
 
+    def clear_asset_details_cache(self):
+        """Refresh expiry metadata after a user-triggered catalog recheck."""
+        with self._lock:
+            self._asset_details.clear()
+
     def asset_details(self,symbol):
         """Authoritative expiry/specification of ticker@MIC; GET only."""
         if not SAFE_SYMBOL.fullmatch(symbol):
