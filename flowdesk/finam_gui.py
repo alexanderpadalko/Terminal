@@ -12,7 +12,8 @@ from PySide6.QtCore import QSettings, QThread, QTimer, Qt, Signal
 from PySide6.QtWidgets import (
     QApplication, QComboBox, QHBoxLayout, QLabel, QLineEdit,
     QMainWindow, QMessageBox, QPushButton, QVBoxLayout, QWidget,
-    QListWidget, QListWidgetItem, QInputDialog, QSplitter, QFormLayout, QFrame
+    QListWidget, QListWidgetItem, QInputDialog, QSplitter, QFormLayout, QFrame,
+    QToolButton, QSizePolicy
 )
 
 from . import __version__
@@ -27,6 +28,7 @@ from .finam_universe import (
 from .finam_catalog_worker import FinamCatalogWorker
 from .diagnostics_log import log_event, log_snapshot
 from .finam_stream import FinamStreamWorker
+from .finam_screener import FinamScreenerWorker, ScanResult, LABELS, unknown
 from .gui import CandleChart, TimeframeBar
 from .settings import IndicatorSettings, ApplicationSettings, SettingsStore
 from .settings_dialog import SettingsDialog
@@ -115,6 +117,9 @@ class FinamWindow(QMainWindow):
         self.catalog_ready = False
         self.catalog_error = ""
         self.moex_status=""
+        self.screen_results = {}
+        self.screener_worker = None
+        self.screener_rescan_requested = False
         self.universe, self.ranking_status = compose_universe()
         self._make_ui()
         self.feed_timer = QTimer(self)
@@ -124,6 +129,9 @@ class FinamWindow(QMainWindow):
         self.http_timer = QTimer(self)
         self.http_timer.setInterval(self.app_settings.refresh_seconds*1000)
         self.http_timer.timeout.connect(self._http_refresh)
+        self.screener_timer=QTimer(self)
+        self.screener_timer.setInterval(300000)
+        self.screener_timer.timeout.connect(self._start_screener)
         ticker=str(self.ui_prefs.value("ticker","SBER"))
         mic=str(self.ui_prefs.value("mic","MISX"))
         self._pending_restore=ticker.upper()+"@"+mic.upper()
@@ -195,6 +203,23 @@ class FinamWindow(QMainWindow):
         title=QLabel("Инструменты · только выбранные")
         title.setStyleSheet("font-weight:700")
         right.addWidget(title)
+        # Embedded signal filter: five independent toggle buttons; empty
+        # selection leaves the entire existing universe visible.
+        screener_bar=QHBoxLayout()
+        screener_bar.setSpacing(4)
+        self.screen_buttons={}
+        for timeframe in LABELS:
+            control=QToolButton(side)
+            control.setText(timeframe)
+            control.setCheckable(True)
+            control.setFixedHeight(27)
+            control.setMinimumWidth(32)
+            control.setToolTip("Фильтр: действующий рабочий FVG "+timeframe)
+            control.toggled.connect(self._on_screen_filter_changed)
+            screener_bar.addWidget(control)
+            self.screen_buttons[timeframe]=control
+        screener_bar.addStretch()
+        right.addLayout(screener_bar)
         # Preserve private controls for internal navigation and existing tests.
         # Do not expose a manual entry that bypasses the user's fixed universe.
         self.symbol_edit=QLineEdit(side)
@@ -235,11 +260,103 @@ class FinamWindow(QMainWindow):
           QListWidget::item:selected {background:#2b4b68;}
         """)
 
+    def _selected_screen_timeframes(self):
+        return tuple(tf for tf,button in self.screen_buttons.items()
+                     if button.isChecked())
+
+    def _on_screen_filter_changed(self, _checked=False):
+        active=any(b.isChecked() for b in self.screen_buttons.values())
+        for button in self.screen_buttons.values():
+            button.setStyleSheet(
+                "QToolButton {background:"+("#1a334e" if button.isChecked()
+                else "#272b34")+";border:1px solid "+
+                ("#6a97d0" if button.isChecked() else "#4c5564")+
+                ";color:#e3eaff;border-radius:3px;padding:3px;}")
+        self._populate_universe()
+
+    def _screen_outcome(self, entry, selected):
+        if not selected:
+            return "normal"
+        if not entry.verified:
+            return "unknown"
+        result=self.screen_results.get(entry.symbol.upper())
+        if result is None:
+            return "unknown"
+        if result.matched(selected):
+            return "matched"
+        return "unknown" if result.missing(selected) else "excluded"
+
+    def _add_screen_item(self, entry, group, *, no_data=False):
+        pending=(not self.catalog_ready and not self.catalog_error and
+                 group!=RU_STOCKS)
+        state=(" · поиск Finam…" if pending else
+               " · каталог недоступен" if self.catalog_error and
+               group!=RU_STOCKS else
+               " · не подтверждён Finam" if not entry.verified else "")
+        if entry.verified and "экспирация не подтверждена" in entry.source:
+            state+=" · эксп. ?"
+        elif entry.verified and group!=RU_STOCKS:
+            known=re.search(r"(?:действует до |новая дата )(\\d{4}-\\d{2}-\\d{2})",
+                            entry.source)
+            if known:
+                stamp=known.group(1)
+                state+=" · до "+stamp[8:10]+"."+stamp[5:7]
+        title=entry.label+" · "+entry.name+state
+        row=QListWidgetItem(title)
+        row.setData(Qt.ItemDataRole.UserRole,entry.symbol if entry.verified else "")
+        if not entry.verified:
+            row.setFlags(Qt.ItemFlag.NoItemFlags)
+            row.setForeground(Qt.GlobalColor.gray)
+            row.setToolTip("Точный тикер@MIC не подтверждён Finam")
+        else:
+            row.setToolTip(entry.symbol)
+        self.examples.addItem(row)
+        result=self.screen_results.get(entry.symbol.upper())
+        signals=result.as_map() if result is not None else {}
+        marked=[(tf,direction) for tf,direction in signals.items()
+                if direction in (-1,1)]
+        if not marked and not no_data:
+            return
+        widget=QWidget(self.examples)
+        widget.setStyleSheet("QWidget {background:transparent;}")
+        row_layout=QHBoxLayout(widget)
+        row_layout.setContentsMargins(5,0,4,0)
+        row_layout.setSpacing(3)
+        description=QLabel(title,widget)
+        description.setStyleSheet("color:"+("#999" if not entry.verified
+                                   else "#e8e8e8")+";background:transparent;")
+        description.setSizePolicy(QSizePolicy.Policy.Ignored,
+                                  QSizePolicy.Policy.Preferred)
+        description.setToolTip(title)
+        row_layout.addWidget(description,1)
+        for tf,signal in marked:
+            badge=QLabel(tf,widget)
+            badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            badge.setFixedWidth(25)
+            badge.setFixedHeight(19)
+            shade="#07543f" if signal==1 else "#772631"
+            ink="#70e9b9" if signal==1 else "#ffb2bd"
+            badge.setStyleSheet(
+                f"background:{shade};color:{ink};border-radius:3px;"
+                "font-weight:700;font-size:10px;")
+            badge.setToolTip(tf+(" · LONG" if signal==1 else " · SHORT"))
+            row_layout.addWidget(badge)
+        if no_data:
+            neutral=QLabel("нет данных",widget)
+            neutral.setStyleSheet(
+                "background:#393d43;color:#c1c6cf;border-radius:3px;"
+                "padding:3px;font-size:10px;")
+            row_layout.addWidget(neutral)
+        row.setSizeHint(widget.sizeHint())
+        self.examples.setItemWidget(row,widget)
+
     def _populate_universe(self):
-        """Only the 8+20+10 requested rows; no unrelated demo assets."""
+        """38 fixed universe entries; filter by active working FVG only."""
         current=self.search.text().strip().lower() if hasattr(self,"search") else ""
+        selected=self._selected_screen_timeframes()
         self.examples.clear()
         self._sections=[]
+        no_data=[]
         for group in (US_FUTURES,RU_STOCKS,RU_FUTURES):
             header=QListWidgetItem(GROUP_LABELS[group])
             header.setFlags(Qt.ItemFlag.NoItemFlags)
@@ -247,34 +364,21 @@ class FinamWindow(QMainWindow):
             self.examples.addItem(header)
             self._sections.append(header)
             for entry in self.universe[group]:
-                pending=not self.catalog_ready and not self.catalog_error and group!=RU_STOCKS
-                state=(" · поиск Finam…" if pending else
-                       " · каталог недоступен" if self.catalog_error and group!=RU_STOCKS else
-                       " · не подтверждён Finam" if not entry.verified else "")
-                if entry.verified and "экспирация не подтверждена" in entry.source:
-                    state+=" · эксп. ?"
-                elif entry.verified and group!=RU_STOCKS:
-                    known=re.search(r"(?:действует до |новая дата )(\d{4}-\d{2}-\d{2})",
-                                    entry.source)
-                    if known:
-                        stamp=known.group(1)
-                        state+=" · до "+stamp[8:10]+"."+stamp[5:7]
-                row=QListWidgetItem(entry.label+" · "+entry.name+state)
-                row.setData(Qt.ItemDataRole.UserRole,entry.symbol if entry.verified else "")
-                if not entry.verified:
-                    row.setFlags(Qt.ItemFlag.NoItemFlags)
-                    row.setForeground(Qt.GlobalColor.gray)
-                    row.setToolTip("Для открытия необходим точный тикер@MIC из каталога Finam. Не подменяем похожим контрактом.")
-                else:
-                    row.setToolTip(entry.symbol)
-                self.examples.addItem(row)
-        self.universe_info.setText(
-            "Акции: "+self.ranking_status+
-            " · графики только Finam; обороты акций и фьючерсов РФ — MOEX ISS."+
-            (" · "+self.moex_status if self.moex_status else "")+
-            " · фьючерсы: переход за день до экспирации; без даты автопереход выключен."+
-            (" · Каталог: "+self.catalog_error if self.catalog_error else "")
-        )
+                decision=self._screen_outcome(entry,selected)
+                if decision=="excluded":
+                    continue
+                if decision=="unknown":
+                    no_data.append((entry,group))
+                    continue
+                self._add_screen_item(entry,group)
+        if selected and no_data:
+            header=QListWidgetItem("НЕТ ДАННЫХ · "+str(len(no_data)))
+            header.setFlags(Qt.ItemFlag.NoItemFlags)
+            header.setForeground(Qt.GlobalColor.gray)
+            self.examples.addItem(header)
+            self._sections.append(header)
+            for entry,group in no_data:
+                self._add_screen_item(entry,group,no_data=True)
         self._filter_universe(current)
 
     def _filter_universe(self,text):
