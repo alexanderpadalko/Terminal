@@ -228,6 +228,10 @@ class TestSettingsGui(unittest.TestCase):
     def test_defaults_reset_changes_fields_until_apply(self):
         changed=IndicatorSettings().changed(fvgMaxZones=3,flowShowData=True)
         dialog=SettingsDialog(changed,ApplicationSettings(False,120,True))
+        self.assertIsNotNone(dialog.panel)  # Legacy MainWindow still uses it.
+        self.assertTrue(dialog.panel.isChecked())
+        self.assertFalse(any("Время свечи" in widget.text() for widget in
+                             dialog.findChildren(QLabel)))
         dialog.restore_defaults()
         indicator,application=dialog.values()
         self.assertEqual(indicator.as_dict(),IndicatorSettings().as_dict())
