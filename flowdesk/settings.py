@@ -43,6 +43,9 @@ def validate(spec,value):
 class IndicatorSettings:
     def __init__(self,values=None):
         self._values={spec['variable']:validate(spec,(values or {}).get(spec['variable'],spec['default'])) for spec in specifications()}
+        # Last forming leg is a fixed display rule, including when opening
+        # older settings files that stored this option as false.
+        self._values["showDevelopingLeg"]=True
 
     def __getattr__(self,key):
         values=self.__dict__.get('_values',{})
