@@ -69,16 +69,7 @@ jobs:
               throw "Signing is enabled but $key is not configured. No signed artifact will be published."
             }
           }
-          if ($env:SIGNING_ENDPOINT -notmatch '^https://[a-z0-9-]+\.codesigning\.azure\.net/?      - name: Save smoke-test evidence
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: FlowDesk-0.2.26-Finam-Test-Evidence
-          path: |
-            shutdown-exe-result.json
-            finam-runtime-exe-result.json
-          retention-days: 30
-) {
+          if ($env:SIGNING_ENDPOINT -notmatch '^https://[a-z0-9-]+\.codesigning\.azure\.net/?$') {
             throw 'Invalid Artifact Signing endpoint. Use the endpoint for the Azure region.'
           }
 
