@@ -15,6 +15,7 @@ from contextlib import closing
 from .finam_api import FinamAPI, FRAMES, symbol_name
 from .market_data import Candle, normalize, candle_close_time
 from .pipeline import analyze_timeframes
+from .finam_auction import exclude_stock_closing_auction
 from .settings import IndicatorSettings
 
 
@@ -103,6 +104,10 @@ class FinamMarketService:
                 if errors and not series.get(timeframe):
                     raise RuntimeError("Finam: не удалось получить историю " +
                                        "; ".join(errors[:3]))
+            # Filter auction-only M1/M5 *after* loading the raw source and
+            # *before* determining asof/cache keys and any indicator analysis.
+            # The raw SQLite archive remains intact; filtering is idempotent.
+            series = exclude_stock_closing_auction(series, mic)
             if not series.get(timeframe):
                 if not allow_http:
                     raise RuntimeError("Для " + symbol + " нет истории " + timeframe +
