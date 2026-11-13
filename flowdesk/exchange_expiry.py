@@ -114,7 +114,7 @@ def cme_calendar_dates(payload, *, root, reference_year):
             identities=[]
             for value in explicit:
                 normalized=value.strip().upper().replace(" ","")
-                match=re.fullmatch(re.escape(root)+r"([FGHJKMNQUVXZ])(\\d{1,4})",
+                match=re.fullmatch(re.escape(root)+r"([FGHJKMNQUVXZ])(\d{1,4})",
                                    normalized)
                 if match is None:
                     identities=[]
