@@ -16,7 +16,7 @@ from PySide6.QtWidgets import QApplication
 
 from flowdesk.finam_gui import FinamWindow
 from flowdesk.runtime_probe import check_finam_runtime
-from flowdesk.settings import SettingsStore
+from flowdesk.settings import SettingsStore, ApplicationSettings
 from test_gui_navigation import FakeMarket
 
 
@@ -27,6 +27,7 @@ class FinamMarket(FakeMarket):
         self.block_symbol=None
 
     def view(self,ticker,mic,tf,**kwargs):
+        self.last_view_kwargs=dict(kwargs)
         if ticker==self.block_symbol:
             self.release.wait(4)
         if ticker=="GAZP":
@@ -130,6 +131,52 @@ class TestFinamGui(unittest.TestCase):
                              "Копировать отчёт" in text or
                              "Проверить повторно" in text for text in buttons))
         self.assertFalse(hasattr(self.window,"_show_expiry_report"))
+
+    def test_finam_controls_are_absent_and_http_stream_are_on(self):
+        from PySide6.QtWidgets import QPushButton, QCheckBox
+        self.assertTrue(self.window.app_settings.auto_updates)
+        self.assertTrue(self.window.app_settings.allow_http)
+        self.assertFalse(hasattr(self.window,"auto"))
+        self.assertFalse(hasattr(self.window,"http"))
+        self.assertFalse(hasattr(self.window,"token_btn"))
+        self.assertFalse(self.window.status.isVisible())
+        forbidden=("Авто","HTTP","Последние · End","Автоцена · F","Токен Finam")
+        visible=[w.text() for w in self.window.findChildren(QPushButton)
+                 if w.isVisible()]
+        self.assertFalse(any(word in visible for word in forbidden))
+        self.assertFalse(any(widget.text() in ("Авто","HTTP")
+                             for widget in self.window.findChildren(QCheckBox)
+                             if widget.isVisible()))
+        self.select("SBER")
+        self.settle()
+        self.assertTrue(self.market.last_view_kwargs["allow_http"])
+
+    def test_settings_cannot_disable_finam_network_or_undo_http_enabled(self):
+        from flowdesk.settings_dialog import SettingsDialog
+        seen=[]
+        dlg=SettingsDialog(self.window.indicator_settings,
+                           ApplicationSettings(False,90,False,False),
+                           finam_only=True,token_action=lambda parent:seen.append(parent))
+        try:
+            self.assertIsNone(dlg.auto)
+            self.assertIsNone(dlg.http)
+            self.assertIn("Finam",dlg.token_button.text())
+            dlg.token_button.click()
+            self.assertEqual(seen,[dlg])
+            _,app=dlg.values()
+            self.assertTrue(app.auto_updates and app.allow_http)
+            dlg.restore_defaults()
+            _,reset=dlg.values()
+            self.assertTrue(reset.auto_updates and reset.allow_http)
+        finally:
+            dlg.close()
+        with patch.object(self.window,"_load"),patch.object(self.window,"_start_stream"):
+            self.window._apply_settings(
+                self.window.indicator_settings,
+                ApplicationSettings(False,120,False,False))
+        persisted=self.window.settings_store.read()[1]
+        self.assertTrue(persisted.allow_http and persisted.auto_updates)
+        self.assertEqual(persisted.refresh_seconds,120)
 
     def test_known_future_expiry_is_visible_in_compact_sidebar(self):
         from flowdesk.finam_universe import Item, US_FUTURES

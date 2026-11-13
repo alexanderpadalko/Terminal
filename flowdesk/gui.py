@@ -817,10 +817,6 @@ class CandleChart(QWidget):
         self._paint_vwap_price_tags(p,context,last_price_y,
                                     hover_on_chart and abs(self.cursor_y-last_price_y)<22,
                                     hover_on_chart)
-        p.setPen(colors["text"])
-        p.setFont(QFont("Segoe UI", 8))
-        p.drawText(QRectF(self.x0, self.height() - 32, self.width() - 170, 20), 0,
-                   "Перетащи: график / время / цену · Влево за последней свечой: пустое пространство · End: последние")
 
     def _paint_vwap_price_tags(self,p,context,last_price_y,price_hidden,hover_on_chart):
         """Draw latest session and previous VWAP on the right price ruler."""

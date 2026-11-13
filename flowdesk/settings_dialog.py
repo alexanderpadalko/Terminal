@@ -31,8 +31,9 @@ class ColorButton(QPushButton):
 class SettingsDialog(QDialog):
     applied=Signal(object,object)
 
-    def __init__(self,indicator,application,parent=None):
+    def __init__(self,indicator,application,parent=None,*,finam_only=False,token_action=None):
         super().__init__(parent)
+        self.finam_only=finam_only
         self.setWindowTitle('Настройки FlowDesk · TradingView v2.11')
         self.resize(860,690)
         self.controls={}
@@ -60,13 +61,23 @@ class SettingsDialog(QDialog):
             self.tabs.addTab(scroll,group)
         app_widget=QWidget()
         form=QFormLayout(app_widget)
-        self.auto=QCheckBox()
-        self.auto.setChecked(application.auto_updates)
-        form.addRow('Автоматическое обновление Finam Trade API',self.auto)
-        self.http=QCheckBox()
-        self.http.setChecked(application.allow_http)
-        self.http.setToolTip('Разрешить HTTP-загрузку истории и резервные свечи; без галочки — WebSocket/кэш.')
-        form.addRow('Разрешить HTTP (история и резерв)',self.http)
+        self.auto=None
+        self.http=None
+        if not finam_only:
+            # Older local/CSV window keeps its original configurable options.
+            self.auto=QCheckBox()
+            self.auto.setChecked(application.auto_updates)
+            form.addRow('Автоматическое обновление Finam Trade API',self.auto)
+            self.http=QCheckBox()
+            self.http.setChecked(application.allow_http)
+            self.http.setToolTip('Разрешить HTTP-загрузку истории и резервные свечи; без галочки — WebSocket/кэш.')
+            form.addRow('Разрешить HTTP (история и резерв)',self.http)
+        if finam_only and token_action is not None:
+            self.token_button=QPushButton('Изменить токен Finam')
+            self.token_button.setToolTip(
+                'Secret key хранится в хранилище Windows; в настройках не отображается.')
+            self.token_button.clicked.connect(lambda: token_action(self))
+            form.addRow('Доступ к Finam Trade API',self.token_button)
         self.refresh=QSpinBox()
         self.refresh.setRange(10,3600)
         self.refresh.setSuffix(' с')
@@ -115,7 +126,10 @@ class SettingsDialog(QDialog):
             elif spec['type']=='color':value=control.value
             else:value=control.currentText()
             values[spec['variable']]=value
-        return IndicatorSettings(values),ApplicationSettings(self.auto.isChecked(),self.refresh.value(),self.panel.isChecked(),self.http.isChecked())
+        return IndicatorSettings(values),ApplicationSettings(
+            True if self.finam_only else self.auto.isChecked(),
+            self.refresh.value(),self.panel.isChecked(),
+            True if self.finam_only else self.http.isChecked())
 
     def apply(self):
         self.applied.emit(*self.values())
@@ -132,7 +146,9 @@ class SettingsDialog(QDialog):
             elif spec['type'] in ('int','float'):control.setValue(value)
             elif spec['type']=='color':control.set_value(value)
             else:control.setCurrentText(value)
-        self.auto.setChecked(True)
+        if self.auto is not None:
+            self.auto.setChecked(True)
         self.refresh.setValue(60)
         self.panel.setChecked(False)
-        self.http.setChecked(False)
+        if self.http is not None:
+            self.http.setChecked(False)

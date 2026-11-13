@@ -43,6 +43,26 @@ class FakeAPI:
 
 
 class TestFinamAPI(unittest.TestCase):
+    def test_new_token_invalidates_prior_account_scoped_session_cache(self):
+        api=FinamAPI(secret_reader=lambda:"local_secret")
+        api._jwt="previous_access_key"
+        api._expiry=float("inf")
+        api._account_ids=["previous_account"]
+        api.permissions=[{"mic":"XCME","delay_minutes":15}]
+        api._asset_details={"NQZ26@XCME":{"expiration_date":"2026-12-18"}}
+        api._asset_ticks={"NQZ26@XCME":0.25}
+        api._exact_symbols={"NQZ26@XCME":"NQZ26@XCME"}
+        api._asset_retry_after={"NQZ26@XCME":100000.0}
+        api.invalidate_session()
+        self.assertEqual(api._jwt,"")
+        self.assertEqual(api._expiry,0.0)
+        self.assertEqual(api._account_ids,[])
+        self.assertEqual(api.permissions,[])
+        self.assertEqual(api._asset_details,{})
+        self.assertEqual(api._asset_ticks,{})
+        self.assertEqual(api._asset_retry_after,{})
+        self.assertEqual(api._exact_symbols,{})
+
     def test_ticker_mic_required(self):
         self.assertEqual(symbol_name("aapl","xnas"),"AAPL@XNAS")
         for pair in (("AAPL",""),("a/b","xnas"),("AAPL","TQBR;;;")):
