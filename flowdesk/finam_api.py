@@ -119,6 +119,7 @@ class FinamAPI:
         self._jwt = ""
         self._expiry = 0.0
         self.permissions = []
+        self._account_ids = []  # TokenDetails only; never in logs/UI/reports.
         self._exact_symbols = {}
         self._asset_ticks = {}
         self._asset_retry_after = {}  # throttle optional metadata errors
@@ -175,8 +176,13 @@ class FinamAPI:
             try:
                 details = self._json("POST", "/v1/sessions/details", {"token": token})
                 self.permissions = details.get("md_permissions") or []
+                account_ids=details.get("account_ids")
+                self._account_ids=([account for account in account_ids
+                                    if isinstance(account,str) and account]
+                                   if isinstance(account_ids,list) else [])
             except FinamAPIError:
                 self.permissions = []
+                self._account_ids = []
             return token
 
     def market_delay_minutes(self, mic):
@@ -251,7 +257,19 @@ class FinamAPI:
             if key in self._asset_details:
                 return self._asset_details[key]
         path="/v1/assets/"+quote(self.exchange_symbol(symbol),safe="")
-        detail=self._readonly_asset_get(path)
+        try:
+            detail=self._readonly_asset_get(path)
+        except FinamAPIError as exc:
+            if exc.http_status not in (400,404):
+                raise
+            with self._lock:
+                ids=list(self._account_ids)
+            if len(ids)!=1:
+                raise  # Ambiguous or missing account: do not guess.
+            # Finam's documented GetAsset query accepts account_id. Retry
+            # once only after 400/404; no additional market-data requests.
+            scoped=path+"?"+urlencode({"account_id":ids[0]})
+            detail=self._readonly_asset_get(scoped)
         if not isinstance(detail,dict):
             raise FinamAPIError("Finam вернул неверную карточку инструмента")
         with self._lock:
