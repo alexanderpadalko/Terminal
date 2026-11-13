@@ -73,7 +73,7 @@ class TestSettingsGui(unittest.TestCase):
         available=popup.percent.lineEdit().width()
         needed=popup.percent.fontMetrics().horizontalAdvance("100%")
         self.assertGreater(available,needed+12)
-        popup.percent.setValue(opacity_percent(button.value))
+        popup.percent.setValue(0)
         # Initially the original up-color is a real swatch; it is marked.
         selected=[swatch for swatch,rgb in popup.swatches if swatch.isChecked()]
         self.assertEqual(len(selected),1)
