@@ -214,7 +214,7 @@ def ice_brent_dates(html):
             continue
         if columns is None or max(columns)>=len(cells):
             continue
-        month=re.fullmatch(r"([A-Za-z]{3})(\\d{2})",cells[columns[0]].strip())
+        month=re.fullmatch(r"([A-Za-z]{3})(\d{2})",cells[columns[0]].strip())
         if not month or month.group(1).title() not in MONTH_NAMES:
             continue
         year=2000+int(month.group(2))
