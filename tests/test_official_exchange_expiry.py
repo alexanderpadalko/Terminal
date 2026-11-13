@@ -87,6 +87,41 @@ class TestOfficialExchangeCalendar(unittest.TestCase):
         self.assertNotIn((2027,9),dates)
         self.assertNotIn((2027,12),dates)
 
+    def test_cme_rejects_micro_and_conflicting_contract_identity(self):
+        calendar={"contracts":[
+            {"contractSymbol":"MNQZ26","contractMonth":"202612",
+             "lastTradeDate":"2026-12-17"},
+            {"contractSymbol":"NQZ26","contractMonth":"202703",
+             "lastTradeDate":"2026-12-18"},
+            {"contractSymbol":"NQZ26","symbol":"ESZ26",
+             "lastTradeDate":"2026-12-18"},
+            {"contractSymbol":"NQH27","contractMonth":"202703",
+             "lastTradeDate":"2027-03-19"}
+        ]}
+        dates=cme_calendar_dates(calendar,root="NQ",reference_year=2026)
+        self.assertNotIn((2026,12),dates)
+        self.assertEqual(dates[(2027,3)],date(2027,3,19))
+
+    def test_cme_http_status_is_sanitized(self):
+        from urllib.error import HTTPError
+        def forbidden(_):
+            raise HTTPError("https://secret.example/token=do-not-log",
+                            403,"do-not-log",None,None)
+        official=OfficialExpiry(fetch=forbidden,reference_year=2026)
+        day,reason=official.get("NQZ26@XCME")
+        self.assertIsNone(day)
+        self.assertIn("HTTP 403",reason)
+        self.assertNotIn("secret",reason)
+        self.assertNotIn("do-not-log",reason)
+
+    def test_empty_protobuf_timestamp_is_not_expiry(self):
+        self.assertIsNone(expiry_date({"future_details":{
+            "expiration_date":{"seconds":"0","nanos":0}
+        }},mic="XCME"))
+        self.assertIsNone(expiry_date({"future_details":{
+            "expiration_date":{"seconds":"1","nanos":1000000000}
+        }},mic="XCME"))
+
     def test_cme_official_get_uses_exchange_domain_and_fetches_once(self):
         calls=[]
         def fetch(url):
