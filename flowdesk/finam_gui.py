@@ -60,6 +60,19 @@ class FinamLoadWorker(QThread):
             result = self.service.view(self.ticker,self.mic,self.timeframe,
                 allow_http=self.allow_http,refresh=self.refresh,
                 settings=self.settings,progress=self.progress.emit)
+            if self.isInterruptionRequested():
+                return
+            # Asset metadata is read-only and independent of the HTTP *candle*
+            # checkbox. Resolve its true tick size in the worker, never on Qt.
+            getter = getattr(getattr(self.service, "api", None), "asset_tick_size", None)
+            if callable(getter):
+                try:
+                    step = getter(symbol_name(self.ticker,self.mic))
+                except Exception:
+                    step = None  # Price data may still load from the local cache.
+                if step is not None:
+                    analysis,parents,info=result
+                    result=(analysis,parents,{**info,"price_tick_size":step})
             if not self.isInterruptionRequested():
                 self.loaded.emit(*result)
         except Exception as exc:
@@ -431,6 +444,8 @@ class FinamWindow(QMainWindow):
         except ValueError as exc:
             self.status.setText(str(exc));return
         request=(ticker,mic,self.tf.currentText(),refresh,tuple(events))
+        if self.current != (ticker,mic):
+            self.chart.set_price_tick(None)
         self.chart.set_exchange(mic,ticker)
         self.current=(ticker,mic)
         self.current_view=request[:3]
@@ -461,6 +476,8 @@ class FinamWindow(QMainWindow):
         self.displayed_view=self.current_view
         self.chart.instrument_header=info["symbol"]+"@"+info["board"]+" · Finam"
         self.chart.set_exchange(info["board"],info["symbol"])
+        # Unknown step must never silently inherit the previous instrument's.
+        self.chart.set_price_tick(info.get("price_tick_size"))
         self.chart.set_analysis(main,parents)
         self.chart.empty_text=""
         self.status.setText("Finam · "+info["tf"]+" · "+str(len(main.candles))+

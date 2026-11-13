@@ -40,7 +40,8 @@ from .settings import IndicatorSettings,ApplicationSettings,SettingsStore,Memory
 from .settings_dialog import SettingsDialog,qcolor
 from .chart_indicators import vwap_series
 from .price_format import price_text
-from .indicator_paint import draw_market,draw_vwap,draw_overlays,font as indicator_font
+from .indicator_paint import (draw_market,draw_vwap,draw_overlays,font as indicator_font,
+                              vwap_axis_levels,place_vwap_axis_tags)
 from .cancellation import Cancelled, checkpoint, scope
 from .lifecycle import ShutdownWatchdog
 from .engine import Analysis, analyze
@@ -264,6 +265,7 @@ class CandleChart(QWidget):
         self.visual_theme = "tv"
         self.instrument_header = "DEMO · SYNTHETIC"
         self.exchange = LEGACY_MOSCOW_CLOCK
+        self.display_price_tick = None  # Finam GetAsset metadata; view-only precision
         self.empty_text = 'Выберите инструмент или откройте CSV'
         self._zone_labels = []
         self.fvg_settings = DisplaySettings()
@@ -368,8 +370,23 @@ class CandleChart(QWidget):
             self.restore_view(saved)
         self.update()
 
+    def set_price_tick(self, tick):
+        """Override the presentation step; do not mutate the Pine calculations."""
+        try:
+            numeric = float(tick) if tick is not None else None
+            if numeric is not None and (not math.isfinite(numeric) or numeric <= 0):
+                numeric = None
+        except (TypeError,ValueError,OverflowError):
+            numeric = None
+        if self.display_price_tick != numeric:
+            self.display_price_tick = numeric
+            self._surface_key = None
+            self.update()
+
     def format_price(self,value):
-        return price_text(value,self.analysis.minimum_tick if self.analysis else .01)
+        step=(self.display_price_tick if self.display_price_tick is not None else
+              self.analysis.minimum_tick if self.analysis else .01)
+        return price_text(value,step,decimal_comma=True)
 
     def window(self):
         n = len(self.analysis.candles) if self.analysis else 0
@@ -572,7 +589,7 @@ class CandleChart(QWidget):
 
     def paintEvent(self, event: QPaintEvent):
         key=(id(self.analysis),id(self.fvg_plan),id(self.flow_plan),id(self.indicator_settings),
-             self.width(),self.height(),self.devicePixelRatioF(),self.visual_theme,self.exchange,
+             self.width(),self.height(),self.devicePixelRatioF(),self.visual_theme,self.exchange,self.display_price_tick,
              self.viewport.count,self.viewport.offset,self.viewport.right_padding,
              tuple(self.price_range) if self.price_range is not None else None,
              self.include_flow_in_scale,self.show_structure,self.show_fvg,self.show_flow,self.show_previous,self.empty_text)
@@ -797,10 +814,44 @@ class CandleChart(QWidget):
                 tag = QRectF(tag_x, self.bottom + 5, tag_width, 22)
                 p.fillRect(tag, colors["tooltip_bg"])
                 p.drawText(tag, int(Qt.AlignmentFlag.AlignCenter), caption)
+        self._paint_vwap_price_tags(p,context,last_price_y,
+                                    hover_on_chart and abs(self.cursor_y-last_price_y)<22,
+                                    hover_on_chart)
         p.setPen(colors["text"])
         p.setFont(QFont("Segoe UI", 8))
         p.drawText(QRectF(self.x0, self.height() - 32, self.width() - 170, 20), 0,
                    "Перетащи: график / время / цену · Влево за последней свечой: пустое пространство · End: последние")
+
+    def _paint_vwap_price_tags(self,p,context,last_price_y,price_hidden,hover_on_chart):
+        """Draw latest session and previous VWAP on the right price ruler."""
+        _,_,_,_,_,y,_,_=context
+        levels=vwap_axis_levels(self)
+        if not levels:
+            return
+        # Current price and crosshair retain priority; nudge VWAP labels rather
+        # than allowing one tag to conceal another. Connector denotes true price.
+        occupied=[]
+        if not price_hidden:
+            occupied.append((last_price_y,20))
+        if hover_on_chart:
+            occupied.append((self.cursor_y,20))
+        for label,value,color,tag_y,actual_y in place_vwap_axis_tags(
+                levels,y,self.top,self.bottom,occupied):
+            shade=QColor(color)
+            shade.setAlpha(max(215,shade.alpha()))
+            p.setPen(QPen(shade,1))
+            p.drawLine(QPointF(self.x1-4,actual_y),QPointF(self.x1+3,actual_y))
+            if abs(tag_y-actual_y)>1:
+                p.drawLine(QPointF(self.x1+3,actual_y),QPointF(self.x1+5,tag_y))
+            tag=QRectF(self.x1+3,tag_y-14,82,28)
+            p.fillRect(tag,shade)
+            p.setPen(QColor("#101820") if shade.lightness()>150 else QColor("#ffffff"))
+            p.setFont(QFont("Segoe UI",7))
+            p.drawText(QRectF(self.x1+4,tag_y-12,80,11),
+                       int(Qt.AlignmentFlag.AlignCenter),label)
+            p.setFont(QFont("Segoe UI",9,QFont.Weight.Bold))
+            p.drawText(QRectF(self.x1+4,tag_y-1,80,12),
+                       int(Qt.AlignmentFlag.AlignCenter),self.format_price(value))
 
     def _draw_zone(self, p, x0, x1, y0, y1, side, broken, tf, stride, parent=False):
         """Draw transparent FVG with a right-aligned, collision-aware caption."""

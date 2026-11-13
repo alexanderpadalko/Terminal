@@ -77,6 +77,63 @@ def draw_vwap(chart,p,x,y,first,last):
                 p.drawLine(QPointF(x(start),y(value)),QPointF(x(end-.5),y(value)))
 
 
+def vwap_axis_levels(chart):
+    """Latest active VWAP and applicable previous-session level for price ruler.
+
+    The previous-series tuple is [first_index, end_exclusive, value] and
+    belongs only to bars inside that interval. No previous session means
+    no fabricated price label.
+    """
+    cfg=chart.indicator_settings
+    analysis=chart.analysis
+    if (analysis is None or not cfg.vwapEnabled or
+            analysis.timeframe not in ("M1","M5") or not analysis.candles):
+        return []
+    index=len(analysis.candles)-1
+    levels=[]
+    if index < len(chart.vwap) and chart.vwap[index] is not None:
+        levels.append(("VWAP",chart.vwap[index],qcolor(cfg.vwapColor)))
+    if cfg.vwapShowPrevious:
+        for start,end,value in reversed(chart.vwap_previous):
+            if start <= index < end and value is not None:
+                levels.append(("VWAP-1",value,qcolor(cfg.vwapPreviousColor)))
+                break
+    return levels
+
+
+def place_vwap_axis_tags(levels,project_y,top,bottom,obstacles=()):
+    """Place two-line price markers without obscuring last price/crosshair.
+
+    Returns (label,value,color,draw_y,real_y). Real price location is retained
+    so an offset tag can be connected to the true scale level.
+    Obstacles are (center_y, height) pairs (e.g. last-price/crosshair tags).
+    """
+    occupied=list(obstacles)
+    rows=[]
+    height=28
+    for label,value,color in levels:
+        true_y=float(project_y(value))
+        if not top <= true_y <= bottom:
+            continue
+        start=max(top+height/2,min(bottom-height/2,true_y))
+        # Prefer the true level; shift only when another label collides.
+        positions=[start]
+        for distance in range(1,9):
+            positions.extend((start-distance*18,start+distance*18))
+        position=None
+        for candidate in sorted(set(positions),key=lambda p:(abs(p-start),p)):
+            if not top+height/2 <= candidate <= bottom-height/2:
+                continue
+            if all(abs(candidate-cy) >= (height+other_h)/2+3 for cy,other_h in occupied):
+                position=candidate
+                break
+        if position is None:
+            continue
+        rows.append((label,value,color,position,true_y))
+        occupied.append((position,height))
+    return rows
+
+
 def draw_overlays(chart,p):
     cfg=chart.indicator_settings
     if cfg.currentFvgTableEnabled:

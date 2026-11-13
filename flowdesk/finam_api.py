@@ -17,6 +17,7 @@ import threading
 import time
 
 from .market_data import Candle, normalize
+from .price_format import tick_from_asset
 
 BASE_URL = "https://api.finam.ru"
 CREDENTIAL_SERVICE = "FlowDesk.FinamTradeAPI"
@@ -119,6 +120,8 @@ class FinamAPI:
         self._expiry = 0.0
         self.permissions = []
         self._exact_symbols = {}
+        self._asset_ticks = {}
+        self._asset_retry_after = {}  # throttle optional metadata errors
 
     def exchange_symbol(self, normalized_symbol):
         """Preserve exact ticker casing in Finam API requests (e.g. SiZ6)."""
@@ -229,6 +232,40 @@ class FinamAPI:
             visited.add(str(next_cursor))
             cursor=str(next_cursor)
         raise FinamAPIError("Finam: справочник не завершён, лимит 150 страниц")
+
+    def asset_tick_size(self, symbol):
+        """Read display precision from GET /v1/assets/{symbol}; no price-history HTTP.
+
+        Uses Finam's min_step / 10**decimals and caches results per symbol.
+        Missing or unavailable metadata falls back to the chart default.
+        Network calls take place in a background FinamLoadWorker, not Qt GUI.
+        """
+        if not SAFE_SYMBOL.fullmatch(symbol):
+            raise ValueError("Некорректный символ Finam")
+        key = symbol.upper()
+        with self._lock:
+            if key in self._asset_ticks:
+                return self._asset_ticks[key]
+            if time.monotonic() < self._asset_retry_after.get(key,0):
+                return None
+        path = "/v1/assets/" + quote(self.exchange_symbol(symbol), safe="")
+        try:
+            try:
+                asset = self._json("GET", path, token=self.access_key())
+            except FinamAPIError as exc:
+                if exc.http_status != 401:
+                    raise
+                asset = self._json("GET", path, token=self.access_key(force=True))
+        except FinamAPIError:
+            # A metadata outage must not stall each incoming WebSocket bar.
+            with self._lock:
+                self._asset_retry_after[key] = time.monotonic()+120
+            raise
+        step = tick_from_asset(asset)
+        tick = float(step) if step is not None else None
+        with self._lock:
+            self._asset_ticks[key] = tick
+        return tick
 
     def bars(self, symbol, timeframe, *, now=None):
         if not SAFE_SYMBOL.fullmatch(symbol) or timeframe not in FRAMES:
