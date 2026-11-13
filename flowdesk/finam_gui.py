@@ -296,7 +296,7 @@ class FinamWindow(QMainWindow):
         if entry.verified and "экспирация не подтверждена" in entry.source:
             state+=" · эксп. ?"
         elif entry.verified and group!=RU_STOCKS:
-            known=re.search(r"(?:действует до |новая дата )(\\d{4}-\\d{2}-\\d{2})",
+            known=re.search(r"(?:действует до |новая дата )(\d{4}-\d{2}-\d{2})",
                             entry.source)
             if known:
                 stamp=known.group(1)
@@ -399,6 +399,52 @@ class FinamWindow(QMainWindow):
         if pending_header is not None:
             pending_header.setHidden(visible_count==0)
 
+    def _request_screener_scan(self):
+        if self.screener_worker is not None:
+            self.screener_rescan_requested=True
+            self.screener_worker.requestInterruption()
+        else:
+            self._start_screener()
+
+    def _start_screener(self):
+        if (self.closing or self.screener_worker is not None or
+                not self.catalog_ready or not read_secret()):
+            return
+        entries=tuple(row for group in (US_FUTURES,RU_STOCKS,RU_FUTURES)
+                      for row in self.universe[group])
+        if not entries:
+            return
+        self.screener_rescan_requested=False
+        worker=FinamScreenerWorker(self.service,entries,
+                                  self.indicator_settings,self)
+        self.screener_worker=worker
+        worker.row.connect(self._screener_row)
+        worker.finished.connect(self._screener_finished)
+        worker.start()
+
+    def _screener_row(self,result):
+        if self.closing or self.screener_rescan_requested:
+            return
+        if not isinstance(result,ScanResult):
+            return
+        # A rollover may change the exact ticker@MIC while the scan runs.
+        if not is_in_universe(result.symbol,self.universe):
+            return
+        self.screen_results[result.symbol.upper()]=result
+        self._populate_universe()
+
+    def _screener_finished(self):
+        worker=self.sender()
+        if worker is not self.screener_worker:
+            return
+        self.screener_worker=None
+        worker.deleteLater()
+        if self.closing:
+            self._finish_close()
+        elif self.screener_rescan_requested:
+            self.screener_rescan_requested=False
+            QTimer.singleShot(0,self._start_screener)
+
     def _refresh_catalog(self):
         if self.closing or not read_secret() or self.catalog_worker is not None:
             return
@@ -426,7 +472,10 @@ class FinamWindow(QMainWindow):
                 for contract in self.universe[group]
             ]
         self.moex_status=payload.get("moex_status","")
+        self.screen_results.clear()  # Do not reuse stale contract/roll signals.
         self._populate_universe()
+        self._request_screener_scan()
+        self.screener_timer.start()
         if self._pending_restore:
             restored=self._pending_restore
             self._pending_restore=None
@@ -489,6 +538,7 @@ class FinamWindow(QMainWindow):
         self._schedule_http()
         self._start_stream()
         self._load(refresh=False)
+        self._request_screener_scan()
 
     def _token_dialog(self,parent=None):
         token, ok=QInputDialog.getText(parent or self,"Finam Trade API",
@@ -510,6 +560,8 @@ class FinamWindow(QMainWindow):
         self._start_stream()
         self._refresh_catalog()
         self._schedule_http()
+        self.screen_results.clear()
+        self._request_screener_scan()
 
     def _startup(self):
         if not read_secret():
@@ -793,19 +845,25 @@ class FinamWindow(QMainWindow):
             ("\nПоследняя ошибка: "+self.stream_error if self.stream_error else ""))
 
     def _finish_close(self):
-        if self.loader is None and self.stream is None and self.catalog_worker is None and not getattr(self,"_retiring",[]):
+        if (self.loader is None and self.stream is None and
+                self.catalog_worker is None and self.screener_worker is None and
+                not getattr(self,"_retiring",[])):
             QApplication.instance().quit()
 
     def closeEvent(self,event):
         self.closing=True
         self.feed_timer.stop()
         self.http_timer.stop()
+        self.screener_timer.stop()
         self._stop_stream()
+        if self.screener_worker is not None:
+            self.screener_worker.requestInterruption()
         if self.loader is not None:
             self.loader.requestInterruption()
         if self.catalog_worker is not None:
             self.catalog_worker.requestInterruption()
-        if self.loader is not None or self.catalog_worker is not None or getattr(self,"_retiring",[]):
+        if (self.loader is not None or self.catalog_worker is not None or
+                self.screener_worker is not None or getattr(self,"_retiring",[])):
             event.ignore()
             self.hide()
         else:
