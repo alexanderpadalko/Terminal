@@ -149,6 +149,27 @@ class TestFinamAPI(unittest.TestCase):
         self.assertEqual(len(asset_gets),2)
         self.assertNotIn("secret_only_local",str(result))
 
+    def test_asset_expiry_cache_is_cleared_for_recheck(self):
+        state={"date":"2026-12-18","calls":0}
+        def opener(req,timeout):
+            state["calls"]+=1
+            class Response:
+                def __enter__(self):return self
+                def __exit__(self,*unused):return None
+                def read(self):
+                    return json.dumps({"future_details":{
+                        "expiration_date":state["date"]}}).encode()
+            return Response()
+        api=FinamAPI(opener=opener,secret_reader=lambda:"local")
+        api._jwt,api._expiry="dummy",float("inf")
+        self.assertEqual(api.asset_details("NQZ26@XCME")["future_details"]["expiration_date"],"2026-12-18")
+        state["date"]="2026-12-19"
+        self.assertEqual(api.asset_details("NQZ26@XCME")["future_details"]["expiration_date"],"2026-12-18")
+        self.assertEqual(state["calls"],1)
+        api.clear_asset_details_cache()
+        self.assertEqual(api.asset_details("NQZ26@XCME")["future_details"]["expiration_date"],"2026-12-19")
+        self.assertEqual(state["calls"],2)
+
     def test_getasset_never_guesses_account_or_retries_http_403(self):
         for ids,code in ((["a","b"],404),(["a"],403),([],404)):
             calls=[]
