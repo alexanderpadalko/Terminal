@@ -10,7 +10,8 @@ from PySide6.QtCore import QSettings, QThread, QTimer, Qt, Signal
 from PySide6.QtWidgets import (
     QApplication, QCheckBox, QComboBox, QHBoxLayout, QLabel, QLineEdit,
     QMainWindow, QMessageBox, QPushButton, QVBoxLayout, QWidget,
-    QListWidget, QListWidgetItem, QInputDialog, QSplitter, QFormLayout, QFrame
+    QListWidget, QListWidgetItem, QInputDialog, QSplitter, QFormLayout, QFrame,
+    QDialog, QPlainTextEdit
 )
 
 from . import __version__
@@ -235,6 +236,12 @@ class FinamWindow(QMainWindow):
         self.universe_info.setWordWrap(True)
         self.universe_info.setStyleSheet("color:#a2a9b3;font-size:11px")
         right.addWidget(self.universe_info)
+        self.expiry_report_button=QPushButton("Диагностика экспираций США",side)
+        self.expiry_report_button.setToolTip(
+            "Показать причину отсутствия даты у каждого фьючерса. "
+            "Отчёт не содержит ключей Finam, ответов API или токенов.")
+        self.expiry_report_button.clicked.connect(self._show_expiry_report)
+        right.addWidget(self.expiry_report_button)
         self._populate_universe()
         split.addWidget(side)
         split.setStretchFactor(0,1)
@@ -266,7 +273,7 @@ class FinamWindow(QMainWindow):
                        " · каталог недоступен" if self.catalog_error and group!=RU_STOCKS else
                        " · не подтверждён Finam" if not entry.verified else "")
                 if entry.verified and "экспирация не подтверждена" in entry.source:
-                    state+=" · дата экспирации неизвестна"
+                    state+=" · эксп. ?"
                 row=QListWidgetItem(entry.label+" · "+entry.name+state)
                 row.setData(Qt.ItemDataRole.UserRole,entry.symbol if entry.verified else "")
                 if not entry.verified:
@@ -303,6 +310,49 @@ class FinamWindow(QMainWindow):
             visible_count+=int(matched)
         if pending_header is not None:
             pending_header.setHidden(visible_count==0)
+
+    def _expiry_report_text(self):
+        """Sanitized human-readable summary; never copy Finam responses/tokens."""
+        lines=["FlowDesk "+str(__version__)+" · экспирации фьючерсов США",
+               "Источник торговых инструментов: активный каталог Finam",
+               "Проверка: Finam GetAsset → официальный календарь, если нет даты",
+               "Без подтверждённой даты автопереход отключён.",
+               ""]
+        for entry in self.universe[US_FUTURES]:
+            label=entry.label+" · "+entry.name
+            if not entry.verified:
+                reason=("каталог недоступен" if self.catalog_error else
+                        "нет точного действующего тикера в каталоге Finam")
+                lines.append(label+"\n  "+reason)
+                continue
+            reason=entry.source or "нет результата проверки даты"
+            lines.append(label+" ["+entry.symbol+"]\n  "+reason)
+        return "\n".join(lines)
+
+    def _show_expiry_report(self):
+        """Expose all eight expiry decisions, including the source and error."""
+        dialog=QDialog(self)
+        dialog.setWindowTitle("FlowDesk · Диагностика экспираций")
+        dialog.resize(670,490)
+        layout=QVBoxLayout(dialog)
+        report=QPlainTextEdit(dialog)
+        report.setReadOnly(True)
+        report.setPlainText(self._expiry_report_text())
+        layout.addWidget(report)
+        actions=QHBoxLayout()
+        copy_button=QPushButton("Копировать отчёт",dialog)
+        copy_button.clicked.connect(
+            lambda: QApplication.clipboard().setText(report.toPlainText()))
+        actions.addWidget(copy_button)
+        refresh_button=QPushButton("Проверить повторно",dialog)
+        refresh_button.clicked.connect(lambda: (dialog.accept(),
+                                                self._refresh_catalog()))
+        actions.addWidget(refresh_button)
+        close_button=QPushButton("Закрыть",dialog)
+        close_button.clicked.connect(dialog.accept)
+        actions.addWidget(close_button)
+        layout.addLayout(actions)
+        dialog.exec()
 
     def _refresh_catalog(self):
         if self.closing or not read_secret() or self.catalog_worker is not None:
@@ -344,7 +394,7 @@ class FinamWindow(QMainWindow):
                 self.ui_prefs.setValue("ticker",ticker)
                 self.ui_prefs.setValue("mic",mic)
                 if matched.upper()!=restored.upper():
-                    self.status.setText("Контракт автоматически переключён по экспирации и оборотам: "+matched)
+                    self.status.setText("Контракт автоматически переключён за день до экспирации: "+matched)
             else:
                 self.status.setText("Сохранённый контракт недоступен. Открыта первая акция из топ-20.")
                 fallback=next((i for i in self.universe[RU_STOCKS] if i.verified),None)
