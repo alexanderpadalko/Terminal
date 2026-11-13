@@ -134,6 +134,18 @@ class TestFinamGui(unittest.TestCase):
         self.assertIn("поле даты пустое",report)
         self.assertNotIn("Bearer ",report)
 
+    def test_known_future_expiry_is_visible_in_compact_sidebar(self):
+        from flowdesk.finam_universe import Item, US_FUTURES
+        entry=self.window.universe[US_FUTURES][0]
+        self.window.universe[US_FUTURES][0]=Item(
+            entry.label,entry.name,entry.group,"NQZ26@XCME",True,
+            "действует до 2026-12-18 · Finam GetAsset")
+        self.window._populate_universe()
+        labels=[self.window.examples.item(i).text()
+                for i in range(self.window.examples.count())]
+        self.assertTrue(any("NQZ2026" in label and "до 18.12" in label
+                            for label in labels))
+
     def test_unlisted_stock_cannot_replace_selected_chart(self):
         self.select("SBER")
         self.settle()
