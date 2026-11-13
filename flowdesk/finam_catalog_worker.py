@@ -13,6 +13,7 @@ from .finam_universe import (
     cached_top20, US_CONTRACTS, RU_CONTRACTS,
 )
 from .finam_rotation import RollState, resolve_futures
+from .exchange_expiry import OfficialExpiry
 from .moex_reference import refresh_top20, MoexFuturesDates
 from .watchlist import WatchlistService
 
@@ -23,12 +24,13 @@ class FinamCatalogWorker(QThread):
     progress=Signal(str)
 
     def __init__(self,api,parent=None,*,watchlist=None,roll_state=None,
-                 moex_dates=None,clock=None):
+                 moex_dates=None,clock=None,official_expiry=None):
         super().__init__(parent)
         self.api=api
         self.watchlist=watchlist or WatchlistService()
         self.roll_state=roll_state or RollState()
         self.moex_dates=moex_dates or MoexFuturesDates()
+        self.official_expiry=official_expiry or OfficialExpiry()
         self.clock=clock or (lambda:datetime.now(timezone.utc))
 
     def run(self):
@@ -71,7 +73,7 @@ class FinamCatalogWorker(QThread):
             previous=self.roll_state.load()
             futures,selections,notes=resolve_futures(
                 assets,self.api,now=self.clock(),previous=previous,
-                expiry_overrides=expiry_overrides,
+                expiry_overrides=expiry_overrides,official=self.official_expiry,
                 cancelled=self.isInterruptionRequested,
                 progress=self.progress.emit)
             if self.isInterruptionRequested():

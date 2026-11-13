@@ -216,7 +216,7 @@ def _preferred_candidate(contract, eligible, saved):
 
 
 def resolve_contract(contract, assets, api, *, today, now, saved="", cancelled=lambda:False,
-                     quote_fn=None, expiry_overrides=None):
+                     quote_fn=None, expiry_overrides=None, official=None):
     """Select current series until the last calendar day before expiry.
 
     Date-based rollover has priority over any quote statistics. Unknown expiry
@@ -250,6 +250,8 @@ def resolve_contract(contract, assets, api, *, today, now, saved="", cancelled=l
 
     verified=[]
     unknown=[]
+    errors={}
+    sources={}
     expiry_overrides=expiry_overrides or {}
     for key,symbol in sorted(entries.items()):
         if cancelled():
@@ -258,13 +260,42 @@ def resolve_contract(contract, assets, api, *, today, now, saved="", cancelled=l
         # Full GetAsset has the authoritative Finam expiry, while the
         # paginated list often omits its future_details.
         expiry=expiry_date(lookup.get(symbol.upper(),{}),mic=mic)
+        if expiry is not None:
+            sources[symbol.upper()]="Finam каталог"
         if expiry is None:
             try:
-                expiry=expiry_date(api.asset_details(symbol),mic=mic)
-            except Exception:
-                pass
+                payload=api.asset_details(symbol)
+                expiry=expiry_date(payload,mic=mic)
+                if expiry is None:
+                    errors[symbol.upper()]="Finam GetAsset: дата отсутствует"
+                else:
+                    sources[symbol.upper()]="Finam GetAsset"
+            except InterruptedError:
+                raise
+            except Exception as exc:
+                code=getattr(exc,"http_status",None)
+                errors[symbol.upper()]=(
+                    "Finam GetAsset: HTTP "+str(code)
+                    if isinstance(code,int) else
+                    "Finam GetAsset: "+type(exc).__name__)
         if expiry is None and contract.group=="ru":
             expiry=_date(expiry_overrides.get(symbol.upper()),mic=mic)
+            if expiry is not None:
+                sources[symbol.upper()]="MOEX LASTTRADEDATE"
+        if expiry is None and contract.group=="us" and official is not None:
+            try:
+                exchange_day,exchange_info=official.get(symbol)
+                if isinstance(exchange_day,date):
+                    expiry=exchange_day
+                    sources[symbol.upper()]=exchange_info
+                elif exchange_info:
+                    errors[symbol.upper()]=(errors.get(symbol.upper(),"Finam: нет даты")+
+                                            "; "+exchange_info)
+            except InterruptedError:
+                raise
+            except Exception as exc:
+                errors[symbol.upper()]=(errors.get(symbol.upper(),"Finam: нет даты")+
+                                         "; официальный календарь: "+type(exc).__name__)
         if expiry is None:
             unknown.append(symbol)
         elif expiry>=today:
@@ -280,10 +311,11 @@ def resolve_contract(contract, assets, api, *, today, now, saved="", cancelled=l
     if present is None and initial.upper() not in active_verified:
         present=allowed.get(initial.upper())
     if present is not None:
+        detail=errors.get(present.upper(),"нет подтверждённой даты")
+        status="экспирация не подтверждена; автопереход приостановлен; "+detail
         return RollResult(
-            Item(contract.display,contract.name,contract.group,present,True,
-                 "экспирация не подтверждена; автопереход приостановлен"),
-            present,"экспирация не подтверждена, переход приостановлен")
+            Item(contract.display,contract.name,contract.group,present,True,status),
+            present,status)
 
     chosen=_preferred_candidate(contract,verified,saved)
     if chosen is None:
@@ -293,14 +325,15 @@ def resolve_contract(contract, assets, api, *, today, now, saved="", cancelled=l
             "","нет подтверждённого действующего контракта")
 
     expiry,current=chosen
-    reason="действует до "+expiry.isoformat()
+    reason="действует до "+expiry.isoformat()+" · "+sources.get(current.upper(),"данные источника")
     venue=current.rsplit("@",1)[-1].upper()
     next_known=next(((end,sym) for end,sym in verified
                      if end>expiry and sym.rsplit("@",1)[-1].upper()==venue),None)
     if today>=expiry-timedelta(days=1):
         if next_known is not None:
             expiry,current=next_known
-            reason="переход за день до экспирации; новая дата "+expiry.isoformat()
+            reason=("переход за день до экспирации; новая дата "+expiry.isoformat()+
+                    " · "+sources.get(current.upper(),"данные источника"))
         else:
             reason="экспирация "+expiry.isoformat()+"; следующий контракт не подтверждён"
 
@@ -312,7 +345,8 @@ def resolve_contract(contract, assets, api, *, today, now, saved="", cancelled=l
 
 
 def resolve_futures(assets,api,*,today=None,now=None,previous=None,moex_volume=None,
-                    expiry_overrides=None,cancelled=lambda:False,progress=lambda msg:None):
+                    expiry_overrides=None,official=None,cancelled=lambda:False,
+                    progress=lambda msg:None):
     """Resolve 8 US + 10 RU rows using each exchange's local calendar date.
 
     moex_volume remains an unused compatibility parameter for older callers.
@@ -334,7 +368,7 @@ def resolve_futures(assets,api,*,today=None,now=None,previous=None,moex_volume=N
         try:
             result=resolve_contract(contract,assets,api,today=local_day,now=now,
                                     saved=previous.get(key,""),cancelled=cancelled,
-                                    expiry_overrides=expiry_overrides)
+                                    expiry_overrides=expiry_overrides,official=official)
         except InterruptedError:
             raise
         except Exception:
