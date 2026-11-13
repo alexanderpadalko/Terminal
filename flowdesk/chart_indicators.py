@@ -1,10 +1,11 @@
 """Qt-independent VWAP and current instrument summary for the pinned settings."""
 from .market_data import MOSCOW
+from .exchange_time import ExchangeClock
 from .publication import chart_cutoff,published_state
 
 
-def period_key(dt,anchor):
-    dt=dt.astimezone(MOSCOW)
+def period_key(dt,anchor,*,exchange: ExchangeClock | None=None):
+    dt=dt.astimezone(exchange.zone if exchange is not None else MOSCOW)
     if anchor=='Session':return dt.date()
     if anchor=='Week':return dt.isocalendar()[:2]
     if anchor=='Month':return dt.year,dt.month
@@ -15,23 +16,32 @@ def period_key(dt,anchor):
     raise ValueError(anchor)
 
 
-def vwap_series(candles,anchor='Session',source='hlc3'):
+def vwap_series(candles,anchor='Session',source='hlc3',*,exchange: ExchangeClock | None=None):
     values=[]
     previous=[]
     key=None
     pv=volume=0.0
     old=None
+    previous_close=None
     segment=None
+    zone=exchange.zone if exchange is not None else MOSCOW
     for i,bar in enumerate(candles):
-        next_key=period_key(bar.time,anchor)
+        # US "Session" includes BOTH premarket and postmarket: 04:00–20:00 ET,
+        # with a single reset at the next trading day's 04:00 ET. A Moscow
+        # midnight (16:00 EST) must never reset or hide that session's VWAP.
+        # Other anchors (Week/Month/...) use the exchange-local calendar.
+        if anchor=='Session' and exchange is not None and not exchange.within_vwap_session(bar.time):
+            values.append(None)
+            continue
+        next_key=period_key(bar.time,anchor,exchange=exchange)
         reset=key!=next_key
         if i and anchor in ('Decade','Century'):
-            current_year=bar.time.astimezone(MOSCOW).year
-            prior_year=candles[i-1].time.astimezone(MOSCOW).year
+            current_year=bar.time.astimezone(zone).year
+            prior_year=candles[i-1].time.astimezone(zone).year
             reset=current_year!=prior_year and current_year%(10 if anchor=='Decade' else 100)==0
         if i==0 or reset:
-            if i and values[-1] is not None:
-                old=values[-1]
+            if key is not None and previous_close is not None:
+                old=previous_close
                 segment=[i,len(candles),old]
                 if previous:previous[-1][1]=i
                 previous.append(segment)
@@ -46,7 +56,9 @@ def vwap_series(candles,anchor='Session',source='hlc3'):
         amount=max(0,bar.volume)
         pv+=price*amount
         volume+=amount
-        values.append(pv/volume if volume else None)
+        point=pv/volume if volume else None
+        values.append(point)
+        previous_close=point
     return values,previous[-50:]
 
 

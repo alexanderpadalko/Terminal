@@ -15,7 +15,8 @@ from PySide6.QtWidgets import (
 
 from . import __version__
 from .app_icon import application_icon, set_windows_application_id
-from .finam_api import read_secret, save_secret, delete_secret, symbol_name
+from .finam_api import read_secret, save_secret, delete_secret, symbol_name, parse_instant
+from .exchange_time import exchange_clock
 from .finam_market import FinamMarketService
 from .finam_stream import FinamStreamWorker
 from .gui import CandleChart, TimeframeBar
@@ -277,6 +278,19 @@ class FinamWindow(QMainWindow):
         self._load(refresh=False)
         self._start_stream()
 
+    @staticmethod
+    def _exchange_time(value, mic, *, seconds=False):
+        """Display sourced timestamps in the venue's timezone; never change OHLC."""
+        clock=exchange_clock(mic)
+        try:
+            stamp=value if isinstance(value,datetime) else parse_instant(value)
+            if stamp.tzinfo is None:
+                return str(value)  # Source has no explicit timezone: don't guess.
+            label=clock.format(stamp,seconds=seconds)
+            return label if clock.known else label+" (часовой пояс MIC не определён)"
+        except (ValueError,TypeError,AttributeError,OverflowError):
+            return str(value)
+
     def _load(self,refresh=False,events=()):
         if self.closing:
             return
@@ -285,6 +299,7 @@ class FinamWindow(QMainWindow):
         except ValueError as exc:
             self.status.setText(str(exc));return
         request=(ticker,mic,self.tf.currentText(),refresh,tuple(events))
+        self.chart.set_exchange(mic)
         self.current=(ticker,mic)
         self.current_view=request[:3]
         if self.displayed_view != self.current_view:
@@ -313,13 +328,15 @@ class FinamWindow(QMainWindow):
         self.analysis,self.parents=main,parents
         self.displayed_view=self.current_view
         self.chart.instrument_header=info["symbol"]+"@"+info["board"]+" · Finam"
+        self.chart.set_exchange(info["board"])
         self.chart.set_analysis(main,parents)
         self.chart.empty_text=""
         self.status.setText("Finam · "+info["tf"]+" · "+str(len(main.candles))+
             " свечей · "+info["warning"])
         delay=info.get("feed_delay_seconds",0)//60
-        self.feed.setText("Finam · наблюдение "+info["asof"]+" · разрешённая задержка "+
-                          str(delay)+" мин · только чтение")
+        self.feed.setText("Finam · наблюдение "+
+                          self._exchange_time(info["asof"],info["board"]) +
+                          " · разрешённая задержка "+str(delay)+" мин · только чтение")
         self._indicator()
 
     def _current_load_signal(self):
@@ -435,8 +452,10 @@ class FinamWindow(QMainWindow):
             q=event.quote
             last=q.get("last")
             if last is not None:
-                self.feed.setText(f"Finam WebSocket · {event.symbol}@{event.board} · цена {last} · "+
-                                  str(q.get("timestamp") or "время сделки не указано"))
+                instant=q.get("timestamp")
+                stamp=(self._exchange_time(instant,event.board,seconds=True)
+                       if instant is not None else "время сделки не указано")
+                self.feed.setText(f"Finam WebSocket · {event.symbol}@{event.board} · цена {last} · "+stamp)
         elif event.kind=="candles":
             for c in event.candles:
                 self.pending_bars[(event.timeframe,c.time)]=event.__class__(

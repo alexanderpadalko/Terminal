@@ -26,6 +26,7 @@ from . import __version__
 from .app_icon import application_icon, set_windows_application_id
 from .chart_view import ChartView, inside_mother_bars, time_axis_zoom_factor
 from .chart_time import candle_time_text
+from .exchange_time import LEGACY_MOSCOW_CLOCK, exchange_clock
 from .fvg_display import DisplaySettings, select_fvg_display
 from .flow_display import select_flow_display
 from .runtime_errors import record_exception, last_exception
@@ -261,6 +262,7 @@ class CandleChart(QWidget):
         self.show_previous = True
         self.visual_theme = "tv"
         self.instrument_header = "DEMO · SYNTHETIC"
+        self.exchange = LEGACY_MOSCOW_CLOCK
         self.empty_text = 'Выберите инструмент или откройте CSV'
         self._zone_labels = []
         self.fvg_settings = DisplaySettings()
@@ -299,6 +301,21 @@ class CandleChart(QWidget):
         self.visual_theme = theme
         self.update()
 
+    def set_exchange(self, mic: str):
+        """Change presentation/session VWAP without altering UTC OHLC or the view."""
+        clock=exchange_clock(mic)
+        if clock == self.exchange:
+            return
+        self.exchange=clock
+        self._vwap_key=None
+        self._surface_key=None
+        if self.analysis is not None:
+            cfg=self.indicator_settings
+            self.vwap,self.vwap_previous=vwap_series(
+                self.analysis.candles,cfg.vwapAnchor,cfg.vwapSource,exchange=self.exchange)
+            self._vwap_key=(cfg.vwapAnchor,cfg.vwapSource,self.exchange)
+        self.update()
+
     def set_analysis(self, analysis: Analysis, parents: dict[str, Analysis] | None = None):
         changed=(self.analysis is None or self.analysis.candles!=analysis.candles)
         self.analysis = analysis
@@ -307,9 +324,10 @@ class CandleChart(QWidget):
         self.fvg_settings=DisplaySettings(enabled=self.show_fvg,max_zones=cfg.fvgMaxZones,
             only_in_flow=cfg.fvgOnlyInFlow,show_lower=cfg.fvgShowM1 if analysis.timeframe=='M1' else cfg.fvgShowM5,
             higher=tuple(tf for tf,key in [('H1','showH1OnM5'),('H4','showH4OnM5'),('D1','showDOnM5'),('W1','showWOnM5'),('MN1','showMOnM5')] if getattr(cfg,key)))
-        vwap_key=(cfg.vwapAnchor,cfg.vwapSource)
+        vwap_key=(cfg.vwapAnchor,cfg.vwapSource,self.exchange)
         if changed or self._vwap_key!=vwap_key:
-            self.vwap,self.vwap_previous=vwap_series(analysis.candles,cfg.vwapAnchor,cfg.vwapSource)
+            self.vwap,self.vwap_previous=vwap_series(analysis.candles,cfg.vwapAnchor,
+                                                     cfg.vwapSource,exchange=self.exchange)
             self._vwap_key=vwap_key
         self.fvg_plan = select_fvg_display(analysis, self.parents,
                                            replace(self.fvg_settings, enabled=self.show_fvg))
@@ -424,7 +442,7 @@ class CandleChart(QWidget):
 
     def axis_time_text(self):
         index = self.cursor_index()
-        return candle_time_text(self.analysis.candles[index], self.analysis.timeframe) if index is not None else ''
+        return candle_time_text(self.analysis.candles[index], self.analysis.timeframe,self.exchange) if index is not None else ''
 
     def wheelEvent(self, event):
         if not self.analysis:
@@ -553,7 +571,7 @@ class CandleChart(QWidget):
 
     def paintEvent(self, event: QPaintEvent):
         key=(id(self.analysis),id(self.fvg_plan),id(self.flow_plan),id(self.indicator_settings),
-             self.width(),self.height(),self.devicePixelRatioF(),self.visual_theme,
+             self.width(),self.height(),self.devicePixelRatioF(),self.visual_theme,self.exchange,
              self.viewport.count,self.viewport.offset,self.viewport.right_padding,
              tuple(self.price_range) if self.price_range is not None else None,
              self.include_flow_in_scale,self.show_structure,self.show_fvg,self.show_flow,self.show_previous,self.empty_text)
@@ -629,7 +647,7 @@ class CandleChart(QWidget):
             p.setPen(QPen(colors["grid"], 0.8))
             p.drawLine(QPointF(x(idx), self.top), QPointF(x(idx), self.bottom))
             p.setPen(colors["text"])
-            p.drawText(QRectF(x(idx) - 52, self.bottom + 10, 104, 20), int(Qt.AlignmentFlag.AlignCenter), candles[idx].time.strftime("%d.%m %H:%M" if self.analysis.timeframe in ("M1", "M5", "H1", "H4") else "%d.%m.%Y"))
+            p.drawText(QRectF(x(idx) - 52, self.bottom + 10, 104, 20), int(Qt.AlignmentFlag.AlignCenter), self.exchange.local(candles[idx].time).strftime("%d.%m %H:%M" if self.analysis.timeframe in ("M1", "M5", "H1", "H4") else "%d.%m.%Y"))
         p.save()
         p.setClipRect(QRectF(self.x0, self.top, self.x1 - self.x0, self.bottom - self.top))
         # FVG backgrounds and edges: local zones preserve break candle bounds.
@@ -758,7 +776,7 @@ class CandleChart(QWidget):
         hover_i = self.cursor_index()
         header_bar = candles[hover_i] if hover_i is not None else latest
         p.drawText(QRectF(self.x0, 0, max(150, self.width() - 120), 23), 0,
-                   f"{self.instrument_header}   ·   {self.analysis.timeframe}   {header_bar.time.astimezone(MOSCOW):%d.%m %H:%M}   O {self.format_price(header_bar.open)}   H {self.format_price(header_bar.high)}   L {self.format_price(header_bar.low)}   C {self.format_price(header_bar.close)}")
+                   f"{self.instrument_header}   ·   {self.analysis.timeframe}   {self.exchange.format(header_bar.time)}   O {self.format_price(header_bar.open)}   H {self.format_price(header_bar.high)}   L {self.format_price(header_bar.low)}   C {self.format_price(header_bar.close)}")
         if self.cursor_x is not None and self.x0 <= self.cursor_x <= self.x1 and self.top <= self.cursor_y <= self.bottom:
             pen = QPen(colors["crosshair"], 0.85, Qt.PenStyle.DashLine)
             p.setPen(pen)
