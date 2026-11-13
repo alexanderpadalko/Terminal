@@ -247,6 +247,9 @@ class SettingsDialog(QDialog):
     def __init__(self,indicator,application,parent=None,*,finam_only=False,token_action=None):
         super().__init__(parent)
         self.finam_only=finam_only
+        # Preserve the legacy panel flag when editing Finam-only settings.
+        # Its right-hand instrument list is not controlled by this flag.
+        self._initial_show_panel=application.show_panel
         self.setWindowTitle('Настройки FlowDesk')
         self.resize(860,690)
         self.controls={}
@@ -311,10 +314,13 @@ class SettingsDialog(QDialog):
         self.refresh.setSuffix(' с')
         self.refresh.setValue(application.refresh_seconds)
         form.addRow('Интервал резервного HTTP-обновления',self.refresh)
-        self.panel=QCheckBox()
-        self.panel.setChecked(application.show_panel)
-        form.addRow('Показывать боковую панель',self.panel)
-        form.addRow(QLabel('Время свечи — время её начала.\nД/Н/М: готовые свечи Finam Trade API.'))
+        self.panel=None
+        if not finam_only:
+            # The historical MainWindow still uses this toggle to show its
+            # diagnostic side panel; it is not relevant to FinamWindow.
+            self.panel=QCheckBox()
+            self.panel.setChecked(application.show_panel)
+            form.addRow('Показывать боковую панель',self.panel)
         self.tabs.addTab(app_widget,'Приложение')
         buttons=QDialogButtonBox(QDialogButtonBox.StandardButton.Ok|QDialogButtonBox.StandardButton.Apply|
                                 QDialogButtonBox.StandardButton.Cancel|QDialogButtonBox.StandardButton.RestoreDefaults)
@@ -363,7 +369,8 @@ class SettingsDialog(QDialog):
         colors={field:button.value for field,button in self.chart_controls.items()}
         return IndicatorSettings(values),ApplicationSettings(
             True if self.finam_only else self.auto.isChecked(),
-            self.refresh.value(),self.panel.isChecked(),
+            self.refresh.value(),
+            self._initial_show_panel if self.finam_only else self.panel.isChecked(),
             True if self.finam_only else self.http.isChecked(),
             **colors)
 
@@ -391,6 +398,7 @@ class SettingsDialog(QDialog):
         if self.auto is not None:
             self.auto.setChecked(True)
         self.refresh.setValue(60)
-        self.panel.setChecked(False)
+        if self.panel is not None:
+            self.panel.setChecked(False)
         if self.http is not None:
             self.http.setChecked(False)
