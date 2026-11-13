@@ -465,6 +465,11 @@ class FinamWindow(QMainWindow):
             self.status.setText(str(exc));return
         request=(ticker,mic,self.tf.currentText(),refresh,tuple(events))
         if self.current != (ticker,mic):
+            # Previous symbol may have been manually Y-zoomed/panned (e.g.
+            # 116–117 RUB). Its scale and X offset cannot be inherited by a
+            # different security trading at 6,000+ RUB: reset both rulers.
+            # The selected timeframe itself is preserved.
+            self.chart.reset_view()
             self.chart.set_price_tick(None)
         self.chart.set_exchange(mic,ticker)
         self.current=(ticker,mic)
