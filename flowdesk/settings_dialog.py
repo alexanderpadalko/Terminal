@@ -27,17 +27,52 @@ def rgba_value(rgb, transparency):
 
 
 def palette_colors():
-    """Ten-column swatch grid inspired by the TradingView color selector."""
-    gray=("#FFFFFF","#E2E2E2","#C9C9C9","#AFAFAF","#969696",
-          "#808080","#656565","#4D4D4D","#303030","#101010")
-    hues=(0,25,47,139,162,187,222,258,289,331)
-    rows=[gray]
-    for saturation,value in ((235,250),(85,255),(125,245),
-                             (170,230),(210,200),(235,160)):
-        rows.append(tuple(QColor.fromHsv(hue,saturation,value).name().upper()
-                          for hue in hues))
-    return rows
+    """Exact eight-by-ten color swatch palette from the supplied reference."""
+    return (
+        ("#FFFFFF","#DBDBDB","#B8B8B8","#9C9C9C","#808080",
+         "#636363","#464646","#222222","#000000","#000000"),
+        ("#F23645","#FF9800","#FFEB3B","#4CAF50","#089981",
+         "#00BCD4","#2962FF","#673AB7","#9C27B0","#E91E63"),
+        ("#FCCBCD","#FFE0B2","#FFF9C4","#C8E6C9","#ACE5DC",
+         "#B2EBF2","#BBD9FB","#D1C4E9","#E1BEE7","#F8BBD0"),
+        ("#FAA1A4","#FFCC80","#FFF59D","#A5D6A7","#70CCBD",
+         "#80DEEA","#90BFF9","#B39DDB","#CE93D8","#F48FB1"),
+        ("#F77C80","#FFB74D","#FFF176","#81C784","#42BDA8",
+         "#4DD0E1","#5B9CF6","#9575CD","#BA68C8","#F06292"),
+        ("#F7525F","#FFA726","#FFEE58","#66BB6A","#22AB94",
+         "#26C6DA","#3179F5","#7E57C2","#AB47BC","#EC407A"),
+        ("#B22833","#F57C00","#FBC02D","#388E3C","#056656",
+         "#0097A7","#1848CC","#512DA8","#7B1FA2","#C2185B"),
+        ("#801922","#E65100","#F57F17","#1B5E20","#00332A",
+         "#006064","#0C3299","#311B92","#4A148C","#880E4F"),
+    )
 
+
+class PaletteSwatch(QToolButton):
+    """Color cell with a visible two-tone selection ring on any color."""
+
+    def __init__(self, rgb, parent=None):
+        super().__init__(parent)
+        self.rgb=rgb.upper()
+        self.setCheckable(True)
+        self.setFixedSize(23,23)
+        self.setToolTip(self.rgb)
+        self.setAccessibleName("Цвет "+self.rgb)
+        self.setObjectName("paletteSwatch")
+
+    def paintEvent(self, event):
+        painter=QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QColor(self.rgb))
+        painter.drawRoundedRect(self.rect().adjusted(3,3,-3,-3),3,3)
+        if self.isChecked():
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.setPen(QPen(QColor("#111111"),1))
+            painter.drawRoundedRect(self.rect().adjusted(2,2,-2,-2),4,4)
+            painter.setPen(QPen(QColor("#FFFFFF"),2))
+            painter.drawRoundedRect(self.rect().adjusted(1,1,-2,-2),4,4)
+        painter.end()
 
 class ColorPalettePopup(QFrame):
     """Compact non-modal palette + editable opacity, shared by color settings."""
@@ -67,13 +102,7 @@ class ColorPalettePopup(QFrame):
         self.swatches=[]
         for row, colors in enumerate(palette_colors()):
             for column,rgb in enumerate(colors):
-                swatch=QToolButton(self)
-                swatch.setObjectName("paletteSwatch")
-                swatch.setFixedSize(23,23)
-                swatch.setToolTip(rgb)
-                swatch.setStyleSheet(
-                    f"QToolButton {{background-color:{rgb}; border:1px solid #303030;"
-                    "border-radius:4px;} QToolButton:hover {border:2px solid #fff;}")
+                swatch=PaletteSwatch(rgb,self)
                 swatch.clicked.connect(
                     lambda checked=False, color=rgb: self._apply_rgb(color))
                 grid.addWidget(swatch,row,column)
@@ -81,12 +110,15 @@ class ColorPalettePopup(QFrame):
         layout.addLayout(grid)
         options=QHBoxLayout()
         custom=QPushButton("+",self)
+        self.custom_button=custom
+        custom.setCheckable(True)
         custom.setObjectName("customPaletteColor")
         custom.setFixedSize(29,26)
         custom.setToolTip("Другой цвет")
         custom.clicked.connect(self._custom_color)
         custom.setStyleSheet("QPushButton {background:#202020; color:white;"
-                             "border:1px solid #444; border-radius:4px; font-size:18px;}")
+                             "border:1px solid #444; border-radius:4px; font-size:18px;}"
+                             "QPushButton:checked {border:2px solid white;}")
         options.addWidget(custom)
         options.addStretch(1)
         layout.addLayout(options)
@@ -121,12 +153,27 @@ class ColorPalettePopup(QFrame):
         self.percent.setValue(percent)
         self.transparency.blockSignals(False)
         self.percent.blockSignals(False)
+        self._update_selection()
+
+    def _update_selection(self):
+        selected=self.owner.value[:7].upper()
+        match=False
+        for swatch,rgb in self.swatches:
+            active=(rgb.upper()==selected and not match)
+            match=match or active
+            swatch.setChecked(active)
+        # Colors not in the palette still have a visible selected 'custom' cell.
+        self.custom_button.setChecked(not match)
+        self.custom_button.setToolTip(
+            "Другой цвет · "+selected if not match else "Другой цвет")
 
     def _apply_rgb(self, rgb):
         self.owner.set_value(rgba_value(rgb,self.transparency.value()))
+        self._update_selection()
 
     def _apply_transparency(self, transparency):
         self.owner.set_value(rgba_value(self.owner.value,transparency))
+        self._update_selection()
 
     def _custom_color(self):
         color=QColorDialog.getColor(qcolor(self.owner.value),self.owner,
@@ -150,6 +197,8 @@ class ColorButton(QPushButton):
         self.value=value.upper()
         self.setToolTip(self.value[:7]+f" · Прозрачность {opacity_percent(self.value)}%")
         self.setAccessibleName("Цвет "+self.value[:7])
+        if self._palette is not None:
+            self._palette._update_selection()
         self.update()
 
     def paintEvent(self,event):
@@ -221,8 +270,10 @@ class SettingsDialog(QDialog):
             form=QFormLayout(widget)
             form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
             for spec in specifications():
-                if spec['group']!=group or spec['variable']=="showDevelopingLeg":
-                    continue  # This structural leg is permanently enabled.
+                if (spec['group']!=group or spec['variable'] in
+                        ("showDevelopingLeg","showMarketStatusInput",
+                         "fvgMtfDiagnostics")):
+                    continue  # Permanent structural leg; remove debug UI.
                 control=self._control(spec,getattr(indicator,spec['variable']))
                 control.setObjectName('setting_'+spec['variable'])
                 control.setToolTip(spec['tooltip'].replace('TradingView','FlowDesk'))
@@ -296,6 +347,9 @@ class SettingsDialog(QDialog):
             if spec['variable']=="showDevelopingLeg":
                 values[spec['variable']]=True
                 continue
+            if spec['variable'] in ("showMarketStatusInput","fvgMtfDiagnostics"):
+                values[spec['variable']]=False
+                continue
             control=self.controls[spec['variable']]
             if spec['type']=='bool':value=control.isChecked()
             elif spec['type'] in ('int','float'):value=control.value()
@@ -321,7 +375,8 @@ class SettingsDialog(QDialog):
         for field,button in self.chart_controls.items():
             button.set_value(CHART_THEME_DEFAULTS[theme][field])
         for spec in specifications():
-            if spec['variable']=="showDevelopingLeg":
+            if spec['variable'] in ("showDevelopingLeg","showMarketStatusInput",
+                                   "fvgMtfDiagnostics"):
                 continue
             control=self.controls[spec['variable']]
             value=spec['default']

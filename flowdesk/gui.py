@@ -632,6 +632,7 @@ class CandleChart(QWidget):
             'chart_outline_up':'candle_up_outline',
             'chart_outline_down':'candle_down_outline',
             'chart_background':'background','chart_grid':'grid',
+            'chart_axis_text':'axis_text',
             'chart_wick_up':'wick_up','chart_wick_down':'wick_down',
         }
         for setting, palette in appearance.items():
@@ -681,13 +682,13 @@ class CandleChart(QWidget):
             Y = y(value)
             p.setPen(QPen(colors["grid"], 0.8))
             p.drawLine(QPointF(self.x0, Y), QPointF(self.x1, Y))
-            p.setPen(colors["text"])
+            p.setPen(colors.get("axis_text", colors["text"]))
             p.drawText(QRectF(self.x1 + 8, Y - 11, 80, 20), 0, self.format_price(value))
         for j in range(7):
             idx = first + int(j * (count - 1) / 6)
             p.setPen(QPen(colors["grid"], 0.8))
             p.drawLine(QPointF(x(idx), self.top), QPointF(x(idx), self.bottom))
-            p.setPen(colors["text"])
+            p.setPen(colors.get("axis_text", colors["text"]))
             p.drawText(QRectF(x(idx) - 52, self.bottom + 10, 104, 20), int(Qt.AlignmentFlag.AlignCenter), self.exchange.local(candles[idx].time).strftime("%d.%m %H:%M" if self.analysis.timeframe in ("M1", "M5", "H1", "H4") else "%d.%m.%Y"))
         p.save()
         p.setClipRect(QRectF(self.x0, self.top, self.x1 - self.x0, self.bottom - self.top))
