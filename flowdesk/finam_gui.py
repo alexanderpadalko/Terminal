@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from dataclasses import replace
 from functools import partial
 from pathlib import Path
 import re
@@ -9,7 +10,7 @@ import sys
 
 from PySide6.QtCore import QSettings, QThread, QTimer, Qt, Signal
 from PySide6.QtWidgets import (
-    QApplication, QCheckBox, QComboBox, QHBoxLayout, QLabel, QLineEdit,
+    QApplication, QComboBox, QHBoxLayout, QLabel, QLineEdit,
     QMainWindow, QMessageBox, QPushButton, QVBoxLayout, QWidget,
     QListWidget, QListWidgetItem, QInputDialog, QSplitter, QFormLayout, QFrame
 )
@@ -93,6 +94,9 @@ class FinamWindow(QMainWindow):
         self.stream_factory = stream_factory or (lambda ticker,mic: FinamStreamWorker(ticker,mic,api=self.service.api))
         self.settings_store = settings_store or SettingsStore()
         self.indicator_settings, self.app_settings = self.settings_store.read()
+        # Finam-only terminal has unconditional WebSocket and HTTP candle access.
+        # Old saved settings must never silently turn either one off.
+        self.app_settings=replace(self.app_settings,auto_updates=True,allow_http=True)
         self.ui_prefs = QSettings("FlowDesk","FinamOnly")
         self.loader = None
         self.stream = None
@@ -173,29 +177,6 @@ class FinamWindow(QMainWindow):
         self.settings_btn.clicked.connect(self._settings)
         header.addWidget(self.settings_btn)
         outer.addLayout(header)
-        bar=QHBoxLayout()
-        self.auto=QCheckBox("Авто")
-        self.auto.setChecked(self.app_settings.auto_updates)
-        self.auto.setToolTip("Включает поток свечей и котировок Finam по WebSocket")
-        self.auto.toggled.connect(self._auto_toggled)
-        bar.addWidget(self.auto)
-        self.http=QCheckBox("HTTP")
-        self.http.setChecked(self.app_settings.allow_http)
-        self.http.setToolTip("Разрешение только на HTTP-загрузку истории и восстановление; авторизация Finam выполняется независимо.")
-        self.http.toggled.connect(self._http_toggled)
-        bar.addWidget(self.http)
-        bar.addSpacing(8)
-        latest=QPushButton("Последние · End")
-        latest.clicked.connect(lambda:self.chart.latest())
-        bar.addWidget(latest)
-        auto_price=QPushButton("Автоцена · F")
-        auto_price.clicked.connect(self.chart_auto_price_later)
-        bar.addWidget(auto_price)
-        self.token_btn=QPushButton("Токен Finam")
-        self.token_btn.clicked.connect(self._token_dialog)
-        bar.addWidget(self.token_btn)
-        bar.addStretch()
-        outer.addLayout(bar)
         self.feed=QLabel("Finam: ожидаем данные")
         self.feed.setStyleSheet("color:#a4a4a4")
         outer.addWidget(self.feed)
@@ -204,7 +185,7 @@ class FinamWindow(QMainWindow):
         self.chart=CandleChart()
         self.chart.set_theme("dark")
         self.chart.set_settings(self.indicator_settings)
-        self.chart.empty_text="Добавьте токен Финама и выберите инструмент"
+        self.chart.empty_text="Добавьте токен Finam в настройках и выберите инструмент"
         split.addWidget(self.chart)
         side=QFrame()
         side.setMaximumWidth(290)
@@ -244,6 +225,7 @@ class FinamWindow(QMainWindow):
         outer.addWidget(split,1)
         self.status=QLabel("Только чтение · торговые заявки отключены")
         outer.addWidget(self.status)
+        self.status.hide()  # Internal messages are logged; load errors appear on chart.
         root.setStyleSheet("""
           QWidget {background:#191919;color:#e7e7e7;font-family:'Segoe UI';}
           QPushButton,QLineEdit,QComboBox,QListWidget {background:#282828;
@@ -388,30 +370,25 @@ class FinamWindow(QMainWindow):
     def chart_auto_price_later(self):
         self.chart.auto_price()
 
-    def _save_settings(self):
-        self.app_settings=ApplicationSettings(
-            self.auto.isChecked(),self.app_settings.refresh_seconds,
-            self.app_settings.show_panel,self.http.isChecked())
-        self.settings_store.write(self.indicator_settings,self.app_settings)
-
     def _settings(self):
-        dialog=SettingsDialog(self.indicator_settings,self.app_settings,self)
+        dialog=SettingsDialog(self.indicator_settings,self.app_settings,self,
+                              finam_only=True,token_action=self._token_dialog)
         dialog.applied.connect(self._apply_settings)
         dialog.exec()
 
     def _apply_settings(self,indicator,application):
         self.indicator_settings=indicator
-        self.app_settings=application
-        self.settings_store.write(indicator,application)
+        # Both transports remain enabled even when importing older settings.
+        self.app_settings=replace(application,auto_updates=True,allow_http=True)
+        self.settings_store.write(indicator,self.app_settings)
         self.chart.set_settings(indicator)
-        self.auto.blockSignals(True);self.auto.setChecked(application.auto_updates);self.auto.blockSignals(False)
-        self.http.blockSignals(True);self.http.setChecked(application.allow_http);self.http.blockSignals(False)
-        self.http_timer.setInterval(application.refresh_seconds*1000)
-        self._auto_toggled(self.auto.isChecked())
+        self.http_timer.setInterval(self.app_settings.refresh_seconds*1000)
+        self._schedule_http()
+        self._start_stream()
         self._load(refresh=False)
 
-    def _token_dialog(self):
-        token, ok=QInputDialog.getText(self,"Finam Trade API",
+    def _token_dialog(self,parent=None):
+        token, ok=QInputDialog.getText(parent or self,"Finam Trade API",
             "Введите secret key (не access key). Он сохранится в системном хранилище Windows.",
             QLineEdit.EchoMode.Password)
         if not ok or not token:
@@ -419,24 +396,26 @@ class FinamWindow(QMainWindow):
         try:
             save_secret(token)
         except Exception as exc:
-            QMessageBox.warning(self,"Хранилище ключей",str(exc))
+            QMessageBox.warning(parent or self,"Хранилище ключей",type(exc).__name__)
             return
         self.service.api._jwt=""
         self.status.setText("Токен сохранён в Windows Credential Manager; проверка подключения…")
-        self._load(refresh=self.http.isChecked())
+        self._load(refresh=True)
         self._start_stream()
         self._refresh_catalog()
+        self._schedule_http()
 
     def _startup(self):
         if not read_secret():
-            self.status.setText("Созданный токен Finam ещё не введён. Нажмите «Токен Finam».")
+            self.status.setText("Токен Finam не введён. Откройте настройки (⚙).")
             self._indicator()
             return
         self._refresh_catalog()
+        self._schedule_http()
         if self._pending_restore:
             self.status.setText("Finam: поиск сохранённого инструмента в каталоге…")
             return
-        self._load(refresh=self.http.isChecked())
+        self._load(refresh=True)
         self._start_stream()
 
     def _example(self,item):
@@ -498,7 +477,7 @@ class FinamWindow(QMainWindow):
             self.pending_load=request
             return
         self.loader=FinamLoadWorker(self.service,ticker,mic,request[2],
-              self.indicator_settings,allow_http=self.http.isChecked(),
+              self.indicator_settings,allow_http=True,
               refresh=refresh,events=request[4])
         self.loader.loaded.connect(self._loaded)
         self.loader.failed.connect(self._failed)
@@ -573,7 +552,7 @@ class FinamWindow(QMainWindow):
         self._indicator()
 
     def _start_stream(self):
-        if self.closing or not self.auto.isChecked() or not read_secret():
+        if self.closing or not read_secret():
             self._indicator();return
         try:
             ticker,mic=symbol_name(self.symbol_edit.text(),self.mic.currentText()).split("@")
@@ -671,27 +650,13 @@ class FinamWindow(QMainWindow):
         self._load(refresh=False,events=events)
 
     def _http_refresh(self):
-        if (self.auto.isChecked() and self.http.isChecked() and
-                self.loader is None and not self.closing):
+        if self.loader is None and not self.closing and read_secret():
             self._load(refresh=True)
-
-    def _http_toggled(self,checked):
-        self._save_settings()
-        if checked:
-            self._load(refresh=True)
-        self._schedule_http()
-        self._indicator()
-
-    def _auto_toggled(self,checked):
-        self._save_settings()
-        if checked:self._start_stream()
-        else:self._stop_stream()
-        self._schedule_http()
-        self._indicator()
 
     def _schedule_http(self):
-        if self.auto.isChecked() and self.http.isChecked():
-            if not self.http_timer.isActive():self.http_timer.start()
+        if not self.closing and read_secret():
+            if not self.http_timer.isActive():
+                self.http_timer.start()
         else:
             self.http_timer.stop()
 
@@ -706,8 +671,6 @@ class FinamWindow(QMainWindow):
             label,color="FINAM · ПОДКЛ.","#52452e"
         elif not read_secret():
             label,color="FINAM · НЕТ ТОКЕНА","#4a3434"
-        elif not self.auto.isChecked():
-            label,color="ПОТОК · ПАУЗА","#383838"
         else:
             label,color="FINAM · НЕТ ПОТОКА","#493131"
         if self.loader is not None and self.loader.allow_http and self.loader.refresh:
@@ -715,8 +678,7 @@ class FinamWindow(QMainWindow):
         self.channel.setText(label)
         self.channel.setStyleSheet(f"background:{color};border:1px solid #555;"
                                    "border-radius:5px;color:#f0f0f0;padding:8px;font-weight:700")
-        self.channel.setToolTip("Поставщик: Finam Trade API; HTTP для свечей: "+
-            ("разрешён" if self.http.isChecked() else "запрещён")+
+        self.channel.setToolTip("Поставщик: Finam Trade API; WebSocket и HTTP включены"+
             ("\nПоследняя ошибка: "+self.stream_error if self.stream_error else ""))
 
     def _finish_close(self):
