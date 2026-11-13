@@ -91,6 +91,43 @@ class TestFinamGui(unittest.TestCase):
         self.assertNotIn("SBER",self.window.feed.text())
         self.window.chart.grab()  # Render the empty/error surface too.
 
+    def test_switch_instrument_reframes_around_its_prices_instead_of_blank(self):
+        from flowdesk.engine import analyze
+        from flowdesk.market_data import Candle
+        self.select("SBER")
+        self.settle()
+        self.window.chart.grab()
+        chart=self.window.chart
+        chart.price_range=(9.5,10.5)
+        chart.viewport.count=45
+        chart.viewport.offset=80
+        self.assertIsNotNone(chart.analysis)
+        original=self.market.view
+
+        def differently_priced(ticker,mic,tf,**kwargs):
+            analysis,parents,info=original(ticker,mic,tf,**kwargs)
+            if ticker!="LKOH":
+                return analysis,parents,info
+            series=[Candle(c.time,c.open+6000,c.high+6000,
+                           c.low+6000,c.close+6000,c.volume,
+                           c.scheduled_close) for c in analysis.candles]
+            return analyze(series,tf),parents,info
+
+        with patch.object(self.market,"view",side_effect=differently_priced):
+            self.select("LKOH")
+            self.assertIsNone(chart.price_range)
+            self.assertEqual(chart.viewport.offset,0)
+            self.assertEqual(chart.viewport.count,125)
+            self.settle()
+            self.assertEqual(self.window.displayed_view,("LKOH","MISX","H1"))
+            image=chart.grab().toImage()
+            self.assertFalse(image.isNull())
+            lower,upper=chart.last_price_range
+            self.assertLess(lower,6009)
+            self.assertGreater(upper,6011)
+            self.assertIsNone(chart.price_range)
+            self.assertGreater(chart.analysis.candles[-1].close,6000)
+
     def test_late_result_for_previous_timeframe_is_ignored(self):
         self.market.block_symbol="SBER"
         self.select("SBER")
