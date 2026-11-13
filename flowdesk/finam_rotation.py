@@ -117,6 +117,26 @@ def expiry_date(asset, *, mic=""):
     return None
 
 
+
+def expiry_absence(asset):
+    """Safe explanation of missing Finam expiry, without logging API values."""
+    if not isinstance(asset,dict):
+        return "Finam GetAsset: неверная структура ответа"
+    details=asset.get("asset_details")
+    sources=[asset,asset.get("future_details"),details]
+    if isinstance(details,dict):
+        sources.append(details.get("future_details"))
+    values=[source["expiration_date"] for source in sources
+            if isinstance(source,dict) and "expiration_date" in source]
+    if not values:
+        return "Finam GetAsset: поле даты отсутствует"
+    if all(value is None or value=="" or value=={} or value==0 or
+           value=={"seconds":"0","nanos":0} or
+           value=={"seconds":0,"nanos":0} for value in values):
+        return "Finam GetAsset: поле даты пустое"
+    return "Finam GetAsset: дата в неподдерживаемом или недопустимом формате"
+
+
 def _num(value):
     if isinstance(value,dict):
         value=value.get("value")
@@ -269,7 +289,7 @@ def resolve_contract(contract, assets, api, *, today, now, saved="", cancelled=l
                 payload=api.asset_details(symbol)
                 expiry=expiry_date(payload,mic=mic)
                 if expiry is None:
-                    errors[symbol.upper()]="Finam GetAsset: дата отсутствует"
+                    errors[symbol.upper()]=expiry_absence(payload)
                 else:
                     sources[symbol.upper()]="Finam GetAsset"
             except InterruptedError:
