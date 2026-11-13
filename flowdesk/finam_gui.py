@@ -367,9 +367,6 @@ class FinamWindow(QMainWindow):
         if self.closing:
             self._finish_close()
 
-    def chart_auto_price_later(self):
-        self.chart.auto_price()
-
     def _settings(self):
         dialog=SettingsDialog(self.indicator_settings,self.app_settings,self,
                               finam_only=True,token_action=self._token_dialog)
@@ -398,7 +395,10 @@ class FinamWindow(QMainWindow):
         except Exception as exc:
             QMessageBox.warning(parent or self,"Хранилище ключей",type(exc).__name__)
             return
-        self.service.api._jwt=""
+        # The existing socket and account-scoped asset metadata belong to
+        # the previous token. Reconnect with the new secret from keyring.
+        self._stop_stream()
+        self.service.api.invalidate_session()
         self.status.setText("Токен сохранён в Windows Credential Manager; проверка подключения…")
         self._load(refresh=True)
         self._start_stream()
