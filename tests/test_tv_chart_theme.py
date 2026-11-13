@@ -6,10 +6,12 @@ from datetime import datetime, timedelta
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtCore import QPoint, Qt
+from PySide6.QtGui import QColor, QImage, QPainter
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
 
-from flowdesk.gui import CHART_PALETTES, CandleChart, MainWindow, demo_data
+from flowdesk.gui import (CHART_PALETTES, CandleChart, MainWindow, demo_data,
+                          _contrast_text_color, _price_line_color)
 from flowdesk.engine import analyze
 from flowdesk.market_data import Candle, MOSCOW
 from flowdesk.settings import ApplicationSettings, IndicatorSettings
@@ -27,6 +29,79 @@ class TestTradingViewAppearance(unittest.TestCase):
         self.assertEqual(CHART_PALETTES["tv"]["candle_up_outline"].name(), "#f8f8f8")
         self.assertEqual(CHART_PALETTES["tv"]["candle_down"].name(), "#111111")
         self.assertEqual(chart.viewport.right_padding, 16)
+        chart.close()
+
+    def test_current_price_text_contrast_adapts_to_dark_and_light_markers(self):
+        background=QColor("#898989")
+        self.assertEqual(_contrast_text_color(QColor("#080808"),background).name(),
+                         "#ffffff")
+        self.assertEqual(_contrast_text_color(QColor("#ffffff"),background).name(),
+                         "#000000")
+        self.assertEqual(_contrast_text_color(QColor("#111111"),background).name(),
+                         "#ffffff")
+        self.assertEqual(_contrast_text_color(QColor(0,0,0,0),background).name(),
+                         "#000000")
+        line=_price_line_color(QColor("#000000"),QColor("#0c131e"))
+        self.assertEqual(line.name(),"#ffffff")
+        self.assertEqual(line.alpha(),190)
+        contrast=_price_line_color(QColor("#ffffff"),QColor("#898989"))
+        self.assertEqual(contrast.name(),"#ffffff")
+
+    def test_current_price_line_reaches_plot_without_modifying_candles(self):
+        chart=CandleChart()
+        chart.resize(1020,680)
+        chart.set_theme("dark")
+        chart.set_chart_colors(ApplicationSettings(
+            chart_candle_up="#000000FF",
+            chart_candle_down="#000000FF",
+            chart_background="#161616FF",
+            chart_grid="#00000000"))
+        chart.set_analysis(analyze(demo_data(),"H1"))
+        before=[(bar.time,bar.open,bar.high,bar.low,bar.close)
+                for bar in chart.analysis.candles]
+        chart.show_structure=chart.show_fvg=chart.show_flow=False
+        chart.show_previous=False
+        chart.show()
+        self.app.processEvents()
+        image=chart.grab().toImage()
+        self.assertFalse(image.isNull())
+        latest=chart.analysis.candles[-1]
+        true_y=chart._surface_context[5](latest.close)
+        self.assertGreaterEqual(true_y,chart.top)
+        self.assertLessEqual(true_y,chart.bottom)
+        row=round(true_y)
+        # The fallback line is bright against black candles and background;
+        # dashed strokes occupy multiple pixels near the left plot margin.
+        pixels=[image.pixelColor(x,row) for x in
+                range(chart.x0+10,chart.x0+110)]
+        self.assertGreater(sum(c.red()>125 and c.green()>125 and c.blue()>125
+                               for c in pixels),8)
+        self.assertEqual(before,[(bar.time,bar.open,bar.high,bar.low,bar.close)
+                                  for bar in chart.analysis.candles])
+        chart.close()
+
+    def test_fvg_captions_use_opaque_zone_fill_color_in_both_themes(self):
+        chart=CandleChart()
+        cfg=chart.indicator_settings
+        cases=(
+            ("tv",1,False,QColor(cfg.fvgBullColor[:7])),
+            ("tv",-1,False,QColor(cfg.fvgBearColor[:7])),
+            ("tv",1,True,QColor(cfg.fvgFilledColor[:7])),
+            ("dark",1,False,QColor(24,196,145)),
+            ("dark",-1,False,QColor(221,70,100)),
+            ("dark",1,True,QColor(243,169,45)),
+        )
+        for theme,side,broken,expected in cases:
+            with self.subTest(theme=theme,side=side,broken=broken):
+                chart.set_theme(theme)
+                image=QImage(360,180,QImage.Format.Format_ARGB32_Premultiplied)
+                image.fill(QColor("#898989"))
+                painter=QPainter(image)
+                chart._draw_zone(painter,10,340,45,100,side,broken,"H1",12)
+                text_pen=painter.pen().color()
+                painter.end()
+                self.assertEqual(text_pen.name(),expected.name())
+                self.assertEqual(text_pen.alpha(),255)
         chart.close()
 
     def test_visual_controls_preserve_all_candles_and_flows(self):
