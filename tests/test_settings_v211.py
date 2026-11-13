@@ -55,6 +55,30 @@ class TestSettingsV211(unittest.TestCase):
             self.assertTrue(loaded.showDevelopingLeg)
             self.assertTrue(loaded.as_dict()["showDevelopingLeg"])
 
+    def test_hidden_market_initialization_and_fvg_diagnostics_stay_disabled(self):
+        self.assertFalse(IndicatorSettings().showMarketStatusInput)
+        self.assertFalse(IndicatorSettings().fvgMtfDiagnostics)
+        old=IndicatorSettings({
+            "showMarketStatusInput":True,
+            "fvgMtfDiagnostics":True,
+        })
+        self.assertFalse(old.showMarketStatusInput)
+        self.assertFalse(old.fvgMtfDiagnostics)
+        updated=old.changed(showMarketStatusInput=True,fvgMtfDiagnostics=True)
+        self.assertFalse(updated.showMarketStatusInput)
+        self.assertFalse(updated.fvgMtfDiagnostics)
+        with tempfile.TemporaryDirectory() as folder:
+            path=Path(folder)/"legacy-debug.json"
+            store=SettingsStore(path)
+            store.write(IndicatorSettings(),ApplicationSettings())
+            payload=json.loads(path.read_text(encoding="utf-8"))
+            payload["indicator"]["showMarketStatusInput"]=True
+            payload["indicator"]["fvgMtfDiagnostics"]=True
+            path.write_text(json.dumps(payload),encoding="utf-8")
+            restored,_=SettingsStore(path).read()
+            self.assertFalse(restored.showMarketStatusInput)
+            self.assertFalse(restored.fvgMtfDiagnostics)
+
     def test_invalid_ranges_types_and_options_are_rejected(self):
         for change in ({'fvgMaxZones':0},{'fvgMaxZones':201},{'fvgMaxZones':True},
                        {'liquidityHistoryBars':99},{'flowShowData':'false'},{'flowFontSize':'20'},
