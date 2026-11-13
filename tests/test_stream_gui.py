@@ -135,7 +135,12 @@ class TestStreamGui(unittest.TestCase):
         old = self.window.analysis
         self.window.chart.price_range = (4, 20)
         stream.send(kind='quote', quote={'LAST': 1234, 'TIME': '13:15:00', 'TRADINGSTATUS': 'T'})
-        QTest.qWait(280)
+        # Qt's quote coalescing timer has no hard 280-ms scheduling guarantee
+        # on a loaded Windows Actions runner. Wait for the actual UI result
+        # without bypassing the quote update path or removing the assertion.
+        deadline=time.monotonic()+2
+        while '1234' not in self.window.feed_label.text() and time.monotonic() < deadline:
+            QTest.qWait(30)
         self.assertIs(self.window.analysis, old)
         self.assertEqual(self.window.chart.price_range, (4, 20))
         self.assertIn('1234', self.window.feed_label.text())
