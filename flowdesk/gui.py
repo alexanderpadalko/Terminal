@@ -766,31 +766,8 @@ class CandleChart(QWidget):
                 right_x = self.x0 + (b - left_edge) * stride
                 self._draw_zone(p, left_x, right_x, y(zone.top), y(zone.bottom),
                     zone.side, zone.broken, zone.source_tf, stride, parent=zone.parent)
-        # Structure with confirmed segments and provisional outside legs.
-        if self.show_structure:
-            segments=self._confirmed_segments
-            if cfg.showDevelopingLeg:
-                segments=segments+self._developing_segments
-            for seg in segments:
-                if seg.a is None or seg.b is None or seg.b < first or seg.a > last:
-                    continue
-                a, b = max(seg.a, first), min(seg.b, last - 1)
-                if a > b:
-                    continue
-                if seg.a == seg.b:
-                    continue
-                ratio_a = (a - seg.a) / (seg.b - seg.a)
-                ratio_b = (b - seg.a) / (seg.b - seg.a)
-                ya = seg.pa + (seg.pb - seg.pa) * ratio_a
-                yb = seg.pa + (seg.pb - seg.pa) * ratio_b
-                pen = QPen(colors["structure_up"] if seg.side == 1
-                           else colors["structure_down"], cfg.structureWidth)
-                if not seg.confirmed:
-                    pen.setStyle(Qt.PenStyle.DashLine)
-                p.setPen(pen)
-                p.drawLine(QPointF(x(a), y(ya)), QPointF(x(b), y(yb)))
-        # TV mode uses white/black bodies with dark outlines and thin wicks.
-        # Candles are painted after the transparent structure and FVG layers.
+        # Candles are painted after the transparent FVG layers, but before
+        # the structural polyline so every swing remains visible atop bodies.
         for i in range(first, last):
             bar = candles[i]
             rising = bar.close >= bar.open
@@ -833,6 +810,32 @@ class CandleChart(QWidget):
             if self.visual_theme == "tv" or hollow or outline_key in self.chart_color_overrides:
                 p.setPen(QPen(outline, 1.0))
                 p.drawRect(body)
+        # Render the structural movement LAST relative to candles: the
+        # confirmed solid legs and developing dashed leg must stay legible
+        # where their lines cross a filled candle body or wick.
+        # Structure with confirmed segments and provisional outside legs.
+        if self.show_structure:
+            segments=self._confirmed_segments
+            if cfg.showDevelopingLeg:
+                segments=segments+self._developing_segments
+            for seg in segments:
+                if seg.a is None or seg.b is None or seg.b < first or seg.a > last:
+                    continue
+                a, b = max(seg.a, first), min(seg.b, last - 1)
+                if a > b:
+                    continue
+                if seg.a == seg.b:
+                    continue
+                ratio_a = (a - seg.a) / (seg.b - seg.a)
+                ratio_b = (b - seg.a) / (seg.b - seg.a)
+                ya = seg.pa + (seg.pb - seg.pa) * ratio_a
+                yb = seg.pa + (seg.pb - seg.pa) * ratio_b
+                pen = QPen(colors["structure_up"] if seg.side == 1
+                           else colors["structure_down"], cfg.structureWidth)
+                if not seg.confirmed:
+                    pen.setStyle(Qt.PenStyle.DashLine)
+                p.setPen(pen)
+                p.drawLine(QPointF(x(a), y(ya)), QPointF(x(b), y(yb)))
         # Current and previous flow 0, 0.4, 0.5, 0.6, 1.0.
         if self.show_flow:
             for level in self.flow_plan.levels:

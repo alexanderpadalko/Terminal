@@ -2,6 +2,7 @@
 import os
 import unittest
 from datetime import datetime, timedelta
+from types import SimpleNamespace
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -30,6 +31,50 @@ class TestTradingViewAppearance(unittest.TestCase):
         self.assertEqual(CHART_PALETTES["tv"]["candle_down"].name(), "#111111")
         self.assertEqual(chart.viewport.right_padding, 16)
         chart.close()
+
+    def test_structural_line_is_painted_above_filled_candle_bodies(self):
+        start=datetime(2026,11,13,10,tzinfo=MOSCOW)
+        candles=[Candle(start+timedelta(hours=i),8,14,6,12,500)
+                 for i in range(4)]
+        for theme in ("dark","tv"):
+            with self.subTest(theme=theme):
+                chart=CandleChart()
+                chart.resize(1050,680)
+                chart.set_theme(theme)
+                chart.set_settings(IndicatorSettings().changed(
+                    ibEnabled=False,structureWidth=5,upColor="#FF00FFFF"))
+                chart.set_chart_colors(ApplicationSettings(
+                    chart_candle_up="#112233FF",
+                    chart_candle_down="#112233FF",
+                    chart_background="#555555FF",
+                    chart_grid="#00000000"))
+                chart.set_analysis(analyze(candles,"H1"))
+                chart.show_fvg=False
+                chart.show_flow=False
+                chart.show_previous=False
+                chart.show_structure=True
+                chart._confirmed_segments=[SimpleNamespace(
+                    a=0,b=3,pa=10,pb=10,side=1,confirmed=True)]
+                chart._developing_segments=[]
+                chart._surface_key=None
+                chart.show()
+                self.app.processEvents()
+                picture=chart.grab().toImage()
+                geometry=chart._surface_context
+                xpos=round(geometry[4](1))
+                ypos=round(geometry[5](10))
+                pixel=picture.pixelColor(xpos,ypos)
+                self.assertGreater(pixel.red(),180)
+                self.assertLess(pixel.green(),90)
+                self.assertGreater(pixel.blue(),180)
+                chart.show_structure=False
+                chart._surface_key=None
+                chart.update()
+                self.app.processEvents()
+                no_line=chart.grab().toImage().pixelColor(xpos,ypos)
+                self.assertNotEqual((no_line.red(),no_line.green(),no_line.blue()),
+                                    (pixel.red(),pixel.green(),pixel.blue()))
+                chart.close()
 
     def test_current_price_text_contrast_adapts_to_dark_and_light_markers(self):
         background=QColor("#898989")
