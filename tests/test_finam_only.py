@@ -112,6 +112,7 @@ class TestFinamAPI(unittest.TestCase):
         api=FinamAPI(opener=opener,secret_reader=lambda:"fake_secret")
         result=api.active_assets()
         self.assertEqual(len(result),2)
+        self.assertEqual(api.exchange_symbol("SIZ6@RTSX"),"SiZ6@RTSX")
         self.assertTrue(all(method in ("GET","POST") for method,_ in paths))
         self.assertTrue(all(method=="GET" for method,url in paths
                             if "/v1/assets/" in url))
@@ -208,6 +209,23 @@ class TestFinamWebSocket(unittest.TestCase):
         self.assertEqual(result[0].timeframe,"H1")
         self.assertEqual(result[0].candles[0].close,251)
         self.assertIsNone(interpret_packet(packet,"SBER","MISX",1,NOW))
+
+    def test_mixed_case_catalog_ticker_is_accepted_in_live_packets(self):
+        from flowdesk.finam_stream import interpret_packet
+        instant="2026-11-13T10:00:00Z"
+        quote={"type":"DATA","subscription_type":"QUOTES",
+               "payload":{"quote":[{"symbol":"SiZ6@RTSX","last":{"value":"82990"}}]}}
+        parsed=interpret_packet(quote,"SIZ6","RTSX",1,NOW)
+        self.assertEqual(parsed.kind,"quote")
+        self.assertEqual(parsed.quote["last"],82990.0)
+        candle={"symbol":"SiZ6@RTSX","timeframe":"TIME_FRAME_H1",
+                "timestamp":instant,"open":"1","high":"2",
+                "low":"1","close":"2","volume":"1"}
+        packet={"type":"DATA","subscription_type":"BARS",
+                "payload":{"symbol":"SiZ6@RTSX","bars":[candle]}}
+        batch=interpret_packet(packet,"SIZ6","RTSX",1,NOW)
+        self.assertEqual(len(batch),1)
+        self.assertEqual(batch[0].kind,"candles")
 
     def test_quote_and_candles_are_distinct(self):
         quote={"type":"DATA","subscription_type":"QUOTES",

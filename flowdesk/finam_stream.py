@@ -32,6 +32,8 @@ class FinamEvent:
 def interpret_packet(packet, ticker, mic, epoch, now):
     """Turn documented DATA envelopes into typed events; never confuse quotes with bars."""
     symbol = symbol_name(ticker,mic)
+    def belongs(value):
+        return isinstance(value,str) and value.upper()==symbol
     ptype = packet.get("type")
     if ptype == "ERROR":
         info = packet.get("error_info") or {}
@@ -49,7 +51,7 @@ def interpret_packet(packet, ticker, mic, epoch, now):
         return None
     if subscription == "QUOTES":
         quotes = payload.get("quote") or []
-        q = next((q for q in quotes if q.get("symbol") == symbol), None)
+        q = next((q for q in quotes if belongs(q.get("symbol"))), None)
         if q is not None:
             q = dict(q)
             if q.get("last") is not None:
@@ -58,7 +60,7 @@ def interpret_packet(packet, ticker, mic, epoch, now):
         return None
     if subscription != "BARS":
         return None
-    if payload.get("symbol", symbol) != symbol:
+    if not belongs(payload.get("symbol", symbol)):
         return None
     items = payload.get("bars") or []
     if isinstance(items, dict):
@@ -66,7 +68,7 @@ def interpret_packet(packet, ticker, mic, epoch, now):
     tf_codes = {v:k for k,v in FRAMES.items()}
     grouped = {}
     for row in items:
-        if not isinstance(row, dict) or row.get("symbol",symbol) != symbol:
+        if not isinstance(row, dict) or not belongs(row.get("symbol",symbol)):
             continue
         tf = tf_codes.get(row.get("timeframe") or packet.get("timeframe"))
         if tf is None:
@@ -126,7 +128,7 @@ class FinamStreamWorker(QThread):
                             if event_name == "HANDSHAKE_SUCCESS" and not subscribed:
                                 handshake = subscribed = True
                                 status("resync")
-                                symbol = symbol_name(self.ticker,self.mic)
+                                symbol = self.api.exchange_symbol(symbol_name(self.ticker,self.mic))
                                 # Quotes and OHLC only; ORDERS/TRADES/ACCOUNT are never requested.
                                 requests = [{"action":"SUBSCRIBE","type":"QUOTES",
                                              "data":{"symbols":[symbol]},"token":token}]

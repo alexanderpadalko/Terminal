@@ -118,6 +118,12 @@ class FinamAPI:
         self._jwt = ""
         self._expiry = 0.0
         self.permissions = []
+        self._exact_symbols = {}
+
+    def exchange_symbol(self, normalized_symbol):
+        """Preserve exact ticker casing in Finam API requests (e.g. SiZ6)."""
+        with self._lock:
+            return self._exact_symbols.get(normalized_symbol.upper(),normalized_symbol)
 
     def _json(self, method, path, payload=None, token=None):
         if method not in ("GET", "POST") or not path.startswith("/v1/"):
@@ -209,6 +215,14 @@ class FinamAPI:
                     result.append(row)
             next_cursor=payload.get("next_cursor")
             if not next_cursor or str(next_cursor)=="0":
+                exact={}
+                for row in result:
+                    code=row.get("symbol") or (
+                        str(row.get("ticker",""))+"@"+str(row.get("mic","")))
+                    if "@" in code:
+                        exact[code.upper()]=code
+                with self._lock:
+                    self._exact_symbols=exact
                 return result
             if str(next_cursor) in visited:
                 raise FinamAPIError("Finam: справочник повторяет страницу, список не подтверждён")
@@ -224,7 +238,7 @@ class FinamAPI:
         params = urlencode({"timeframe": FRAMES[timeframe],
                             "interval.start_time": start.isoformat().replace("+00:00", "Z"),
                             "interval.end_time": end.isoformat().replace("+00:00", "Z")})
-        path = "/v1/instruments/" + quote(symbol, safe="") + "/bars?" + params
+        path = "/v1/instruments/" + quote(self.exchange_symbol(symbol), safe="") + "/bars?" + params
         try:
             result = self._json("GET", path, token=self.access_key())
         except FinamAPIError as exc:
