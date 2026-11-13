@@ -192,27 +192,41 @@ class _IceTable(HTMLParser):
 
 
 def ice_brent_dates(html):
-    """Read ICE product 219 table: month, first trade, *LTD* at column 3."""
+    """Accept only the ICE Brent 219 Contract Symbol / LTD table.
+
+    Find columns from the header (not a hardcoded index), and reject
+    conflicting dates for the same contract. Never use settlement or notice.
+    """
     parser=_IceTable()
     parser.feed(html)
     result={}
-    header_found=False
+    conflicts=set()
+    columns=None
     for cells in parser.rows:
-        if len(cells)>=3 and "Last Trade Date" in cells[2]:
-            header_found=True
+        normalized=[" ".join(cell.casefold().split()) for cell in cells]
+        contract=next((i for i,text in enumerate(normalized)
+                       if "contract symbol" in text),None)
+        ltd=next((i for i,text in enumerate(normalized)
+                  if "last trade date" in text and
+                     ("ltd" in text or text=="last trade date")),None)
+        if contract is not None and ltd is not None and contract!=ltd:
+            columns=(contract,ltd)
             continue
-        if not header_found or len(cells)<3:
+        if columns is None or max(columns)>=len(cells):
             continue
-        month=re.fullmatch(r"([A-Za-z]{3})(\d{2})",cells[0].strip())
+        month=re.fullmatch(r"([A-Za-z]{3})(\\d{2})",cells[columns[0]].strip())
         if not month or month.group(1).title() not in MONTH_NAMES:
             continue
         year=2000+int(month.group(2))
         m=MONTH_NAMES.index(month.group(1).title())+1
-        day=_date(cells[2])
-        if day and abs(day.year-year)<=1:
-            result[(year,m)]=day
-    return result
-
+        day=_date(cells[columns[1]])
+        key=(year,m)
+        if day is None or abs(day.year-year)>1:
+            continue
+        if key in result and result[key]!=day:
+            conflicts.add(key)
+        result[key]=day
+    return {key:day for key,day in result.items() if key not in conflicts}
 
 def _safe_calendar_error(exc):
     """Never expose response body, URL, token or exception message in UI."""
@@ -262,8 +276,16 @@ class OfficialExpiry:
             source="CME "+root
             if source not in self._cache:
                 try:
-                    url="https://www.cmegroup.com/CmeWS/mvc/ProductCalendar/Future/"+str(CME_ROOTS[root])+".json"
-                    raw=self.fetch(url)
+                    base="https://www.cmegroup.com/CmeWS/mvc/ProductCalendar/Future/"+str(CME_ROOTS[root])
+                    try:
+                        raw=self.fetch(base+".json")
+                    except Exception as exc:
+                        # CME also publishes a non-suffixed URL. Only retry
+                        # 404 (missing route), never 403/rate-limit/timeouts.
+                        code=getattr(exc,"http_status",getattr(exc,"code",None))
+                        if code!=404:
+                            raise
+                        raw=self.fetch(base)
                     obj=json.loads(raw) if isinstance(raw,(bytes,str)) else raw
                     self._cache[source]=cme_calendar_dates(
                         obj,root=root,reference_year=self.reference_year)
