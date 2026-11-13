@@ -118,6 +118,51 @@ class TestFinamAPI(unittest.TestCase):
                             if "/v1/assets/" in url))
         self.assertEqual(len([x for x in paths if "/v1/assets/all?" in x[1]]),2)
 
+    def test_getasset_404_retries_once_with_only_authorized_account(self):
+        from urllib.parse import parse_qs, urlparse
+        requests=[]
+        def opener(req,timeout):
+            url=req.full_url
+            requests.append((req.get_method(),url))
+            if url.endswith("/v1/sessions"):
+                body={"token":"private_session_token"}
+            elif url.endswith("/v1/sessions/details"):
+                body={"md_permissions":[],"account_ids":["private_account_1"]}
+            elif "/v1/assets/NQZ26%40XCME" in url:
+                query=parse_qs(urlparse(url).query)
+                if not query:
+                    raise HTTPError(url,404,"not found",{},
+                                    BytesIO(b'{"secret":"never print"}'))
+                self.assertEqual(query.get("account_id"),["private_account_1"])
+                body={"future_details":{"expiration_date":"2026-12-18T12:00:00Z"}}
+            else:
+                self.fail("Unexpected Finam endpoint")
+            class Response:
+                def __enter__(self):return self
+                def __exit__(self,*unused):return None
+                def read(self):return json.dumps(body).encode()
+            return Response()
+        api=FinamAPI(opener=opener,secret_reader=lambda:"secret_only_local")
+        result=api.asset_details("NQZ26@XCME")
+        self.assertIn("future_details",result)
+        asset_gets=[url for method,url in requests if method=="GET"]
+        self.assertEqual(len(asset_gets),2)
+        self.assertNotIn("secret_only_local",str(result))
+
+    def test_getasset_never_guesses_account_or_retries_http_403(self):
+        for ids,code in ((["a","b"],404),(["a"],403),([],404)):
+            calls=[]
+            def opener(req,timeout):
+                calls.append(req.full_url)
+                raise HTTPError(req.full_url,code,"permission error",{},BytesIO(b""))
+            api=FinamAPI(opener=opener,secret_reader=lambda:"private")
+            api._jwt,api._expiry="dummy",float("inf")
+            api._account_ids=ids
+            with self.assertRaises(FinamAPIError):
+                api.asset_details("NQZ26@XCME")
+            self.assertEqual(len(calls),1)
+            self.assertNotIn("account_id=",calls[0])
+
     def test_cancelled_directory_lookup_does_not_contact_network(self):
         api=FinamAPI(opener=lambda *a,**k:self.fail("network must not be used"))
         with self.assertRaises(InterruptedError):
