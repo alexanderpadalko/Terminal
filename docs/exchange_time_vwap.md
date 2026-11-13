@@ -88,3 +88,30 @@ https://www.nasdaq.com/market-activity/stock-market-holiday-schedule
 Официальное расписание CME: https://www.cmegroup.com/markets/equities/sp-500-and-nasdaq-100-futures.html и
 https://www.cmegroup.com/markets/equities/nasdaq/e-mini-nasdaq-100.timeAndSales.html
 
+
+## Исправление GC/COMEX и фокуса кнопок (13.11.2026)
+
+На пользовательском скриншоте `GCZ26@XCEC` отображал сброс
+**Session VWAP в 00:00 EST**. Причина: прежнее правило 18:00 ET применялось
+только к `NQ/ES@XCME`, а `GC@XCEC` использовал календарную дату.
+
+Календарь торгового дня **18:00 ET → 17:00 ET следующего дня**
+(с перерывом 17:00–18:00 ET) теперь также подключён **по точному
+сочетанию MIC и символа**: `GC/SI@XCEC` (допустим `XCME`, если это
+реальный MIC в Finam), `PL/PA/NG@XNYM`. Свечи с 18:00 ET до 17:00 ET
+следующего дня образуют одну торговую дату. В полночь EST/EDT
+VWAP **не** сбрасывается. Праздничные/сокращённые сессии требуют
+отдельного биржевого календаря, отсутствующие данные не заполняются.
+
+На кнопках TimeframeBar полоса/рамка `:focus` больше не рисуется;
+единственный активный TF — `:checked`. Это устраняет случай
+`1м` в рамке при выбранном `5м` на графике.
+
+Новые тесты: `tests/test_futures_session_and_tf_focus.py` проверяют
+ночной переход, 18:00 ET, выходные, DST, Qt и эксклюзивность TF.
+Схема Brent ICE и RTSX **не меняется** этой правкой.
+
+Официальные часы:
+- GC: https://www.cmegroup.com/markets/metals/precious/gold.timeAndSales.html
+- SI: https://www.cmegroup.com/markets/metals/precious/silver.contract.html
+- NG: https://www.cmegroup.com/markets/energy/natural-gas/natural-gas.options.html

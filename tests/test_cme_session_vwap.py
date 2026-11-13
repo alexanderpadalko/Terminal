@@ -108,9 +108,9 @@ class TestCmeNqEsSession(unittest.TestCase):
                          period_key(midnight,"Week",exchange=self.nq))
         self.assertEqual(period_key(before,"Month",exchange=self.nq),
                          period_key(midnight,"Month",exchange=self.nq))
-        generic=exchange_clock("XCME","GCZ6")
+        generic=exchange_clock("XCME","MGCZ6")
         self.assertEqual(period_key(before,"Session",exchange=generic),
-                         date(2026,11,12))  # no invented gold session times
+                         date(2026,11,12))  # unknown micro contract retains old behavior
         equity=exchange_clock("XNGS","AAPL")
         # At 18:00 ET US equities are STILL in postmarket until 20:00;
         # only CME NQ/ES start a new session then.
@@ -150,8 +150,9 @@ class TestCmeChartIntegration(unittest.TestCase):
             self.assertTrue(chart.exchange.cme_index_future)
             chart.set_exchange("XCME","ESZ6")
             self.assertEqual(chart.vwap,[100,120,125])
-            chart.set_exchange("XCME","GCZ6")
+            chart.set_exchange("XCME","MGCZ6")
             self.assertFalse(chart.exchange.cme_index_future)
+            self.assertFalse(chart.exchange.us_globex_commodity_future)
             self.assertEqual(chart.vwap,[100,110,130])
             chart.set_exchange("XCME","NQZ6")
             self.assertEqual(chart.vwap,[100,120,125])

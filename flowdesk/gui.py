@@ -148,6 +148,9 @@ class TimeframeBar(QWidget):
             button = QToolButton(self)
             button.setText(label)
             button.setCheckable(True)
+            # Focus is not a second selection state. Only the checked
+            # interval may have a visible highlight after switching TF.
+            button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
             button.setFixedSize(37, 42)
             button.setCursor(Qt.CursorShape.PointingHandCursor)
             button.setToolTip({"M1": "1 минута", "M5": "5 минут", "H1": "1 час",
@@ -173,7 +176,6 @@ class TimeframeBar(QWidget):
                     background: #ffffff; color: #111111; font-weight: 700;
                     border: 1px solid #bcbcbc;
                 }
-                QWidget#timeframeBar QToolButton:focus { border: 1px solid #848484; }
                 QWidget#timeframeBar QToolButton:disabled { color: #aaaaaa; }
             """)
         else:
@@ -185,7 +187,6 @@ class TimeframeBar(QWidget):
                 }
                 QWidget#timeframeBar QToolButton:hover { background: #262626; }
                 QWidget#timeframeBar QToolButton:checked { background: #303030; color: #ffffff; }
-                QWidget#timeframeBar QToolButton:focus { border: 1px solid #666666; }
                 QWidget#timeframeBar QToolButton:disabled { color: #6c6c6c; }
             """)
 

@@ -28,9 +28,10 @@ def vwap_series(candles,anchor='Session',source='hlc3',*,exchange: ExchangeClock
     segment=None
     zone=exchange.zone if exchange is not None else MOSCOW
     for i,bar in enumerate(candles):
-        # Session is venue/product-specific. NQ/ES CME Globex resets at
-        # 18:00 ET across civil midnight and skips the 17:00–18:00 halt.
-        # US equity Session stays 04:00–20:00 ET (pre/core/postmarket).
+        # Session is venue/product-specific. Supported CME Globex index,
+        # COMEX metals and NYMEX futures reset at 18:00 ET across civil
+        # midnight and skip the 17:00–18:00 halt. US equity Session
+        # remains 04:00–20:00 ET (pre/core/postmarket).
         # Week/Month/other anchors still use the exchange-local calendar.
         next_key=period_key(bar.time,anchor,exchange=exchange)
         if anchor=='Session' and next_key is None:

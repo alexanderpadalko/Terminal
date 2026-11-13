@@ -55,6 +55,9 @@ class ExchangeClock:
     us_regular_equity: bool = False
     known: bool = True
     cme_index_future: bool = False
+    # Same Globex 18:00–17:00 ET trading day for verified precious
+    # metals and natural gas; do not apply this to unrelated tickers/MICs.
+    us_globex_commodity_future: bool = False
 
     def local(self, instant: datetime) -> datetime:
         if instant.tzinfo is None:
@@ -73,14 +76,15 @@ class ExchangeClock:
     def vwap_session_key(self, instant: datetime):
         """Exchange trading-date for session VWAP; None means no trading.
 
-        NQ/ES CME Globex: Sunday 18:00 ET -> Friday 17:00 ET,
-        daily maintenance 17:00–18:00 ET. Session belongs to the
+        Verified CME Globex NQ/ES, COMEX GC/SI, NYMEX PL/PA/NG:
+        Sunday 18:00 ET -> Friday 17:00 ET, daily 17:00–18:00 ET halt.
+        Session belongs to the
         NEXT local trading date from 18:00 onward, continuing through
         midnight until 17:00 the following day. Use America/New_York
         solely for this boundary; the chart X-axis remains CME/Chicago.
         Holiday/early-close overrides require separate verified data.
         """
-        if self.cme_index_future:
+        if self.cme_index_future or self.us_globex_commodity_future:
             if instant.tzinfo is None:
                 raise ValueError("Биржевая сессия требует timezone-aware UTC метки")
             eastern=instant.astimezone(ZoneInfo("America/New_York"))
@@ -107,20 +111,27 @@ class ExchangeClock:
 
 
 def exchange_clock(mic: str, symbol: str | None = None) -> ExchangeClock:
-    """Use product-specific calendars only for verified CME NQ/ES series.
+    """Only listed futures on verified venues use the Globex trading day.
 
-    Other CME futures (e.g. metals, energies) are deliberately unchanged.
+    NQ/ES: XCME; GC/SI: XCEC (or XCME if that is the Finam MIC);
+    PL/PA/NG: XNYM. No matching-by-prefix or default for unknown venues.
     """
     mic = (mic or "").strip().upper()
     zone_name = _EXCHANGE_ZONES.get(mic)
     if zone_name is None:
         return ExchangeClock(mic, ZoneInfo("UTC"), known=False)
     ticker=(symbol or "").strip().upper().split("@",1)[0]
+    maturity=r"[FGHJKMNQUVXZ][0-9]{1,4}"
     cme_index=bool(mic=="XCME" and
-                   re.fullmatch(r"(?:NQ|ES)[FGHJKMNQUVXZ][0-9]{1,4}",ticker))
+                   re.fullmatch(rf"(?:NQ|ES){maturity}",ticker))
+    commodity=bool(
+        (mic in ("XCEC","XCME") and re.fullmatch(rf"(?:GC|SI){maturity}",ticker))
+        or (mic=="XNYM" and re.fullmatch(rf"(?:PL|PA|NG){maturity}",ticker))
+    )
     return ExchangeClock(mic, ZoneInfo(zone_name),
                          us_regular_equity=mic in _US_EQUITY_MICS,
-                         cme_index_future=cme_index)
+                         cme_index_future=cme_index,
+                         us_globex_commodity_future=commodity)
 
 
 # Keep the old Moscow-only chart default for archived MOEX UI regression tests.
