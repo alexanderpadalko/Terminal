@@ -80,6 +80,8 @@ def _date(value, *, mic=""):
             try:
                 seconds=int(value["seconds"])
                 nanos=int(value.get("nanos",0))
+                if seconds<=0 or not 0<=nanos<1_000_000_000:
+                    return None  # empty protobuf Timestamp, not an expiry
                 stamp=datetime.fromtimestamp(seconds+nanos/1e9,tz=timezone.utc)
                 return stamp.astimezone(exchange_clock(mic).zone).date()
             except (ValueError,TypeError,OverflowError,OSError):
