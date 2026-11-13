@@ -13,7 +13,7 @@ try:
 except ImportError:
     if os.environ.get('CI')=='true':raise
     QT=False
-from flowdesk.settings import IndicatorSettings,ApplicationSettings,SettingsStore
+from flowdesk.settings import IndicatorSettings,ApplicationSettings,SettingsStore,CHART_COLOR_FIELDS,CHART_THEME_DEFAULTS
 
 
 @unittest.skipUnless(QT,'Windows Qt CI')
@@ -31,7 +31,10 @@ class TestSettingsGui(unittest.TestCase):
         self.assertFalse(any("Эталон" in widget.text() or
                              "TradingView" in widget.text()
                              for widget in dialog.findChildren(QLabel)))
-        self.assertEqual(dialog.tabs.count(),7)
+        self.assertEqual(dialog.tabs.count(),8)
+        self.assertEqual(dialog.tabs.tabText(0),"Настройки графика")
+        self.assertEqual(dialog.tabs.tabText(1),"Структурное движение")
+        self.assertEqual(len(dialog.chart_controls),8)
         self.assertFalse(any("TradingView" in control.toolTip()
                              for control in dialog.controls.values()))
         applied=[]
@@ -77,6 +80,46 @@ class TestSettingsGui(unittest.TestCase):
         dialog.restore_defaults()
         self.assertEqual(dialog.values()[0].upColor,IndicatorSettings().upColor)
         dialog.close()
+
+    def test_chart_colors_save_reload_and_display_after_apply(self):
+        with tempfile.TemporaryDirectory() as folder:
+            store=SettingsStore(Path(folder)/'chart-colors.json')
+            dlg=SettingsDialog(IndicatorSettings(),ApplicationSettings())
+            try:
+                dlg.chart_controls['chart_candle_up'].set_value('#118844FF')
+                dlg.chart_controls['chart_background'].set_value('#202A36FF')
+                dlg.chart_controls['chart_grid'].set_value('#BBCCDD55')
+                indicator,application=dlg.values()
+                store.write(indicator,application)
+                _,loaded=SettingsStore(store.path).read()
+                self.assertEqual(loaded.chart_candle_up,'#118844FF')
+                self.assertEqual(loaded.chart_background,'#202A36FF')
+                self.assertEqual(loaded.chart_grid,'#BBCCDD55')
+                chart=CandleChart()
+                chart.resize(850,570)
+                chart.set_chart_colors(loaded)
+                chart.show()
+                self.app.processEvents()
+                self.assertEqual(chart.grab().toImage().pixelColor(3,3).name(),
+                                 '#202a36')
+                chart.close()
+            finally:
+                dlg.close()
+
+    def test_old_settings_without_chart_colors_are_backwards_compatible(self):
+        with tempfile.TemporaryDirectory() as folder:
+            store=SettingsStore(Path(folder)/'old.json')
+            store.write(IndicatorSettings(),ApplicationSettings())
+            import json
+            payload=json.loads(store.path.read_text(encoding='utf-8'))
+            for field,_ in CHART_COLOR_FIELDS:
+                payload['application'].pop(field,None)
+            store.path.write_text(json.dumps(payload),encoding='utf-8')
+            _,settings=SettingsStore(store.path).read()
+            for field,_ in CHART_COLOR_FIELDS:
+                self.assertIsNone(getattr(settings,field))
+            with self.assertRaises(ValueError):
+                ApplicationSettings(chart_grid='#invalid')
 
     def test_gear_apply_restart_restores_values_and_render_stays_valid(self):
         with tempfile.TemporaryDirectory() as folder:
@@ -131,5 +174,9 @@ class TestSettingsGui(unittest.TestCase):
         dialog.restore_defaults()
         indicator,application=dialog.values()
         self.assertEqual(indicator.as_dict(),IndicatorSettings().as_dict())
-        self.assertEqual(application,ApplicationSettings())
+        self.assertEqual((application.auto_updates,application.refresh_seconds,
+                          application.show_panel,application.allow_http),
+                         (True,60,False,False))
+        for field,_ in CHART_COLOR_FIELDS:
+            self.assertEqual(getattr(application,field),CHART_THEME_DEFAULTS['tv'][field])
         dialog.close()
