@@ -13,6 +13,7 @@ from .finam_universe import (
     cached_top20, US_CONTRACTS, RU_CONTRACTS,
 )
 from .finam_rotation import RollState, resolve_futures
+from .diagnostics_log import log_event, log_contract
 from .exchange_expiry import OfficialExpiry
 from .moex_reference import refresh_top20, MoexFuturesDates
 from .watchlist import WatchlistService
@@ -35,13 +36,15 @@ class FinamCatalogWorker(QThread):
 
     def run(self):
         try:
+            log_event("catalog_start")
             self.progress.emit("Finam: проверка действующих контрактов и списка акций…")
             finam_error=""
             try:
                 assets=self.api.active_assets(cancelled=self.isInterruptionRequested)
             except InterruptedError:
                 raise
-            except Exception:
+            except Exception as exc:
+                log_event("catalog_unavailable",error=type(exc).__name__)
                 assets=[]
                 finam_error="Finam: каталог недоступен; фьючерсы не переключаются"
             if self.isInterruptionRequested():
@@ -52,7 +55,8 @@ class FinamCatalogWorker(QThread):
                     watchlist=self.watchlist,cancelled=self.isInterruptionRequested)
             except InterruptedError:
                 raise
-            except Exception:
+            except Exception as exc:
+                log_event("stock_ranking_unavailable",error=type(exc).__name__)
                 stocks,ranking_status=cached_top20(watchlist=self.watchlist)
                 ranking_status+=" · ошибка MOEX, сохранён прошлый рейтинг"
             if self.isInterruptionRequested():
@@ -66,8 +70,8 @@ class FinamCatalogWorker(QThread):
                 moex_status="MOEX RFUD: даты окончания торгов проверены"
             except InterruptedError:
                 raise
-            except Exception:
-                pass
+            except Exception as exc:
+                log_event("moex_expiry_unavailable",error=type(exc).__name__)
             if self.isInterruptionRequested():
                 return
             previous=self.roll_state.load()
@@ -83,6 +87,13 @@ class FinamCatalogWorker(QThread):
                 progress=self.progress.emit)
             if self.isInterruptionRequested():
                 return
+            # Only allow-listed metadata is recorded: no raw GetAsset,
+            # exception messages, credentials, or account identifiers.
+            for c in (*US_CONTRACTS,*RU_CONTRACTS):
+                row=futures.get(c.group+":"+c.display)
+                if row is not None:
+                    log_contract(c,row)
+            log_event("catalog_complete")
             # A transient catalog/metadata outage must not forget an earlier
             # confirmed rollover or silently revert to the original series.
             self.roll_state.save({**previous,**selections})
@@ -114,5 +125,7 @@ class FinamCatalogWorker(QThread):
             return
         except Exception as exc:
             if not self.isInterruptionRequested():
-                # Do not leak credentials, JWTs, request URLs or response body.
-                self.failed.emit(f"{type(exc).__name__}: {str(exc)[:170]}")
+                # Only exception types are logged/displayed, never raw messages:
+                # downstream code may interpolate sensitive request details.
+                log_event("catalog_worker_failed",error=type(exc).__name__)
+                self.failed.emit(type(exc).__name__)
