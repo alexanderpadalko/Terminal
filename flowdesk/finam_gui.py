@@ -10,7 +10,7 @@ from PySide6.QtCore import QSettings, QThread, QTimer, Qt, Signal
 from PySide6.QtWidgets import (
     QApplication, QCheckBox, QComboBox, QHBoxLayout, QLabel, QLineEdit,
     QMainWindow, QMessageBox, QPushButton, QVBoxLayout, QWidget,
-    QListWidget, QInputDialog, QSplitter, QFormLayout, QFrame
+    QListWidget, QListWidgetItem, QInputDialog, QSplitter, QFormLayout, QFrame
 )
 
 from . import __version__
@@ -18,6 +18,11 @@ from .app_icon import application_icon, set_windows_application_id
 from .finam_api import read_secret, save_secret, delete_secret, symbol_name, parse_instant
 from .exchange_time import exchange_clock
 from .finam_market import FinamMarketService
+from .finam_universe import (
+    US_FUTURES, RU_STOCKS, RU_FUTURES, GROUP_LABELS,
+    compose_universe, cached_top20, is_in_universe
+)
+from .finam_catalog_worker import FinamCatalogWorker
 from .finam_stream import FinamStreamWorker
 from .gui import CandleChart, TimeframeBar
 from .settings import IndicatorSettings, ApplicationSettings, SettingsStore
@@ -87,6 +92,10 @@ class FinamWindow(QMainWindow):
         self.closing = False
         self.analysis = None
         self.parents = {}
+        self.catalog_worker = None
+        self.catalog_ready = False
+        self.catalog_error = ""
+        self.universe, self.ranking_status = compose_universe()
         self._make_ui()
         self.feed_timer = QTimer(self)
         self.feed_timer.setSingleShot(True)
@@ -97,15 +106,26 @@ class FinamWindow(QMainWindow):
         self.http_timer.timeout.connect(self._http_refresh)
         ticker=str(self.ui_prefs.value("ticker","SBER"))
         mic=str(self.ui_prefs.value("mic","MISX"))
+        self._pending_restore=ticker.upper()+"@"+mic.upper()
         # Migrate only the four previously incorrect built-in examples. Never
         # guess a different venue for arbitrary user-entered instruments.
         if mic=="XNAS" and ticker in {t for t,m,_ in EXAMPLES if m=="XNGS"}:
             mic="XNGS"
             self.ui_prefs.setValue("mic",mic)
+        self._pending_restore=ticker.upper()+"@"+mic.upper()
         self.symbol_edit.setText(ticker)
         self.mic.setCurrentText(mic)
+        if is_in_universe(self._pending_restore,self.universe):
+            self._pending_restore=None
+        else:
+            # Futures are resolved asynchronously; do not open an old AAPL
+            # selection or guess the target MIC while awaiting the directory.
+            self.symbol_edit.setText("SBER")
+            self.mic.setCurrentText("MISX")
         tf = str(self.ui_prefs.value("tf","H1"))
+        blocked=self.tf.blockSignals(True)
         self.tf.setCurrentText(tf if tf in self.tf.buttons else "H1")
+        self.tf.blockSignals(blocked)
         self._indicator()
         QTimer.singleShot(0,self._startup)
 
@@ -173,29 +193,34 @@ class FinamWindow(QMainWindow):
         side.setMaximumWidth(290)
         side.setMinimumWidth(235)
         right=QVBoxLayout(side)
-        title=QLabel("Finam Trade API · инструменты")
+        title=QLabel("Инструменты · только выбранные")
         title.setStyleSheet("font-weight:700")
         right.addWidget(title)
-        form=QFormLayout()
-        self.symbol_edit=QLineEdit()
-        self.symbol_edit.setPlaceholderText("AAPL / SBER")
+        # Preserve private controls for internal navigation and existing tests.
+        # Do not expose a manual entry that bypasses the user's fixed universe.
+        self.symbol_edit=QLineEdit(side)
         self.symbol_edit.returnPressed.connect(self._select)
-        form.addRow("Тикер",self.symbol_edit)
-        self.mic=QComboBox()
+        self.symbol_edit.hide()
+        self.mic=QComboBox(side)
         self.mic.setEditable(True)
-        self.mic.addItems(("MISX","XNGS","XNMS","XNCM","XNYS","ARCX"))
-        form.addRow("Биржа (MIC)",self.mic)
-        right.addLayout(form)
-        self.open_button=QPushButton("Открыть инструмент")
+        self.mic.addItems(("MISX","RTSX","XCME","XCEC","XNYM","IFEU"))
+        self.mic.hide()
+        self.open_button=QPushButton("Открыть инструмент",side)
         self.open_button.clicked.connect(self._select)
-        right.addWidget(self.open_button)
-        self.examples=QListWidget()
-        for ticker,mic,name in EXAMPLES:
-            self.examples.addItem(f"{ticker}@{mic} · {name}")
+        self.open_button.hide()
+        self.search=QLineEdit(side)
+        self.search.setPlaceholderText("Поиск в выбранном списке…")
+        self.search.textChanged.connect(self._filter_universe)
+        right.addWidget(self.search)
+        self.examples=QListWidget(side)
         self.examples.itemActivated.connect(self._example)
         self.examples.itemClicked.connect(self._example)
         right.addWidget(self.examples,1)
-        right.addWidget(QLabel("Доступ к площадке и задержка зависят от прав токена."))
+        self.universe_info=QLabel(side)
+        self.universe_info.setWordWrap(True)
+        self.universe_info.setStyleSheet("color:#a2a9b3;font-size:11px")
+        right.addWidget(self.universe_info)
+        self._populate_universe()
         split.addWidget(side)
         split.setStretchFactor(0,1)
         outer.addWidget(split,1)
@@ -208,6 +233,105 @@ class FinamWindow(QMainWindow):
           QPushButton:hover {background:#343434;}
           QListWidget::item:selected {background:#2b4b68;}
         """)
+
+    def _populate_universe(self):
+        """Only the 8+20+10 requested rows; no unrelated demo assets."""
+        current=self.search.text().strip().lower() if hasattr(self,"search") else ""
+        self.examples.clear()
+        self._sections=[]
+        for group in (US_FUTURES,RU_STOCKS,RU_FUTURES):
+            header=QListWidgetItem(GROUP_LABELS[group])
+            header.setFlags(Qt.ItemFlag.NoItemFlags)
+            header.setForeground(Qt.GlobalColor.gray)
+            self.examples.addItem(header)
+            self._sections.append(header)
+            for entry in self.universe[group]:
+                pending=not self.catalog_ready and not self.catalog_error and group!=RU_STOCKS
+                state=(" · поиск Finam…" if pending else
+                       " · каталог недоступен" if self.catalog_error and group!=RU_STOCKS else
+                       " · не подтверждён Finam" if not entry.verified else "")
+                row=QListWidgetItem(entry.label+" · "+entry.name+state)
+                row.setData(Qt.ItemDataRole.UserRole,entry.symbol if entry.verified else "")
+                if not entry.verified:
+                    row.setFlags(Qt.ItemFlag.NoItemFlags)
+                    row.setForeground(Qt.GlobalColor.gray)
+                    row.setToolTip("Для открытия необходим точный тикер@MIC из каталога Finam. Не подменяем похожим контрактом.")
+                else:
+                    row.setToolTip(entry.symbol)
+                self.examples.addItem(row)
+        self.universe_info.setText(
+            "Акции: "+self.ranking_status+
+            " · без запросов MOEX. Контракты сверяются с Finam; "
+            "недоступные не подменяются."+
+            (" · Каталог: "+self.catalog_error if self.catalog_error else "")
+        )
+        self._filter_universe(current)
+
+    def _filter_universe(self,text):
+        term=text.strip().lower()
+        visible_count=0
+        pending_header=None
+        for i in range(self.examples.count()):
+            item=self.examples.item(i)
+            if item in getattr(self,"_sections",()):
+                if pending_header is not None:
+                    pending_header.setHidden(visible_count==0)
+                pending_header=item
+                visible_count=0
+                continue
+            matched=not term or term in item.text().lower()
+            item.setHidden(not matched)
+            visible_count+=int(matched)
+        if pending_header is not None:
+            pending_header.setHidden(visible_count==0)
+
+    def _refresh_catalog(self):
+        if self.closing or not read_secret() or self.catalog_worker is not None:
+            return
+        self.catalog_error=""
+        self.catalog_worker=FinamCatalogWorker(self.service.api,self)
+        self.catalog_worker.loaded.connect(self._catalog_loaded)
+        self.catalog_worker.failed.connect(self._catalog_failed)
+        self.catalog_worker.finished.connect(self._catalog_finished)
+        self.catalog_worker.start()
+
+    def _catalog_loaded(self,assets):
+        if self.closing:return
+        self.catalog_ready=True
+        self.catalog_error=""
+        self.universe,self.ranking_status=compose_universe(assets)
+        self._populate_universe()
+        if self._pending_restore:
+            restored=self._pending_restore
+            self._pending_restore=None
+            if is_in_universe(restored,self.universe):
+                ticker,mic=restored.split("@",1)
+                self.symbol_edit.setText(ticker)
+                self.mic.setCurrentText(mic)
+                self._load(refresh=False)
+                self._start_stream()
+            else:
+                self.status.setText("Сохранённый контракт отсутствует в активном каталоге Finam.")
+                self._load(refresh=False)
+                self._start_stream()
+
+    def _catalog_failed(self,error):
+        if self.closing:return
+        self.catalog_error=error
+        self._populate_universe()
+        self.status.setText("Finam: "+error)
+        if self._pending_restore:
+            self._pending_restore=None
+            self._load(refresh=False)
+            self._start_stream()
+
+    def _catalog_finished(self):
+        worker=self.sender()
+        if worker is self.catalog_worker:
+            self.catalog_worker=None
+        worker.deleteLater()
+        if self.closing:
+            self._finish_close()
 
     def chart_auto_price_later(self):
         self.chart.auto_price()
@@ -249,20 +373,25 @@ class FinamWindow(QMainWindow):
         self.status.setText("Токен сохранён в Windows Credential Manager; проверка подключения…")
         self._load(refresh=self.http.isChecked())
         self._start_stream()
+        self._refresh_catalog()
 
     def _startup(self):
         if not read_secret():
             self.status.setText("Созданный токен Finam ещё не введён. Нажмите «Токен Finam».")
             self._indicator()
             return
+        self._refresh_catalog()
+        if self._pending_restore:
+            self.status.setText("Finam: поиск сохранённого инструмента в каталоге…")
+            return
         self._load(refresh=self.http.isChecked())
         self._start_stream()
 
     def _example(self,item):
-        s=item.text().split(" ",1)[0]
-        if "@" not in s:
+        symbol=item.data(Qt.ItemDataRole.UserRole)
+        if not symbol or "@" not in symbol:
             return
-        ticker,mic=s.split("@",1)
+        ticker,mic=symbol.split("@",1)
         self.symbol_edit.setText(ticker)
         self.mic.setCurrentText(mic)
         self._select()
@@ -273,6 +402,9 @@ class FinamWindow(QMainWindow):
         except ValueError as exc:
             self.status.setText(str(exc));return
         ticker,mic=sym.split("@")
+        if not is_in_universe(ticker+"@"+mic,self.universe):
+            self.status.setText("Инструмент отсутствует в выбранном списке или не подтверждён Finam")
+            return
         self.ui_prefs.setValue("ticker",ticker)
         self.ui_prefs.setValue("mic",mic)
         self._load(refresh=False)
@@ -522,7 +654,7 @@ class FinamWindow(QMainWindow):
             ("\nПоследняя ошибка: "+self.stream_error if self.stream_error else ""))
 
     def _finish_close(self):
-        if self.loader is None and self.stream is None and not getattr(self,"_retiring",[]):
+        if self.loader is None and self.stream is None and self.catalog_worker is None and not getattr(self,"_retiring",[]):
             QApplication.instance().quit()
 
     def closeEvent(self,event):
@@ -532,7 +664,9 @@ class FinamWindow(QMainWindow):
         self._stop_stream()
         if self.loader is not None:
             self.loader.requestInterruption()
-        if self.loader is not None or getattr(self,"_retiring",[]):
+        if self.catalog_worker is not None:
+            self.catalog_worker.requestInterruption()
+        if self.loader is not None or self.catalog_worker is not None or getattr(self,"_retiring",[]):
             event.ignore()
             self.hide()
         else:

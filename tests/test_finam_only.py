@@ -84,6 +84,44 @@ class TestFinamAPI(unittest.TestCase):
         self.assertIn("timeframe=TIME_FRAME_H1",paths[-1][1])
         self.assertEqual(paths[-1][2],"Bearer access_dummy")
 
+    def test_finam_active_instruments_catalog_is_read_only_paginated(self):
+        from urllib.parse import parse_qs, urlparse
+        paths=[]
+        def opener(req,timeout):
+            paths.append((req.get_method(),req.full_url))
+            if req.full_url.endswith("/v1/sessions"):
+                body={"token":"fake_access"}
+            elif req.full_url.endswith("/v1/sessions/details"):
+                body={"md_permissions":[]}
+            elif "/v1/assets/all?" in req.full_url:
+                cursor=parse_qs(urlparse(req.full_url).query).get("cursor",[""])[0]
+                if not cursor:
+                    body={"assets":[{"symbol":"NQZ6@XCME","ticker":"NQZ6","mic":"XCME"}],
+                          "next_cursor":"123"}
+                else:
+                    self.assertEqual(cursor,"123")
+                    body={"assets":[{"symbol":"SiZ6@RTSX","ticker":"SiZ6","mic":"RTSX"}],
+                          "next_cursor":""}
+            else:
+                self.fail("unexpected Finam API endpoint")
+            class Resp:
+                def __enter__(self):return self
+                def __exit__(self,*unused):pass
+                def read(self):return json.dumps(body).encode("utf-8")
+            return Resp()
+        api=FinamAPI(opener=opener,secret_reader=lambda:"fake_secret")
+        result=api.active_assets()
+        self.assertEqual(len(result),2)
+        self.assertTrue(all(method in ("GET","POST") for method,_ in paths))
+        self.assertTrue(all(method=="GET" for method,url in paths
+                            if "/v1/assets/" in url))
+        self.assertEqual(len([x for x in paths if "/v1/assets/all?" in x[1]]),2)
+
+    def test_cancelled_directory_lookup_does_not_contact_network(self):
+        api=FinamAPI(opener=lambda *a,**k:self.fail("network must not be used"))
+        with self.assertRaises(InterruptedError):
+            api.active_assets(cancelled=lambda:True)
+
     def test_denies_post_orders_even_with_token(self):
         api=FinamAPI(secret_reader=lambda:"test")
         with self.assertRaisesRegex(ValueError,"writes are disabled"):

@@ -175,6 +175,47 @@ class FinamAPI:
                   if isinstance(p, dict) and (p.get("mic") == mic or p.get("worldwide"))]
         return max(0, min(values)) if values else 15
 
+    def active_assets(self, *, cancelled=lambda: False):
+        """Read-only Finam instrument directory. No MOEX requests or trade API.
+
+        Full active catalog is required for exact futures ticker/MIC matching.
+        Read-only metadata GET is independent of the HTTP *candle history*
+        permission; it never downloads prices or opens orders.
+        """
+        result=[]
+        seen_symbols=set()
+        visited=set()
+        cursor=None
+        for page in range(150):
+            if cancelled():
+                raise InterruptedError("Finam: получение справочника остановлено")
+            params=urlencode({"only_active":"true",**({"cursor":cursor} if cursor else {})})
+            path="/v1/assets/all?"+params
+            try:
+                payload=self._json("GET",path,token=self.access_key())
+            except FinamAPIError as exc:
+                if exc.http_status!=401:
+                    raise
+                payload=self._json("GET",path,token=self.access_key(force=True))
+            rows=payload.get("assets",[])
+            if not isinstance(rows,list):
+                raise FinamAPIError("Finam: некорректный справочник инструментов")
+            for row in rows:
+                if not isinstance(row,dict) or row.get("is_archived"):
+                    continue
+                key=row.get("symbol") or f"{row.get('ticker','')}@{row.get('mic','')}"
+                if key not in seen_symbols:
+                    seen_symbols.add(key)
+                    result.append(row)
+            next_cursor=payload.get("next_cursor")
+            if not next_cursor or str(next_cursor)=="0":
+                return result
+            if str(next_cursor) in visited:
+                raise FinamAPIError("Finam: справочник повторяет страницу, список не подтверждён")
+            visited.add(str(next_cursor))
+            cursor=str(next_cursor)
+        raise FinamAPIError("Finam: справочник не завершён, лимит 150 страниц")
+
     def bars(self, symbol, timeframe, *, now=None):
         if not SAFE_SYMBOL.fullmatch(symbol) or timeframe not in FRAMES:
             raise ValueError("Некорректный символ или таймфрейм Finam")
