@@ -11,8 +11,7 @@ from PySide6.QtCore import QSettings, QThread, QTimer, Qt, Signal
 from PySide6.QtWidgets import (
     QApplication, QCheckBox, QComboBox, QHBoxLayout, QLabel, QLineEdit,
     QMainWindow, QMessageBox, QPushButton, QVBoxLayout, QWidget,
-    QListWidget, QListWidgetItem, QInputDialog, QSplitter, QFormLayout, QFrame,
-    QDialog, QPlainTextEdit
+    QListWidget, QListWidgetItem, QInputDialog, QSplitter, QFormLayout, QFrame
 )
 
 from . import __version__
@@ -25,6 +24,7 @@ from .finam_universe import (
     compose_universe, cached_top20, is_in_universe
 )
 from .finam_catalog_worker import FinamCatalogWorker
+from .diagnostics_log import log_event, log_snapshot
 from .finam_stream import FinamStreamWorker
 from .gui import CandleChart, TimeframeBar
 from .settings import IndicatorSettings, ApplicationSettings, SettingsStore
@@ -110,7 +110,6 @@ class FinamWindow(QMainWindow):
         self.catalog_worker = None
         self.catalog_ready = False
         self.catalog_error = ""
-        self.roll_notes=[]
         self.moex_status=""
         self.universe, self.ranking_status = compose_universe()
         self._make_ui()
@@ -200,6 +199,7 @@ class FinamWindow(QMainWindow):
         self.feed=QLabel("Finam: ожидаем данные")
         self.feed.setStyleSheet("color:#a4a4a4")
         outer.addWidget(self.feed)
+        self.feed.hide()  # Technical observation belongs in diagnostics.log.
         split=QSplitter(Qt.Orientation.Horizontal)
         self.chart=CandleChart()
         self.chart.set_theme("dark")
@@ -237,12 +237,7 @@ class FinamWindow(QMainWindow):
         self.universe_info.setWordWrap(True)
         self.universe_info.setStyleSheet("color:#a2a9b3;font-size:11px")
         right.addWidget(self.universe_info)
-        self.expiry_report_button=QPushButton("Диагностика экспираций США",side)
-        self.expiry_report_button.setToolTip(
-            "Показать причину отсутствия даты у каждого фьючерса. "
-            "Отчёт не содержит ключей Finam, ответов API или токенов.")
-        self.expiry_report_button.clicked.connect(self._show_expiry_report)
-        right.addWidget(self.expiry_report_button)
+        self.universe_info.hide()  # Remove verbose technical footer from sidebar.
         self._populate_universe()
         split.addWidget(side)
         split.setStretchFactor(0,1)
@@ -288,8 +283,7 @@ class FinamWindow(QMainWindow):
                     row.setForeground(Qt.GlobalColor.gray)
                     row.setToolTip("Для открытия необходим точный тикер@MIC из каталога Finam. Не подменяем похожим контрактом.")
                 else:
-                    row.setToolTip(entry.symbol+
-                                   ("\n"+entry.source if entry.source else ""))
+                    row.setToolTip(entry.symbol)
                 self.examples.addItem(row)
         self.universe_info.setText(
             "Акции: "+self.ranking_status+
@@ -318,49 +312,6 @@ class FinamWindow(QMainWindow):
         if pending_header is not None:
             pending_header.setHidden(visible_count==0)
 
-    def _expiry_report_text(self):
-        """Sanitized human-readable summary; never copy Finam responses/tokens."""
-        lines=["FlowDesk "+str(__version__)+" · экспирации фьючерсов США",
-               "Источник торговых инструментов: активный каталог Finam",
-               "Проверка: Finam GetAsset → официальный календарь, если нет даты",
-               "Без подтверждённой даты автопереход отключён.",
-               ""]
-        for entry in self.universe[US_FUTURES]:
-            label=entry.label+" · "+entry.name
-            if not entry.verified:
-                reason=("каталог недоступен" if self.catalog_error else
-                        "нет точного действующего тикера в каталоге Finam")
-                lines.append(label+"\n  "+reason)
-                continue
-            reason=entry.source or "нет результата проверки даты"
-            lines.append(label+" ["+entry.symbol+"]\n  "+reason)
-        return "\n".join(lines)
-
-    def _show_expiry_report(self):
-        """Expose all eight expiry decisions, including the source and error."""
-        dialog=QDialog(self)
-        dialog.setWindowTitle("FlowDesk · Диагностика экспираций")
-        dialog.resize(670,490)
-        layout=QVBoxLayout(dialog)
-        report=QPlainTextEdit(dialog)
-        report.setReadOnly(True)
-        report.setPlainText(self._expiry_report_text())
-        layout.addWidget(report)
-        actions=QHBoxLayout()
-        copy_button=QPushButton("Копировать отчёт",dialog)
-        copy_button.clicked.connect(
-            lambda: QApplication.clipboard().setText(report.toPlainText()))
-        actions.addWidget(copy_button)
-        refresh_button=QPushButton("Проверить повторно",dialog)
-        refresh_button.clicked.connect(lambda: (dialog.accept(),
-                                                self._refresh_catalog()))
-        actions.addWidget(refresh_button)
-        close_button=QPushButton("Закрыть",dialog)
-        close_button.clicked.connect(dialog.accept)
-        actions.addWidget(close_button)
-        layout.addLayout(actions)
-        dialog.exec()
-
     def _refresh_catalog(self):
         if self.closing or not read_secret() or self.catalog_worker is not None:
             return
@@ -388,7 +339,6 @@ class FinamWindow(QMainWindow):
                 for contract in self.universe[group]
             ]
         self.moex_status=payload.get("moex_status","")
-        self.roll_notes=payload.get("roll_notes",[])
         self._populate_universe()
         if self._pending_restore:
             restored=self._pending_restore
@@ -418,6 +368,7 @@ class FinamWindow(QMainWindow):
 
     def _catalog_failed(self,error):
         if self.closing:return
+        log_event("catalog_worker_failed",error=error)
         self.catalog_error=error
         self._populate_universe()
         self.status.setText("Finam: "+error)
@@ -570,6 +521,9 @@ class FinamWindow(QMainWindow):
         self.chart.empty_text=""
         self.status.setText("Finam · "+info["tf"]+" · "+str(len(main.candles))+
             " свечей · "+info["warning"])
+        log_snapshot(symbol=info["symbol"]+"@"+info["board"],
+                     timeframe=info["tf"],asof=info.get("asof"),
+                     delay_seconds=info.get("feed_delay_seconds"))
         delay=info.get("feed_delay_seconds",0)//60
         self.feed.setText("Finam · наблюдение "+
                           self._exchange_time(info["asof"],info["board"]) +
@@ -587,6 +541,9 @@ class FinamWindow(QMainWindow):
     def _failed(self,reason):
         if self.closing or not self._current_load_signal():
             return
+        symbol=(self.current_view[0]+"@"+self.current_view[1]
+                if self.current_view else "")
+        log_event("chart_load_failed",symbol=symbol,error=reason)
         self.status.setText("Finam: "+reason)
         if self.displayed_view != self.current_view:
             ticker,mic,tf=self.current_view
@@ -675,7 +632,11 @@ class FinamWindow(QMainWindow):
             self.stream_epoch=event.epoch
             self.pending_bars.clear()
         if event.kind=="status":
+            previous_state=self.stream_state
             self.stream_state=event.state
+            if previous_state != event.state and event.state in ("unavailable","reconnecting"):
+                log_event("stream_"+event.state,
+                          symbol=event.symbol+"@"+event.board,error=event.detail)
             if event.detail:
                 self.stream_error=event.detail
             if event.state=="ready":
