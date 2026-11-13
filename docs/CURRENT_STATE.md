@@ -6,6 +6,8 @@
 
 ### Подпись Windows EXE — подготовлено 13.11.2026
 
+**Успешная проверка Windows CI:** [run 43425862962, attempt 2](https://github.com/alexanderpadalko/Terminal/actions/runs/43425862962), код `5ba6f6a26669dbb3e07f55785594420fd8d3f682` — **397 тестов OK**, Qt, EXE, WM_CLOSE, Finam frozen executor/DNS. Выпуск **UNSIGNED** без публичного сертификата: [ZIP artifact 14038456210](https://github.com/alexanderpadalko/Terminal/actions/runs/43425862962/artifacts/14038456210) (49 200 205 байт); внутри `build-signature.json` содержит `status: UNSIGNED` и SHA256. Код FlowDesk не изменён. Первый запуск CI этой правки имел ошибку YAML, после исправления и повторного прогона все проверки прошли. Для настоящего SIGNED-выпуска нужны Azure Artifact Signing account, проверенная личность и профиль сертификата.
+
 - Добавлена настройка **Microsoft Artifact Signing** через GitHub OIDC только на `main` с явным флагом `FLOWDESK_SIGNING_ENABLED=true`. Перед публикацией `SIGNED` CI обязательно проверяет доверенную Authenticode-подпись, сертификат timestamp и SHA256. Добавлен `build-signature.json`.
 - **Сертификат/профиль Azure пока НЕ настроены. Реального подписанного EXE нет.** Новые публичные artifacts до включения сервиса обозначены `-UNSIGNED`, в дальнейшем при правильных настройках — `-SIGNED`. Подпись не гарантирует мгновенного отсутствия SmartScreen.
 - Описание настройки / условий допустимости для организации либо физлица: `docs/CODE_SIGNING.md`. Версия приложения остаётся **0.2.26**. Windows CI проверяется отдельно без реальных секретов.
