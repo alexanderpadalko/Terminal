@@ -22,6 +22,11 @@ _EXCHANGE_ZONES = {
     "MISX": "Europe/Moscow",
     "MOEX": "Europe/Moscow",
     "XMOE": "Europe/Moscow",
+    "RTSX": "Europe/Moscow",  # Russian derivatives venue
+    "XCME": "America/Chicago",  # CME Globex
+    "XCEC": "America/New_York",  # COMEX metals
+    "XNYM": "America/New_York",  # NYMEX energy/metals
+    "IFEU": "Europe/London",    # ICE Futures Europe (Brent)
     "XLON": "Europe/London",
     "XETR": "Europe/Berlin",
     "XFRA": "Europe/Berlin",

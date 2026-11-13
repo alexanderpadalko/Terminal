@@ -31,6 +31,15 @@ class TestExchangeClockAndVwap(unittest.TestCase):
         self.assertFalse(exchange_clock("XXXX").known)
         self.assertEqual(exchange_clock("XXXX").zone.key,"UTC")
 
+    def test_futures_venue_timezones_are_not_utc_or_equity_sessions(self):
+        self.assertEqual(exchange_clock("RTSX").zone.key,"Europe/Moscow")
+        self.assertEqual(exchange_clock("XCME").zone.key,"America/Chicago")
+        self.assertEqual(exchange_clock("XCEC").zone.key,"America/New_York")
+        self.assertEqual(exchange_clock("XNYM").zone.key,"America/New_York")
+        self.assertEqual(exchange_clock("IFEU").zone.key,"Europe/London")
+        self.assertFalse(exchange_clock("XCME").us_regular_equity)
+        self.assertFalse(exchange_clock("XNYM").us_regular_equity)
+
     def test_ny_dst_and_candle_time_are_exchange_local(self):
         venue=exchange_clock("XNGS")
         winter=candle(2026,3,6,14,30,10)
