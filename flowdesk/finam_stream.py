@@ -9,7 +9,8 @@ import threading
 
 from PySide6.QtCore import QThread, Signal
 
-from .finam_api import FinamAPI, FRAMES, finam_bar, symbol_name
+from .asyncio_runtime import prepare_asyncio_runtime
+from .finam_api import FinamAPI, FRAMES, decimal_number, finam_bar, symbol_name
 
 WS_URL = "wss://api.finam.ru/ws"
 
@@ -40,13 +41,24 @@ def interpret_packet(packet, ticker, mic, epoch, now):
         return None
     subscription = packet.get("subscription_type")
     payload = packet.get("payload") or {}
+    # The live gateway also sends payload as JSON text inside the JSON
+    # envelope, despite the object representation in the AsyncAPI schema.
+    if isinstance(payload, str):
+        payload = json.loads(payload)
+    if not isinstance(payload, dict):
+        return None
     if subscription == "QUOTES":
         quotes = payload.get("quote") or []
         q = next((q for q in quotes if q.get("symbol") == symbol), None)
         if q is not None:
-            return FinamEvent("quote",ticker,mic,epoch,now,quote=dict(q))
+            q = dict(q)
+            if q.get("last") is not None:
+                q["last"] = decimal_number(q["last"])
+            return FinamEvent("quote",ticker,mic,epoch,now,quote=q)
         return None
     if subscription != "BARS":
+        return None
+    if payload.get("symbol", symbol) != symbol:
         return None
     items = payload.get("bars") or []
     if isinstance(items, dict):
@@ -153,6 +165,9 @@ class FinamStreamWorker(QThread):
                 await asyncio.sleep(min(30,2**min(failures,5)))
 
     def run(self):
+        # Both JWT retrieval via to_thread and WebSocket DNS need the concrete
+        # executor export in frozen Python 3.15, before an event loop starts.
+        prepare_asyncio_runtime()
         async def runner():
             self._loop = asyncio.get_running_loop()
             self._task = asyncio.current_task()

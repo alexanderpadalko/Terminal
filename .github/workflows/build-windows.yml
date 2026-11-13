@@ -44,6 +44,8 @@ jobs:
         run: python -m PyInstaller --clean --noconfirm --windowed --onedir --name FlowDesk --icon flowdesk/assets/flowdesk.ico --add-data "flowdesk/assets;flowdesk/assets" --collect-all tzdata --collect-all websockets --collect-all keyring --add-data "flowdesk/data;flowdesk/data" main.py
       - name: Verify packaged EXE cleanly closes without a token
         run: python -u tools/check_exe_shutdown.py dist/FlowDesk/FlowDesk.exe
+      - name: Verify frozen Finam worker executor and DNS without credentials
+        run: python -u tools/check_exe_finam_runtime.py dist/FlowDesk/FlowDesk.exe
       - name: Publish standalone EXE folder
         uses: actions/upload-artifact@v4
         with:
@@ -56,5 +58,7 @@ jobs:
         if: always()
         with:
           name: FlowDesk-0.2.26-Finam-Test-Evidence
-          path: shutdown-exe-result.json
+          path: |
+            shutdown-exe-result.json
+            finam-runtime-exe-result.json
           retention-days: 30

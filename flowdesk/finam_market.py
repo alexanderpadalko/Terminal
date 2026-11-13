@@ -82,10 +82,12 @@ class FinamMarketService:
         settings = settings or IndicatorSettings()
         with self.lock:
             series = self._series(symbol)
+            errors = []
             if allow_http and (refresh or not series.get(timeframe) or
                                any(not series.get(tf) for tf in FRAMES)):
-                errors = []
-                for tf in FRAMES:
+                # Fail the selected chart first instead of issuing another six
+                # requests for an instrument that cannot be displayed at all.
+                for tf in (timeframe, *(tf for tf in FRAMES if tf != timeframe)):
                     if (not refresh and series.get(tf)):
                         continue
                     try:
@@ -95,6 +97,8 @@ class FinamMarketService:
                             self._upsert(symbol,tf,rows)
                     except Exception as exc:
                         errors.append(f"{tf}: {type(exc).__name__}: {exc}")
+                        if tf == timeframe and not series.get(timeframe):
+                            raise RuntimeError(f"{symbol} · {timeframe}: {exc}") from None
                 series = self._series(symbol)
                 if errors and not series.get(timeframe):
                     raise RuntimeError("Finam: не удалось получить историю " +
@@ -139,6 +143,7 @@ class FinamMarketService:
                 "stream_received_at":prior.isoformat() if prior else None,
                 "feed_delay_seconds":delay*60,
                 "warning":"Историческая глубина ограничена Finam Trade API; "
-                          "полный паритет Pine на других биржах не подтверждён",
+                          "полный паритет Pine на других биржах не подтверждён" +
+                          (". Не обновлены: " + "; ".join(errors) if errors else ""),
                 "stream_repair_required":False
             }

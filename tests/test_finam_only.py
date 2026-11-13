@@ -89,6 +89,19 @@ class TestFinamAPI(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,"writes are disabled"):
             api._json("POST","/v1/accounts/any/orders",{"side":"SIDE_BUY"})
 
+    def test_history_404_is_actionable_without_echoing_response_or_key(self):
+        def missing(request, timeout):
+            raise HTTPError(request.full_url, 404, "missing", {},
+                            BytesIO(b'{"message":"sensitive_secret"}'))
+        api=FinamAPI(opener=missing, secret_reader=lambda:"sensitive_secret")
+        api._jwt,api._expiry="access_dummy",float("inf")
+        with self.assertRaises(FinamAPIError) as caught:
+            api.bars("TSLA@XNAS","H1")
+        self.assertEqual(caught.exception.http_status,404)
+        self.assertIn("MIC",str(caught.exception))
+        self.assertNotIn("sensitive_secret",str(caught.exception))
+        self.assertNotIn("access_dummy",str(caught.exception))
+
 
 class TestFinamMarket(unittest.TestCase):
     def setUp(self):
@@ -121,8 +134,43 @@ class TestFinamMarket(unittest.TestCase):
         self.assertEqual(result.candles[-1].time,t)
         self.assertEqual(result.candles[-1].close,101)
 
+    def test_unavailable_selected_instrument_stops_after_one_request(self):
+        def missing(symbol,tf,**kwargs):
+            self.api.calls.append((symbol,tf))
+            raise FinamAPIError("Finam HTTP 404: проверьте тикер, MIC и доступ токена.",http_status=404)
+        self.api.bars=missing
+        with self.assertRaisesRegex(RuntimeError,"TSLA@XNAS · H1: Finam HTTP 404"):
+            self.service.view("TSLA","XNAS","H1",allow_http=True)
+        self.assertEqual(self.api.calls,[("TSLA@XNAS","H1")])
+
+    def test_failed_refresh_reports_stale_history_and_preserves_cache(self):
+        first,_,_=self.service.view("SBER","MISX","H1",allow_http=True)
+        def offline(*args,**kwargs):
+            raise FinamAPIError("Finam HTTP 503")
+        self.api.bars=offline
+        again,_,info=self.service.view("SBER","MISX","H1",allow_http=True,refresh=True)
+        self.assertEqual(first.candles,again.candles)
+        self.assertIn("Не обновлены",info["warning"])
+        self.assertIn("H1",info["warning"])
+
 
 class TestFinamWebSocket(unittest.TestCase):
+    def test_live_gateway_json_string_payload_and_wrapped_decimal(self):
+        packet={"type":"DATA","subscription_type":"QUOTES","subscription_key":"TSLA@XNGS",
+            "payload":json.dumps({"quote":[{"symbol":"TSLA@XNGS","last":{"value":"250.2"}}]})}
+        event=interpret_packet(packet,"TSLA","XNGS",1,NOW)
+        self.assertEqual(event.quote["last"],250.2)
+        candle={"timestamp":"2026-11-13T10:00:00Z","open":{"value":"250"},
+                "high":{"value":"252"},"low":{"value":"249"},
+                "close":{"value":"251"},"volume":{"value":"23"}}
+        packet={"type":"DATA","subscription_type":"BARS",
+            "subscription_key":"TSLA@XNGS:TIME_FRAME_H1",
+            "payload":json.dumps({"symbol":"TSLA@XNGS","bars":[candle]})}
+        result=interpret_packet(packet,"TSLA","XNGS",1,NOW)
+        self.assertEqual(result[0].timeframe,"H1")
+        self.assertEqual(result[0].candles[0].close,251)
+        self.assertIsNone(interpret_packet(packet,"SBER","MISX",1,NOW))
+
     def test_quote_and_candles_are_distinct(self):
         quote={"type":"DATA","subscription_type":"QUOTES",
                "payload":{"quote":[{"symbol":"AAPL@XNAS","last":"250.2"}]}}

@@ -30,7 +30,9 @@ SAFE_SYMBOL = re.compile(r"^[A-Z0-9._-]{1,32}@[A-Z0-9]{4}$")
 
 
 class FinamAPIError(RuntimeError):
-    pass
+    def __init__(self, message, *, http_status=None):
+        super().__init__(message)
+        self.http_status = http_status
 
 
 def read_secret():
@@ -134,7 +136,16 @@ class FinamAPI:
                 return json.loads(response.read().decode("utf-8"))
         except HTTPError as exc:
             # Do not echo response/request bodies: they could contain secrets.
-            raise FinamAPIError(f"Finam HTTP {exc.code}, {path.split('?')[0]}") from None
+            hints = {
+                400: "Проверьте тикер, MIC и интервал запроса.",
+                401: "Временный ключ недействителен или истёк.",
+                403: "Недостаточно прав на запрошенные данные.",
+                404: "Ресурс не найден: проверьте тикер, MIC и доступ токена.",
+                429: "Превышен лимит запросов. Повторите позже.",
+            }
+            hint = hints.get(exc.code, "Сервис не выполнил запрос.")
+            raise FinamAPIError(f"Finam HTTP {exc.code}: {hint}",
+                                http_status=exc.code) from None
         except (TimeoutError, URLError, OSError) as exc:
             raise FinamAPIError(f"Нет связи с Finam Trade API ({type(exc).__name__})") from None
 

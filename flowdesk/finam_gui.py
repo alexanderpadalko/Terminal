@@ -25,10 +25,10 @@ from .settings_dialog import SettingsDialog
 EXAMPLES = (
     ("SBER","MISX","Сбербанк · Москва"),
     ("GAZP","MISX","Газпром · Москва"),
-    ("AAPL","XNAS","Apple · NASDAQ"),
-    ("MSFT","XNAS","Microsoft · NASDAQ"),
-    ("NVDA","XNAS","Nvidia · NASDAQ"),
-    ("TSLA","XNAS","Tesla · NASDAQ"),
+    ("AAPL","XNGS","Apple · NASDAQ"),
+    ("MSFT","XNGS","Microsoft · NASDAQ"),
+    ("NVDA","XNGS","Nvidia · NASDAQ"),
+    ("TSLA","XNGS","Tesla · NASDAQ"),
     ("IBM","XNYS","IBM · NYSE"),
 )
 
@@ -79,6 +79,8 @@ class FinamWindow(QMainWindow):
         self.stream_state = "Не подключён"
         self.stream_error = ""
         self.current = None
+        self.current_view = None
+        self.displayed_view = None
         self.pending_load = None
         self.pending_bars = {}
         self.closing = False
@@ -92,8 +94,15 @@ class FinamWindow(QMainWindow):
         self.http_timer = QTimer(self)
         self.http_timer.setInterval(self.app_settings.refresh_seconds*1000)
         self.http_timer.timeout.connect(self._http_refresh)
-        self.symbol_edit.setText(str(self.ui_prefs.value("ticker","SBER")))
-        self.mic.setCurrentText(str(self.ui_prefs.value("mic","MISX")))
+        ticker=str(self.ui_prefs.value("ticker","SBER"))
+        mic=str(self.ui_prefs.value("mic","MISX"))
+        # Migrate only the four previously incorrect built-in examples. Never
+        # guess a different venue for arbitrary user-entered instruments.
+        if mic=="XNAS" and ticker in {t for t,m,_ in EXAMPLES if m=="XNGS"}:
+            mic="XNGS"
+            self.ui_prefs.setValue("mic",mic)
+        self.symbol_edit.setText(ticker)
+        self.mic.setCurrentText(mic)
         tf = str(self.ui_prefs.value("tf","H1"))
         self.tf.setCurrentText(tf if tf in self.tf.buttons else "H1")
         self._indicator()
@@ -173,7 +182,7 @@ class FinamWindow(QMainWindow):
         form.addRow("Тикер",self.symbol_edit)
         self.mic=QComboBox()
         self.mic.setEditable(True)
-        self.mic.addItems(("MISX","XNAS","XNYS","ARCX"))
+        self.mic.addItems(("MISX","XNGS","XNMS","XNCM","XNYS","ARCX"))
         form.addRow("Биржа (MIC)",self.mic)
         right.addLayout(form)
         self.open_button=QPushButton("Открыть инструмент")
@@ -277,6 +286,12 @@ class FinamWindow(QMainWindow):
             self.status.setText(str(exc));return
         request=(ticker,mic,self.tf.currentText(),refresh,tuple(events))
         self.current=(ticker,mic)
+        self.current_view=request[:3]
+        if self.displayed_view != self.current_view:
+            self.analysis,self.parents=None,{}
+            self.displayed_view=None
+            self.chart.clear_analysis(f"Загрузка {ticker}@{mic} · {request[2]}…")
+            self.feed.setText(f"Finam · {ticker}@{mic} · {request[2]} · ожидаем данные")
         self.ui_prefs.setValue("tf",self.tf.currentText())
         if self.loader is not None:
             self.pending_load=request
@@ -286,16 +301,17 @@ class FinamWindow(QMainWindow):
               refresh=refresh,events=request[4])
         self.loader.loaded.connect(self._loaded)
         self.loader.failed.connect(self._failed)
-        self.loader.progress.connect(self.status.setText)
+        self.loader.progress.connect(self._load_progress)
         self.loader.finished.connect(self._load_finished)
         self.status.setText("Finam: открытие "+ticker+"@"+mic+" · "+request[2])
         self._indicator()
         self.loader.start()
 
     def _loaded(self,main,parents,info):
-        if self.closing or (info["symbol"],info["board"])!=self.current:
+        if self.closing or (info["symbol"],info["board"],info["tf"])!=self.current_view:
             return
         self.analysis,self.parents=main,parents
+        self.displayed_view=self.current_view
         self.chart.instrument_header=info["symbol"]+"@"+info["board"]+" · Finam"
         self.chart.set_analysis(main,parents)
         self.chart.empty_text=""
@@ -306,10 +322,22 @@ class FinamWindow(QMainWindow):
                           str(delay)+" мин · только чтение")
         self._indicator()
 
+    def _current_load_signal(self):
+        worker=self.sender()
+        return worker is None or (worker.ticker,worker.mic,worker.timeframe)==self.current_view
+
+    def _load_progress(self,message):
+        if not self.closing and self._current_load_signal():
+            self.status.setText(message)
+
     def _failed(self,reason):
-        if self.closing:
+        if self.closing or not self._current_load_signal():
             return
         self.status.setText("Finam: "+reason)
+        if self.displayed_view != self.current_view:
+            ticker,mic,tf=self.current_view
+            self.chart.clear_analysis(f"Не удалось загрузить {ticker}@{mic} · {tf}\n{reason}")
+            self.feed.setText(f"Finam · {ticker}@{mic} · {tf} · история не загружена")
         self._indicator()
 
     def _load_finished(self):
@@ -325,7 +353,9 @@ class FinamWindow(QMainWindow):
             self.pending_load=None
             self.symbol_edit.setText(req[0])
             self.mic.setCurrentText(req[1])
+            blocked=self.tf.blockSignals(True)
             self.tf.setCurrentText(req[2])
+            self.tf.blockSignals(blocked)
             self._load(refresh=req[3],events=req[4])
         elif self.pending_bars:
             self.feed_timer.start()

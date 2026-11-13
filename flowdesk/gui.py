@@ -327,6 +327,17 @@ class CandleChart(QWidget):
         self.offset = 0
         self.update()
 
+    def clear_analysis(self, message):
+        """Discard the old instrument while a different chart is requested."""
+        self.analysis, self.parents = None, {}
+        self.times, self.inside_bars = [], []
+        self.fvg_plan = self.flow_plan = None
+        self.cursor_x = self.cursor_y = None
+        self._hovered_index = None
+        self._surface = self._surface_key = self._surface_context = None
+        self.empty_text = message
+        self.update()
+
     def set_settings(self,settings):
         self.indicator_settings=settings
         for prop,key in [('show_structure','showStructure'),('show_fvg','fvgEnabled'),
