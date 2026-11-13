@@ -209,7 +209,7 @@ class SettingsDialog(QDialog):
                     continue  # This structural leg is permanently enabled.
                 control=self._control(spec,getattr(indicator,spec['variable']))
                 control.setObjectName('setting_'+spec['variable'])
-                control.setToolTip(spec['tooltip'])
+                control.setToolTip(spec['tooltip'].replace('TradingView','FlowDesk'))
                 self.controls[spec['variable']]=control
                 form.addRow(spec['title'],control)
             scroll=QScrollArea()
