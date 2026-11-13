@@ -16,11 +16,12 @@ from urllib.request import Request, urlopen
 
 from .finam_universe import US_CONTRACTS
 
-CME_ROOTS = {"NQ": 209, "ES": 133, "GC": 437, "SI": 458}
+CME_ROOTS = {"NQ": 209, "ES": 133, "GC": 437, "SI": 458, "NG": 444}
 # Product IDs are for CME Group *Future* calendars, never options.
 CME_ROOT_VENUES = {
     "NQ": ("XCME",), "ES": ("XCME",),
     "GC": ("XCEC","XCME"), "SI": ("XCEC","XCME"),
+    "NG": ("XNYM","XCME"),
 }
 ICE_URL="https://www.ice.com/products/219/brent-crude-futures/expiry"
 MONTHS="FGHJKMNQUVXZ"

@@ -36,7 +36,7 @@ class _NoExpiryAPI:
         return {"ticker":symbol.split("@")[0],"expiration_date":None}
 
 
-class _HTTP:
+class _HTTP(Exception):
     def __init__(self,code,secret="secret-key-never-disclose"):
         self.http_status=code
         super().__init__()
@@ -110,6 +110,9 @@ class TestOfficialExchangeCalendar(unittest.TestCase):
         self.assertIsNone(d)
         self.assertIn("недоступен",reason)
         d,reason=official.get("NGZ26@XNYM")
+        self.assertIsNone(d)
+        self.assertIn("недоступен",reason)
+        d,reason=official.get("PLF27@XNYM")
         self.assertIsNone(d)
         self.assertIn("не настроен",reason)
         d,reason=official.get("SIZ26@RTSX")
