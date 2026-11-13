@@ -5,7 +5,7 @@ from pathlib import Path
 from unittest.mock import patch
 os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
 try:
-    from PySide6.QtWidgets import QApplication,QDialogButtonBox,QLabel
+    from PySide6.QtWidgets import QApplication,QDialogButtonBox,QLabel,QAbstractSpinBox
     from PySide6.QtGui import QImage,QPainter,QColor
     from flowdesk.gui import MainWindow,CandleChart
     from flowdesk.settings_dialog import SettingsDialog,ColorButton,palette_colors,opacity_percent,rgba_value
@@ -62,6 +62,18 @@ class TestSettingsGui(unittest.TestCase):
         popup=button._palette
         self.assertIsNotNone(popup)
         self.assertEqual(len(popup.swatches),80)
+        self.assertEqual(popup.percent.buttonSymbols(),
+                         QAbstractSpinBox.ButtonSymbols.NoButtons)
+        self.assertGreaterEqual(popup.percent.width(),90)
+        self.assertGreaterEqual(popup.width(),300)
+        # The full "100%" is legible within the editable area at native DPI.
+        popup.percent.setValue(100)
+        self.app.processEvents()
+        self.assertEqual(popup.percent.text(),"100%")
+        available=popup.percent.lineEdit().width()
+        needed=popup.percent.fontMetrics().horizontalAdvance("100%")
+        self.assertGreater(available,needed+12)
+        popup.percent.setValue(opacity_percent(button.value))
         # Initially the original up-color is a real swatch; it is marked.
         selected=[swatch for swatch,rgb in popup.swatches if swatch.isChecked()]
         self.assertEqual(len(selected),1)
