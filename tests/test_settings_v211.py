@@ -41,6 +41,20 @@ class TestSettingsV211(unittest.TestCase):
         self.assertEqual(settings.fvgBullColor,'#00332A26')
         self.assertEqual(settings.fvgFontM,'huge')
 
+    def test_last_developing_leg_is_permanently_enabled_after_legacy_load(self):
+        self.assertTrue(IndicatorSettings().showDevelopingLeg)
+        self.assertTrue(IndicatorSettings({"showDevelopingLeg":False}).showDevelopingLeg)
+        self.assertTrue(IndicatorSettings().changed(showDevelopingLeg=False).showDevelopingLeg)
+        with tempfile.TemporaryDirectory() as directory:
+            store=SettingsStore(Path(directory)/"legacy.json")
+            store.write(IndicatorSettings(),ApplicationSettings())
+            old=json.loads(store.path.read_text(encoding="utf-8"))
+            old["indicator"]["showDevelopingLeg"]=False
+            store.path.write_text(json.dumps(old),encoding="utf-8")
+            loaded,_=store.read()
+            self.assertTrue(loaded.showDevelopingLeg)
+            self.assertTrue(loaded.as_dict()["showDevelopingLeg"])
+
     def test_invalid_ranges_types_and_options_are_rejected(self):
         for change in ({'fvgMaxZones':0},{'fvgMaxZones':201},{'fvgMaxZones':True},
                        {'liquidityHistoryBars':99},{'flowShowData':'false'},{'flowFontSize':'20'},
