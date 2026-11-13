@@ -265,6 +265,8 @@ class FinamWindow(QMainWindow):
                 state=(" · поиск Finam…" if pending else
                        " · каталог недоступен" if self.catalog_error and group!=RU_STOCKS else
                        " · не подтверждён Finam" if not entry.verified else "")
+                if entry.verified and "экспирация не подтверждена" in entry.source:
+                    state+=" · дата экспирации неизвестна"
                 row=QListWidgetItem(entry.label+" · "+entry.name+state)
                 row.setData(Qt.ItemDataRole.UserRole,entry.symbol if entry.verified else "")
                 if not entry.verified:
@@ -279,7 +281,7 @@ class FinamWindow(QMainWindow):
             "Акции: "+self.ranking_status+
             " · графики только Finam; обороты акций и фьючерсов РФ — MOEX ISS."+
             (" · "+self.moex_status if self.moex_status else "")+
-            " · контракт без подтверждённой экспирации/ликвидности не подменяется."+
+            " · фьючерсы: переход за день до экспирации; без даты автопереход выключен."+
             (" · Каталог: "+self.catalog_error if self.catalog_error else "")
         )
         self._filter_universe(current)

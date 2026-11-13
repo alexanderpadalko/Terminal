@@ -1,7 +1,7 @@
-"""Startup refresh: MOEX exact turnover top-20 + expiry/liquidity futures roll."""
+"""Startup refresh: MOEX exact top-20 turnover and date-based futures roll."""
 import os
 os.environ.setdefault("QT_QPA_PLATFORM","offscreen")
-from datetime import datetime, timezone
+from datetime import datetime, timezone, date, timedelta
 from pathlib import Path
 import tempfile
 import unittest
@@ -12,7 +12,7 @@ from flowdesk.finam_universe import US_CONTRACTS, RU_CONTRACTS
 from flowdesk.finam_rotation import (
     RollState, dominates, resolve_contract, resolve_futures, expiry_date,
 )
-from flowdesk.moex_reference import MoexFuturesVolume, refresh_top20
+from flowdesk.moex_reference import MoexFuturesVolume, MoexFuturesDates, refresh_top20
 from flowdesk.finam_catalog_worker import FinamCatalogWorker
 
 
@@ -49,22 +49,32 @@ class API:
 
 
 class TestRollover(unittest.TestCase):
-    def test_only_next_contract_with_both_higher_volume_and_turnover_rolls(self):
+    def test_contract_stays_until_day_before_expiry_without_quote_calls(self):
         base=US_CONTRACTS[0]
         rows=[row("NQZ6","XCME","2026-12-18"),
               row("NQH7","XCME","2027-03-19")]
-        for nextvol,nextturn,expected in [(120,1400,"NQH7@XCME"),
-                                          (95,1400,"NQZ6@XCME"),
-                                          (120,900,"NQZ6@XCME"),
-                                          (100,1000,"NQZ6@XCME")]:
-            with self.subTest(nextvol=nextvol,nextturn=nextturn):
-                api=API(rows,{"NQZ6@XCME":quote("NQZ6@XCME",100,1000),
-                              "NQH7@XCME":quote("NQH7@XCME",nextvol,nextturn)})
-                result=resolve_contract(base,rows,api,now=NOW,today=NOW.date())
-                self.assertEqual(result.item.symbol,expected)
-                if expected.startswith("NQH"):
+        api=API(rows)
+        for day,symbol in [(date(2026,12,16),"NQZ6@XCME"),
+                           (date(2026,12,17),"NQH7@XCME"),
+                           (date(2026,12,18),"NQH7@XCME")]:
+            with self.subTest(day=day):
+                result=resolve_contract(base,rows,api,now=NOW,today=day)
+                self.assertEqual(result.item.symbol,symbol)
+                if day==date(2026,12,17):
                     self.assertEqual(result.item.label,"NQH2027")
-                    self.assertIn("объёму и обороту",result.reason)
+                    self.assertIn("за день",result.reason)
+        self.assertFalse(any(kind=="quote" for kind,_ in api.calls))
+
+    def test_next_contract_with_higher_volume_does_not_roll_early(self):
+        base=US_CONTRACTS[0]
+        rows=[row("NQZ6","XCME","2026-12-18"),
+              row("NQH7","XCME","2027-03-19")]
+        api=API(rows,{"NQZ6@XCME":quote("NQZ6@XCME",1,1),
+                      "NQH7@XCME":quote("NQH7@XCME",999999,999999)})
+        result=resolve_contract(base,rows,api,now=NOW,today=date(2026,11,13))
+        self.assertEqual(result.item.symbol,"NQZ6@XCME")
+        self.assertFalse(any(kind=="quote" for kind,_ in api.calls))
+
 
     def test_expired_contract_is_not_selected_even_if_quotes_unavailable(self):
         base=US_CONTRACTS[0]
@@ -75,12 +85,42 @@ class TestRollover(unittest.TestCase):
         self.assertEqual(result.item.symbol,"NQH7@XCME")
         self.assertTrue(result.item.verified)
 
-    def test_missing_expiration_never_guesses(self):
+    def test_unknown_expiry_keeps_exact_active_contract_but_stops_rolling(self):
         base=US_CONTRACTS[0]
-        data=[row("NQZ6","XCME"),row("NQH7","XCME")]
+        data=[row("NQZ6","XCME"),row("NQH7","XCME","2027-03-19")]
+        result=resolve_contract(base,data,API(data),today=NOW.date(),now=NOW)
+        self.assertTrue(result.item.verified)
+        self.assertEqual(result.item.symbol,"NQZ6@XCME")
+        self.assertIn("не подтверждена",result.item.source)
+        self.assertEqual(result.state_symbol,"NQZ6@XCME")
+
+    def test_unavailable_contract_without_confirmed_expiry_is_disabled(self):
+        base=US_CONTRACTS[0]
+        data=[row("NQH7","XCME")]
         result=resolve_contract(base,data,API(data),today=NOW.date(),now=NOW)
         self.assertFalse(result.item.verified)
-        self.assertEqual(result.state_symbol,"")
+        self.assertFalse(result.state_symbol)
+
+    def test_nested_timestamp_expiry_is_exchange_local(self):
+        from flowdesk.finam_rotation import _date
+        # 00:30 UTC is still the previous trading day in Chicago.
+        self.assertEqual(_date("2026-12-18T00:30:00Z",mic="XCME"),
+                         date(2026,12,17))
+        timestamp=int(datetime(2026,12,18,0,30,tzinfo=timezone.utc).timestamp())
+        obj={"asset_details":{"future_details":
+             {"expiration_date":{"seconds":str(timestamp),"nanos":0}}}}
+        self.assertEqual(expiry_date(obj,mic="XCME"),date(2026,12,17))
+        self.assertEqual(expiry_date({"expiration_date":
+                         {"year":2026,"month":12,"day":18}},mic="XCME"),
+                         date(2026,12,18))
+
+    def test_no_quote_or_expiry_fabrication_when_next_date_missing(self):
+        base=US_CONTRACTS[0]
+        data=[row("NQZ6","XCME","2026-12-18"),row("NQH7","XCME")]
+        result=resolve_contract(base,data,API(data),
+                                today=date(2026,12,17),now=NOW)
+        self.assertEqual(result.item.symbol,"NQZ6@XCME")
+        self.assertIn("следующий контракт не подтверждён",result.reason)
 
     def test_roll_does_not_choose_mini_micro_or_other_exchange(self):
         base=US_CONTRACTS[0]
@@ -188,15 +228,14 @@ class TestCatalogStartup(unittest.TestCase):
         cls.app=QApplication.instance() or QApplication([])
         cls.app.setQuitOnLastWindowClosed(False)
 
-    def test_startup_refreshes_stocks_and_rolls_using_moex_without_market_orders(self):
+    def test_startup_refreshes_stocks_and_switches_one_day_before_expiry(self):
         from flowdesk.watchlist import WatchlistService
         base=WatchlistService().cached()
-        rows=[row("NQZ6","XCME","2026-12-18"),
+        rows=[row("NQZ6","XCME","2026-11-14"),
               row("NQH7","XCME","2027-03-19"),
-              row("SiZ6","RTSX","2026-12-17"),
-              row("SiH7","RTSX","2027-03-18")]
-        api=API(rows,{"NQZ6@XCME":quote("NQZ6@XCME",100,1000),
-                      "NQH7@XCME":quote("NQH7@XCME",200,2000)})
+              row("SiZ6","RTSX"),  # MOEX last-trading-day fallback
+              row("SiH7","RTSX")]
+        api=API(rows)
         class StockSource:
             def __init__(self):self.calls=0
             def cached(self):return base
@@ -205,34 +244,65 @@ class TestCatalogStartup(unittest.TestCase):
                 self.stocks_only=stocks_only
                 self.calls+=1
                 return base
-        class FutuSource:
-            def refresh(self,*,cancelled):return 2
-            def quote(self,symbol):
-                if symbol.upper().startswith("SIZ6"):
-                    return quote(symbol,100,1000)
-                if symbol.upper().startswith("SIH7"):
-                    return quote(symbol,200,2000)
-                raise KeyError(symbol)
+        class Dates:
+            def __init__(self):
+                self.calls=0
+                self.dates={}
+            def refresh(self,*,cancelled):
+                self.calls+=1
+                self.dates={"SIZ6@RTSX":"2026-11-14",
+                            "SIH7@RTSX":"2027-03-18"}
+                return 2
         with tempfile.TemporaryDirectory() as directory:
             source=StockSource()
+            dates=Dates()
             worker=FinamCatalogWorker(api,watchlist=source,
                 roll_state=RollState(Path(directory)/"state.json"),
-                moex_volume=FutuSource(),clock=lambda:NOW)
+                moex_dates=dates,clock=lambda:NOW)
             messages=[]
             worker.loaded.connect(messages.append)
             worker.run()
             self.assertEqual(source.calls,1)
             self.assertTrue(source.stocks_only)
+            self.assertEqual(dates.calls,1)
             self.assertEqual(len(messages),1)
             payload=messages[0]
             self.assertEqual(len(payload["stocks"]),20)
             self.assertTrue(payload["ranking_status"].startswith("2026"))
             self.assertEqual(payload["futures"]["us:NQZ2026"].symbol,"NQH7@XCME")
-            self.assertEqual(payload["futures"]["ru:SIZ2026"].symbol,"SiH7@RTSX"
-                             if "SiH7@RTSX" in [r["symbol"] for r in rows]
-                             else "SIH7@RTSX")
+            self.assertEqual(payload["futures"]["ru:SIZ2026"].symbol,"SiH7@RTSX")
             self.assertEqual(payload["roll_map"]["NQZ6@XCME"],"NQH7@XCME")
             self.assertTrue((Path(directory)/"state.json").exists())
+            self.assertFalse(any(kind=="quote" for kind,_ in api.calls))
+
+    def test_moex_rfud_futures_dates_are_read_only(self):
+        cols=["SECID","BOARDID","LASTTRADEDATE"]
+        def fetch(path,params):
+            self.assertIn("RFUD/securities",path)
+            self.assertEqual(params["securities.columns"],
+                             "SECID,BOARDID,LASTTRADEDATE")
+            self.assertEqual(params["iss.only"],
+                             "securities,securities.cursor")
+            return {"securities":{"columns":cols,"data":[
+                ["SiZ6","RFUD","2026-12-17"],
+                ["SiH7","RFUD","2027-03-18"]]},
+                "securities.cursor":{"columns":["INDEX","TOTAL","PAGESIZE"],
+                                     "data":[[0,2,100]]}}
+        source=MoexFuturesDates(fetch=fetch)
+        self.assertEqual(source.refresh(),2)
+        self.assertEqual(source.dates["SIZ6@RTSX"],"2026-12-17")
+        self.assertEqual(source.dates["SIH7@RTSX"],"2027-03-18")
+
+    def test_moex_fallback_applies_only_to_russian_futures(self):
+        from flowdesk.finam_rotation import resolve_futures
+        rows=[row("NQZ6","XCME"),row("NQH7","XCME"),
+              row("SiZ6","RTSX"),row("SiH7","RTSX")]
+        offsets={"SIZ6@RTSX":"2026-11-14","SIH7@RTSX":"2027-03-18",
+                 "NQZ6@XCME":"2026-11-14","NQH7@XCME":"2027-03-19"}
+        result,_,_=resolve_futures(rows,API(rows),now=NOW,expiry_overrides=offsets)
+        self.assertEqual(result["ru:SIZ2026"].symbol,"SiH7@RTSX")
+        self.assertEqual(result["us:NQZ2026"].symbol,"NQZ6@XCME")
+        self.assertIn("не подтверждена",result["us:NQZ2026"].source)
 
 
 if __name__=="__main__":

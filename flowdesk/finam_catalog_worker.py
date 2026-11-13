@@ -1,8 +1,9 @@
-"""Nonblocking startup Finam catalog + MOEX top-20 + liquidity-based rolls.
+"""Nonblocking startup: Finam catalog + MOEX top-20 + date-based roll.
 
-Finam supplies the instruments, expiry and the US-futures quote metrics.
-MOEX ISS supplies ONLY reference turnover/volume for Russian instruments
-and the last 20 completed share trading sessions. No orders, no MOEX candles.
+The next expiry is selected on the calendar day before confirmed expiration.
+No turnover/volume API calls for the roll decision. MOEX ISS is read-only:
+stock turnover ranking, optionally Russian last trading dates. Graph market
+data is Finam only; no trades/orders are submitted.
 """
 from datetime import datetime, timezone
 
@@ -12,7 +13,7 @@ from .finam_universe import (
     cached_top20, US_CONTRACTS, RU_CONTRACTS,
 )
 from .finam_rotation import RollState, resolve_futures
-from .moex_reference import refresh_top20, MoexFuturesVolume
+from .moex_reference import refresh_top20, MoexFuturesDates
 from .watchlist import WatchlistService
 
 
@@ -22,12 +23,12 @@ class FinamCatalogWorker(QThread):
     progress=Signal(str)
 
     def __init__(self,api,parent=None,*,watchlist=None,roll_state=None,
-                 moex_volume=None,clock=None):
+                 moex_dates=None,clock=None):
         super().__init__(parent)
         self.api=api
         self.watchlist=watchlist or WatchlistService()
         self.roll_state=roll_state or RollState()
-        self.moex_volume=moex_volume or MoexFuturesVolume()
+        self.moex_dates=moex_dates or MoexFuturesDates()
         self.clock=clock or (lambda:datetime.now(timezone.utc))
 
     def run(self):
@@ -54,13 +55,13 @@ class FinamCatalogWorker(QThread):
                 ranking_status+=" · ошибка MOEX, сохранён прошлый рейтинг"
             if self.isInterruptionRequested():
                 return
-            self.progress.emit("MOEX: сверка объёмов российских фьючерсов…")
-            moex=None
-            moex_status="MOEX RFUD: обороты недоступны, переход не подтверждён"
+            self.progress.emit("MOEX: проверка дат окончания торгов фьючерсов РФ…")
+            expiry_overrides={}
+            moex_status="MOEX RFUD: даты недоступны; используем Finam"
             try:
-                self.moex_volume.refresh(cancelled=self.isInterruptionRequested)
-                moex=self.moex_volume
-                moex_status="MOEX RFUD: обороты и объёмы проверены"
+                self.moex_dates.refresh(cancelled=self.isInterruptionRequested)
+                expiry_overrides=self.moex_dates.dates
+                moex_status="MOEX RFUD: даты окончания торгов проверены"
             except InterruptedError:
                 raise
             except Exception:
@@ -70,11 +71,14 @@ class FinamCatalogWorker(QThread):
             previous=self.roll_state.load()
             futures,selections,notes=resolve_futures(
                 assets,self.api,now=self.clock(),previous=previous,
-                moex_volume=moex,cancelled=self.isInterruptionRequested,
+                expiry_overrides=expiry_overrides,
+                cancelled=self.isInterruptionRequested,
                 progress=self.progress.emit)
             if self.isInterruptionRequested():
                 return
-            self.roll_state.save(selections)
+            # A transient catalog/metadata outage must not forget an earlier
+            # confirmed rollover or silently revert to the original series.
+            self.roll_state.save({**previous,**selections})
             # Remap any saved ticker from the prior active tenor to the new
             # one. Also remap initial screenshot aliases (e.g. NQZ6@XCME).
             roll_map={}

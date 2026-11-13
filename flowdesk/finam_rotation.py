@@ -1,10 +1,12 @@
-"""Finam-only futures roll: expiry + SAME SESSION volume AND turnover.
+"""Read-only futures roll exactly one calendar day before verified expiry.
 
-No date-only speculative switch. Never conflate SI silver (XCEC) with Si
-USD/RUB (RTSX), or choose a different mini/micro product by prefix.
-GetAsset expiration dates are authoritative; GetLastQuote supplies volume
-and turnover for a same-session comparison. Persist decisions to prevent
-roll-back on future starts. Perpetuals do not roll.
+The future and next contract MUST both be present in Finam's active catalog.
+The date comes from GetAsset (all documented Date/Timestamp variants), with
+MOEX RFUD LASTTRADEDATE as a fallback for Russian contracts only.
+Never use turnover/volume to trigger an early switch. A contract with missing
+expiry is still selectable if its *exact* symbol is in the active catalog,
+but automatic rollover is suspended until the date becomes verifiable.
+Previous roll decisions persist; perpetuals never roll.
 """
 from __future__ import annotations
 
@@ -49,17 +51,47 @@ def _series_year(text, reference_year):
     if len(digits)==2:
         return 2000+int(digits)
     if len(digits)==1:
-        return reference_year+(int(digits)-reference_year%10)%10
+        # Include last year's single-digit contracts near New Year; do not
+        # turn an active Z6 into 2036 when started in January 2027.
+        base=reference_year-1
+        return base+(int(digits)-base%10)%10
     return None
 
 
-def _date(value):
-    if isinstance(value,dict):
-        try:
-            return date(int(value["year"]),int(value["month"]),int(value["day"]))
-        except (ValueError,TypeError,KeyError):
+def _date(value, *, mic=""):
+    """Parse Finam google.type.Date, RFC3339, and google.protobuf.Timestamp.
+
+    Timestamp denotes an instant: use exchange-local date, not the UTC date,
+    to avoid rolling on a wrong day across midnight/DST.
+    """
+    if isinstance(value,datetime):
+        if value.tzinfo is None:
             return None
+        return value.astimezone(exchange_clock(mic).zone).date()
+    if isinstance(value,date):
+        return value
+    if isinstance(value,dict):
+        if all(k in value for k in ("year","month","day")):
+            try:
+                return date(int(value["year"]),int(value["month"]),int(value["day"]))
+            except (ValueError,TypeError,OverflowError):
+                return None
+        if "seconds" in value:
+            try:
+                seconds=int(value["seconds"])
+                nanos=int(value.get("nanos",0))
+                stamp=datetime.fromtimestamp(seconds+nanos/1e9,tz=timezone.utc)
+                return stamp.astimezone(exchange_clock(mic).zone).date()
+            except (ValueError,TypeError,OverflowError,OSError):
+                return None
+        return None
     if isinstance(value,str):
+        try:
+            stamp=datetime.fromisoformat(value.replace("Z","+00:00"))
+            if stamp.tzinfo is not None:
+                return stamp.astimezone(exchange_clock(mic).zone).date()
+        except (ValueError,TypeError):
+            return None
         try:
             return date.fromisoformat(value[:10])
         except ValueError:
@@ -67,10 +99,20 @@ def _date(value):
     return None
 
 
-def expiry_date(asset):
-    """Only metadata, never guess an exchange settlement day from month code."""
-    future=asset.get("future_details") or {}
-    return _date(future.get("expiration_date")) or _date(asset.get("expiration_date"))
+def expiry_date(asset, *, mic=""):
+    """Read both old and current Finam GetAsset response shapes."""
+    if not isinstance(asset,dict):
+        return None
+    details=asset.get("asset_details") or {}
+    if not isinstance(details,dict):
+        details={}
+    futures=(asset.get("future_details"),details.get("future_details"),asset)
+    for source in futures:
+        if isinstance(source,dict):
+            found=_date(source.get("expiration_date"),mic=mic)
+            if found is not None:
+                return found
+    return None
 
 
 def _num(value):
@@ -174,58 +216,94 @@ def _preferred_candidate(contract, eligible, saved):
 
 
 def resolve_contract(contract, assets, api, *, today, now, saved="", cancelled=lambda:False,
-                     quote_fn=None):
-    """Resolve actual tenor by Finam expiry; compare nearest following only.
+                     quote_fn=None, expiry_overrides=None):
+    """Select current series until the last calendar day before expiry.
 
-    No verified next or no comparable two-volume/two-turnover quotes -> keep
-    last *unexpired* selection. An expired contract never remains clickable.
+    Date-based rollover has priority over any quote statistics. Unknown expiry
+    permits displaying ONLY the exact active contract; it never licenses a
+    speculative move to a different tenor.
     """
     if _root_and_label(contract) is None:
         symbol=match_contract(contract,assets)
         return RollResult(
             Item(contract.display,contract.name,contract.group,symbol,bool(symbol),
-                 "без экспирации"),symbol,"perpetual")
+                 "вечный контракт, без ролловера"),symbol,"perpetual")
+
     entries=candidates_for(contract,assets,reference_year=today.year)
+    root,month,contract_year=_root_and_label(contract)
+    floor=(contract_year,MONTHS.index(month))
+    saved_series=SERIES.fullmatch(saved.split("@",1)[0].upper())
+    if saved_series is not None and saved_series.group(1) in _roots(contract):
+        saved_year=_series_year(saved_series.group(3),today.year)
+        if saved_year is not None:
+            floor=(saved_year,MONTHS.index(saved_series.group(2)))
+    # Only the current tenor and a bounded number of successive series
+    # matter for rolling. Avoid exhausting Finam's 200 requests/minute quota.
+    entries=dict(list((k,v) for k,v in sorted(entries.items())
+                      if k[:2]>=floor)[:6])
     lookup={}
     for row in assets:
         if isinstance(row,dict):
             symbol=str(row.get("symbol") or
                        (str(row.get("ticker",""))+"@"+str(row.get("mic",""))))
             lookup[symbol.upper()]=row
+
     verified=[]
+    unknown=[]
+    expiry_overrides=expiry_overrides or {}
     for key,symbol in sorted(entries.items()):
         if cancelled():
             raise InterruptedError()
-        expiry=expiry_date(lookup.get(symbol.upper(),{}))
+        mic=symbol.rsplit("@",1)[-1]
+        # Full GetAsset has the authoritative Finam expiry, while the
+        # paginated list often omits its future_details.
+        expiry=expiry_date(lookup.get(symbol.upper(),{}),mic=mic)
         if expiry is None:
             try:
-                expiry=expiry_date(api.asset_details(symbol))
+                expiry=expiry_date(api.asset_details(symbol),mic=mic)
             except Exception:
-                continue
-        if expiry is None or expiry<today:
-            continue
-        verified.append((expiry,symbol))
+                pass
+        if expiry is None and contract.group=="ru":
+            expiry=_date(expiry_overrides.get(symbol.upper()),mic=mic)
+        if expiry is None:
+            unknown.append(symbol)
+        elif expiry>=today:
+            verified.append((expiry,symbol))
     verified.sort(key=lambda x:(x[0],x[1]))
-    chosen=_preferred_candidate(contract,verified,saved) if verified else None
+
+    # A missing date for the currently active ticker must NOT force an
+    # unrequested jump to a later contract whose date happens to be known.
+    allowed={sym.upper():sym for sym in unknown}
+    active_verified={sym.upper() for _,sym in verified}
+    present=allowed.get(saved.upper())
+    initial=match_contract(contract,assets)
+    if present is None and initial.upper() not in active_verified:
+        present=allowed.get(initial.upper())
+    if present is not None:
+        return RollResult(
+            Item(contract.display,contract.name,contract.group,present,True,
+                 "экспирация не подтверждена; автопереход приостановлен"),
+            present,"экспирация не подтверждена, переход приостановлен")
+
+    chosen=_preferred_candidate(contract,verified,saved)
     if chosen is None:
-        return RollResult(Item(contract.display,contract.name,contract.group,
-                               "",False,"нет действующей серии с проверенной датой экспирации"),
-                          "","нет действующего контракта")
+        return RollResult(
+            Item(contract.display,contract.name,contract.group,"",False,
+                 "нет подтверждённого действующего контракта"),
+            "","нет подтверждённого действующего контракта")
+
     expiry,current=chosen
-    following=next(((end,sym) for end,sym in verified if end>expiry),None)
     reason="действует до "+expiry.isoformat()
-    if following is not None:
-        follow_expiry,follow=following
-        try:
-            getter=quote_fn or api.latest_quote
-            cur=getter(current)
-            nxt=getter(follow)
-            if dominates(cur,nxt,mic=current.split("@")[1],symbol=current.split("@")[0],now=now):
-                current=follow
-                expiry=follow_expiry
-                reason="переход по большему объёму и обороту; до "+expiry.isoformat()
-        except Exception:
-            reason="котировки для сравнения недоступны; действует до "+expiry.isoformat()
+    venue=current.rsplit("@",1)[-1].upper()
+    next_known=next(((end,sym) for end,sym in verified
+                     if end>expiry and sym.rsplit("@",1)[-1].upper()==venue),None)
+    if today>=expiry-timedelta(days=1):
+        if next_known is not None:
+            expiry,current=next_known
+            reason="переход за день до экспирации; новая дата "+expiry.isoformat()
+        else:
+            reason="экспирация "+expiry.isoformat()+"; следующий контракт не подтверждён"
+
     root,_,_=_root_and_label(contract)
     match=SERIES.fullmatch(current.split("@",1)[0].upper())
     label=(root+match.group(2)+str(expiry.year)) if match else contract.display
@@ -234,12 +312,15 @@ def resolve_contract(contract, assets, api, *, today, now, saved="", cancelled=l
 
 
 def resolve_futures(assets,api,*,today=None,now=None,previous=None,moex_volume=None,
-                    cancelled=lambda:False,progress=lambda msg:None):
-    """(overrides, selections, diagnostics) keyed by original display/group."""
+                    expiry_overrides=None,cancelled=lambda:False,progress=lambda msg:None):
+    """Resolve 8 US + 10 RU rows using each exchange's local calendar date.
+
+    moex_volume remains an unused compatibility parameter for older callers.
+    The rollover trigger no longer depends on any volume or turnover data.
+    """
     now=now or datetime.now(timezone.utc)
     if now.tzinfo is None:
         raise ValueError("now must be timezone-aware")
-    today=today or now.date()
     previous=previous or {}
     overrides={}
     persisted={}
@@ -248,26 +329,24 @@ def resolve_futures(assets,api,*,today=None,now=None,previous=None,moex_volume=N
         if cancelled():
             raise InterruptedError()
         key=contract.group+":"+contract.display
-        trading_date=today or now.astimezone(exchange_clock(contract.mics[0]).zone).date()
+        local_day=today if today is not None else now.astimezone(
+            exchange_clock(contract.mics[0]).zone).date()
         try:
-            quote_fn=(moex_volume.quote if moex_volume is not None else
-                      (lambda _symbol: (_ for _ in ()).throw(
-                          ValueError("MOEX RFUD недоступна")))) if contract.group=="ru" else api.latest_quote
-            result=resolve_contract(contract,assets,api,today=trading_date,now=now,
+            result=resolve_contract(contract,assets,api,today=local_day,now=now,
                                     saved=previous.get(key,""),cancelled=cancelled,
-                                    quote_fn=quote_fn)
+                                    expiry_overrides=expiry_overrides)
         except InterruptedError:
             raise
         except Exception:
-            # A failed per-contract metadata lookup never rolls to a guess.
-            result=RollResult(Item(contract.display,contract.name,contract.group,
-                                   "",False,"ошибка проверки Finam"),"",
-                              "ошибка проверки Finam")
+            result=RollResult(
+                Item(contract.display,contract.name,contract.group,"",False,
+                     "ошибка проверки Finam"),
+                "","ошибка проверки Finam")
         overrides[key]=result.item
         if result.state_symbol:
             persisted[key]=result.state_symbol
         diagnostics.append(contract.display+": "+result.reason)
-        progress("Проверка фьючерсов "+str(len(diagnostics))+"/18")
+        progress("Проверка экспирации фьючерсов "+str(len(diagnostics))+"/18")
     return overrides,persisted,diagnostics
 
 

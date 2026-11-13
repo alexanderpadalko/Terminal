@@ -78,3 +78,41 @@ class MoexFuturesVolume:
             "volume":{"value":str(row["VOLTODAY"])},
             "turnover":{"value":str(row["VALTODAY"])},
         }}
+
+
+class MoexFuturesDates:
+    """Optional last-trading-day fallback for Russian contracts only.
+
+    This is not an authoritative US futures calendar and never affects the
+    market feed. When Finam GetAsset offers an expiration date, it wins.
+    """
+    def __init__(self, *, fetch=get_json):
+        self.fetch=fetch
+        self.dates={}
+
+    def refresh(self, *, cancelled=lambda:False):
+        from datetime import date
+        rows=pages("engines/futures/markets/forts/boards/RFUD/securities.json",
+                   "securities",
+                   {"securities.columns":"SECID,BOARDID,LASTTRADEDATE"},
+                   fetch=self.fetch,cancelled=cancelled)
+        found={}
+        for row in rows:
+            if not isinstance(row,dict) or str(row.get("BOARDID","RFUD")).upper()!="RFUD":
+                continue
+            ticker=str(row.get("SECID") or "").upper()
+            raw=row.get("LASTTRADEDATE")
+            if not ticker or not isinstance(raw,str):
+                continue
+            try:
+                last=date.fromisoformat(raw[:10])
+            except ValueError:
+                continue
+            symbol=ticker+"@RTSX"
+            if symbol in found and found[symbol]!=last:
+                raise ValueError("MOEX: неоднозначная дата завершения торгов "+ticker)
+            found[symbol]=last.isoformat()
+        if not found:
+            raise ValueError("MOEX: даты фьючерсов недоступны")
+        self.dates=found
+        return len(found)
