@@ -101,6 +101,11 @@ def vwap_axis_levels(chart):
     return levels
 
 
+def vwap_tag_display_lines(label,price):
+    """Current VWAP keeps its caption; previous session shows just a price."""
+    return ("",price) if label=="VWAP-1" else (label,price)
+
+
 def place_vwap_axis_tags(levels,project_y,top,bottom,obstacles=()):
     """Place two-line price markers without obscuring last price/crosshair.
 

@@ -10,7 +10,7 @@ os.environ.setdefault("QT_QPA_PLATFORM","offscreen")
 
 from flowdesk.price_format import price_text, price_places, tick_from_asset
 from flowdesk.chart_indicators import vwap_series
-from flowdesk.indicator_paint import vwap_axis_levels, place_vwap_axis_tags
+from flowdesk.indicator_paint import vwap_axis_levels, place_vwap_axis_tags, vwap_tag_display_lines
 from flowdesk.exchange_time import exchange_clock
 from flowdesk.market_data import Candle
 from flowdesk.settings import IndicatorSettings
@@ -102,6 +102,16 @@ class TestVwapAxisLevels(unittest.TestCase):
         chart.indicator_settings=chart.indicator_settings.changed(vwapEnabled=True)
         chart.analysis.timeframe="H1"
         self.assertEqual(vwap_axis_levels(chart),[])
+
+    def test_previous_vwap_marker_displays_price_only(self):
+        self.assertEqual(vwap_tag_display_lines("VWAP","6048,0"),
+                         ("VWAP","6048,0"))
+        self.assertEqual(vwap_tag_display_lines("VWAP-1","6026,5"),
+                         ("","6026,5"))
+        # The calculation layer still uses a distinct previous-session
+        # level for collision avoidance and price accuracy.
+        self.assertEqual([name for name,_,_ in vwap_axis_levels(self.make_chart())],
+                         ["VWAP","VWAP-1"])
 
     def test_previous_label_needs_a_completed_session(self):
         chart=self.make_chart()

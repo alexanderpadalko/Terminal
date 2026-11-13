@@ -2,7 +2,7 @@
 from PySide6.QtCore import QPoint, Qt, Signal
 from PySide6.QtGui import QColor, QGuiApplication, QPainter, QPen
 from PySide6.QtWidgets import (
-    QCheckBox, QColorDialog, QComboBox, QDialog, QDialogButtonBox,
+    QAbstractSpinBox, QCheckBox, QColorDialog, QComboBox, QDialog, QDialogButtonBox,
     QDoubleSpinBox, QFormLayout, QFrame, QGridLayout, QHBoxLayout,
     QLabel, QPushButton, QScrollArea, QSlider, QSpinBox, QTabWidget,
     QToolButton, QVBoxLayout, QWidget,
@@ -134,7 +134,11 @@ class ColorPalettePopup(QFrame):
         self.percent=QSpinBox(self)
         self.percent.setRange(0,100)
         self.percent.setSuffix("%")
-        self.percent.setFixedWidth(64)
+        # Reserve the full text width for 100%. Native Windows spin arrows
+        # previously covered the digits and made even "0%" look clipped.
+        self.percent.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.NoButtons)
+        self.percent.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.percent.setFixedWidth(90)
         self.percent.setObjectName("paletteTransparencyPercent")
         self.transparency.valueChanged.connect(self.percent.setValue)
         self.percent.valueChanged.connect(self.transparency.setValue)
@@ -142,7 +146,7 @@ class ColorPalettePopup(QFrame):
         opacity_row.addWidget(self.transparency,1)
         opacity_row.addWidget(self.percent)
         layout.addLayout(opacity_row)
-        self.setFixedWidth(282)
+        self.setFixedWidth(314)
         self.sync_from_owner()
 
     def sync_from_owner(self):

@@ -41,7 +41,8 @@ from .settings_dialog import SettingsDialog,qcolor
 from .chart_indicators import vwap_series
 from .price_format import price_text
 from .indicator_paint import (draw_market,draw_vwap,draw_overlays,font as indicator_font,
-                              vwap_axis_levels,place_vwap_axis_tags)
+                              vwap_axis_levels,place_vwap_axis_tags,
+                              vwap_tag_display_lines)
 from .cancellation import Cancelled, checkpoint, scope
 from .lifecycle import ShutdownWatchdog
 from .engine import Analysis, analyze
@@ -103,6 +104,41 @@ CHART_PALETTES = {
         "price_marker_text": QColor("#09151d"),
     },
 }
+
+
+def _relative_luminance(color):
+    """WCAG sRGB luminance for readable marker text and price-line contrast."""
+    def channel(value):
+        linear=value/255
+        return linear/12.92 if linear<=0.04045 else ((linear+0.055)/1.055)**2.4
+    return (0.2126*channel(color.red())+
+            0.7152*channel(color.green())+
+            0.0722*channel(color.blue()))
+
+
+def _composite_color(foreground, background):
+    """Calculate a solid display color when the configured fill has alpha."""
+    a=foreground.alphaF()
+    return QColor(round(foreground.red()*a+background.red()*(1-a)),
+                  round(foreground.green()*a+background.green()*(1-a)),
+                  round(foreground.blue()*a+background.blue()*(1-a)))
+
+
+def _contrast_text_color(fill, canvas=None):
+    """Auto-select black/white using the higher WCAG contrast ratio."""
+    bg=_composite_color(fill,canvas) if canvas is not None else fill
+    return QColor("#000000") if _relative_luminance(bg)>0.179 else QColor("#ffffff")
+
+
+def _price_line_color(fill, canvas):
+    """Prefer the price marker's tint unless it blends into the chart."""
+    displayed=_composite_color(fill,canvas)
+    luma1=_relative_luminance(displayed)
+    luma2=_relative_luminance(canvas)
+    ratio=(max(luma1,luma2)+0.05)/(min(luma1,luma2)+0.05)
+    result=QColor(fill if ratio>=2.5 else _contrast_text_color(canvas))
+    result.setAlpha(190)
+    return result
 
 
 def short_number(x: float) -> str:
@@ -811,10 +847,22 @@ class CandleChart(QWidget):
         hover_on_chart = (self.cursor_x is not None and self.cursor_y is not None
                           and self.x0 <= self.cursor_x <= self.x1
                           and self.top <= self.cursor_y <= self.bottom)
+        marker_color=colors["price_marker"] or color
+        latest_y=y(latest.close)
+        if self.top <= latest_y <= self.bottom:
+            # A read-only visual guide at the actual last close, clipped to
+            # the plot. The color remains legible even for black candles.
+            p.save()
+            p.setClipRect(QRectF(self.x0,self.top,self.x1-self.x0,
+                                 self.bottom-self.top))
+            p.setPen(QPen(_price_line_color(marker_color,colors["background"]),
+                          1,Qt.PenStyle.DashLine))
+            p.drawLine(QPointF(self.x0,latest_y),QPointF(self.x1,latest_y))
+            p.restore()
         if not (hover_on_chart and abs(self.cursor_y - last_price_y) < 22):
             p.fillRect(QRectF(self.x1 + 3, last_price_y - 10, 82, 20),
-                       colors["price_marker"] or color)
-            p.setPen(colors["price_marker_text"])
+                       marker_color)
+            p.setPen(_contrast_text_color(marker_color,colors["background"]))
             p.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
             p.drawText(QRectF(self.x1 + 5, last_price_y - 10, 80, 20),
                        int(Qt.AlignmentFlag.AlignCenter), self.format_price(latest.close))
@@ -871,12 +919,15 @@ class CandleChart(QWidget):
             tag=QRectF(self.x1+3,tag_y-14,82,28)
             p.fillRect(tag,shade)
             p.setPen(QColor("#101820") if shade.lightness()>150 else QColor("#ffffff"))
-            p.setFont(QFont("Segoe UI",7))
-            p.drawText(QRectF(self.x1+4,tag_y-12,80,11),
-                       int(Qt.AlignmentFlag.AlignCenter),label)
+            caption,number=vwap_tag_display_lines(label,self.format_price(value))
+            if caption:
+                p.setFont(QFont("Segoe UI",7))
+                p.drawText(QRectF(self.x1+4,tag_y-12,80,11),
+                           int(Qt.AlignmentFlag.AlignCenter),caption)
             p.setFont(QFont("Segoe UI",9,QFont.Weight.Bold))
-            p.drawText(QRectF(self.x1+4,tag_y-1,80,12),
-                       int(Qt.AlignmentFlag.AlignCenter),self.format_price(value))
+            rect=(QRectF(self.x1+4,tag_y-1,80,12) if caption
+                  else QRectF(self.x1+4,tag_y-11,80,22))
+            p.drawText(rect,int(Qt.AlignmentFlag.AlignCenter),number)
 
     def _draw_zone(self, p, x0, x1, y0, y1, side, broken, tf, stride, parent=False):
         """Draw transparent FVG with a right-aligned, collision-aware caption."""
@@ -899,7 +950,7 @@ class CandleChart(QWidget):
         p.fillRect(QRectF(x0, low_y, x1 - x0, height), bg)
         p.setPen(QPen(edge, cfg.fvgBorderWidth))
         p.drawRect(QRectF(x0, low_y, x1 - x0, height))
-        strong = QColor(*rgb, 255) if self.visual_theme == 'tv' else edge
+        strong = QColor(bg.red(),bg.green(),bg.blue(),255) if self.visual_theme == 'tv' else edge
         p.setPen(QPen(strong, cfg.fvgMiddleWidth, Qt.PenStyle.DotLine))
         p.drawLine(QPointF(x0, (y0 + y1) / 2), QPointF(x1, (y0 + y1) / 2))
         if x1>x0:
@@ -910,7 +961,8 @@ class CandleChart(QWidget):
             label_height=p.fontMetrics().height()
             width=max(1,x1-x0-6)
             label_rect = QRectF(x1-width-3,low_y+(height-label_height)/2,width,label_height)
-            p.setPen(strong if self.visual_theme=='tv' else CHART_PALETTES['dark']['text'])
+            # Match the FVG fill RGB at zero transparency (fully opaque).
+            p.setPen(QColor(bg.red(),bg.green(),bg.blue(),255))
             flags=int(Qt.AlignmentFlag.AlignRight|Qt.AlignmentFlag.AlignVCenter)|int(Qt.TextFlag.TextDontClip)
             p.drawText(label_rect,flags,label)
 
