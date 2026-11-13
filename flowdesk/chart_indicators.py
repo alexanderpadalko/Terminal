@@ -5,6 +5,8 @@ from .publication import chart_cutoff,published_state
 
 
 def period_key(dt,anchor,*,exchange: ExchangeClock | None=None):
+    if anchor=='Session' and exchange is not None:
+        return exchange.vwap_session_key(dt)
     dt=dt.astimezone(exchange.zone if exchange is not None else MOSCOW)
     if anchor=='Session':return dt.date()
     if anchor=='Week':return dt.isocalendar()[:2]
@@ -26,14 +28,14 @@ def vwap_series(candles,anchor='Session',source='hlc3',*,exchange: ExchangeClock
     segment=None
     zone=exchange.zone if exchange is not None else MOSCOW
     for i,bar in enumerate(candles):
-        # US "Session" includes BOTH premarket and postmarket: 04:00–20:00 ET,
-        # with a single reset at the next trading day's 04:00 ET. A Moscow
-        # midnight (16:00 EST) must never reset or hide that session's VWAP.
-        # Other anchors (Week/Month/...) use the exchange-local calendar.
-        if anchor=='Session' and exchange is not None and not exchange.within_vwap_session(bar.time):
+        # Session is venue/product-specific. NQ/ES CME Globex resets at
+        # 18:00 ET across civil midnight and skips the 17:00–18:00 halt.
+        # US equity Session stays 04:00–20:00 ET (pre/core/postmarket).
+        # Week/Month/other anchors still use the exchange-local calendar.
+        next_key=period_key(bar.time,anchor,exchange=exchange)
+        if anchor=='Session' and next_key is None:
             values.append(None)
             continue
-        next_key=period_key(bar.time,anchor,exchange=exchange)
         reset=key!=next_key
         if i and anchor in ('Decade','Century'):
             current_year=bar.time.astimezone(zone).year

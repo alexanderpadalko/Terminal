@@ -431,7 +431,7 @@ class FinamWindow(QMainWindow):
         except ValueError as exc:
             self.status.setText(str(exc));return
         request=(ticker,mic,self.tf.currentText(),refresh,tuple(events))
-        self.chart.set_exchange(mic)
+        self.chart.set_exchange(mic,ticker)
         self.current=(ticker,mic)
         self.current_view=request[:3]
         if self.displayed_view != self.current_view:
@@ -460,7 +460,7 @@ class FinamWindow(QMainWindow):
         self.analysis,self.parents=main,parents
         self.displayed_view=self.current_view
         self.chart.instrument_header=info["symbol"]+"@"+info["board"]+" · Finam"
-        self.chart.set_exchange(info["board"])
+        self.chart.set_exchange(info["board"],info["symbol"])
         self.chart.set_analysis(main,parents)
         self.chart.empty_text=""
         self.status.setText("Finam · "+info["tf"]+" · "+str(len(main.candles))+

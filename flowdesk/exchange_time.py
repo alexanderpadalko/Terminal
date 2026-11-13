@@ -7,7 +7,8 @@ guessing an exchange's timezone would silently corrupt the chart.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, time
+from datetime import datetime, time, timedelta
+import re
 from zoneinfo import ZoneInfo
 
 
@@ -53,6 +54,7 @@ class ExchangeClock:
     zone: ZoneInfo
     us_regular_equity: bool = False
     known: bool = True
+    cme_index_future: bool = False
 
     def local(self, instant: datetime) -> datetime:
         if instant.tzinfo is None:
@@ -68,30 +70,57 @@ class ExchangeClock:
         spec = "%d.%m.%Y %H:%M:%S" if seconds else "%d.%m.%Y %H:%M"
         return f"{local.strftime(spec)} {self.abbreviation(instant)}"
 
-    def within_vwap_session(self, instant: datetime) -> bool:
-        """US day session VWAP: 04:00–20:00 ET, including pre/postmarket.
+    def vwap_session_key(self, instant: datetime):
+        """Exchange trading-date for session VWAP; None means no trading.
 
-        The entire extended US equity day (premarket 04:00–09:30,
-        regular 09:30–16:00, postmarket 16:00–20:00) forms ONE VWAP.
-        Do not reset at 09:30, 16:00, UTC midnight or Moscow midnight.
-        Overnight 21:00–04:00 is a *different* potential session and is
-        excluded until Finam session metadata and user policy are verified.
-
-        For other MICs do not guess their trading-day opening hours.
-        They retain exchange-local calendar grouping of received bars.
+        NQ/ES CME Globex: Sunday 18:00 ET -> Friday 17:00 ET,
+        daily maintenance 17:00–18:00 ET. Session belongs to the
+        NEXT local trading date from 18:00 onward, continuing through
+        midnight until 17:00 the following day. Use America/New_York
+        solely for this boundary; the chart X-axis remains CME/Chicago.
+        Holiday/early-close overrides require separate verified data.
         """
-        if not self.us_regular_equity:
-            return True
-        dt = self.local(instant)
-        return dt.weekday() < 5 and time(4, 0) <= dt.time().replace(tzinfo=None) < time(20, 0)
+        if self.cme_index_future:
+            if instant.tzinfo is None:
+                raise ValueError("Биржевая сессия требует timezone-aware UTC метки")
+            eastern=instant.astimezone(ZoneInfo("America/New_York"))
+            weekday=eastern.weekday()
+            wall=eastern.time().replace(tzinfo=None)
+            if (weekday==5 or
+                (weekday==6 and wall<time(18,0)) or
+                (weekday==4 and wall>=time(17,0)) or
+                time(17,0)<=wall<time(18,0)):
+                return None
+            return (eastern+timedelta(days=1)).date() if wall>=time(18,0) else eastern.date()
+        local=self.local(instant)
+        if self.us_regular_equity:
+            # One extended equities session: premarket + core + postmarket.
+            if not (local.weekday()<5 and
+                    time(4,0)<=local.time().replace(tzinfo=None)<time(20,0)):
+                return None
+        # Other instruments keep their previous exchange-local calendar grouping.
+        return local.date()
+
+    def within_vwap_session(self, instant: datetime) -> bool:
+        """Whether this candle contributes to the selected Session VWAP."""
+        return self.vwap_session_key(instant) is not None
 
 
-def exchange_clock(mic: str) -> ExchangeClock:
+def exchange_clock(mic: str, symbol: str | None = None) -> ExchangeClock:
+    """Use product-specific calendars only for verified CME NQ/ES series.
+
+    Other CME futures (e.g. metals, energies) are deliberately unchanged.
+    """
     mic = (mic or "").strip().upper()
     zone_name = _EXCHANGE_ZONES.get(mic)
     if zone_name is None:
         return ExchangeClock(mic, ZoneInfo("UTC"), known=False)
-    return ExchangeClock(mic, ZoneInfo(zone_name), us_regular_equity=mic in _US_EQUITY_MICS)
+    ticker=(symbol or "").strip().upper().split("@",1)[0]
+    cme_index=bool(mic=="XCME" and
+                   re.fullmatch(r"(?:NQ|ES)[FGHJKMNQUVXZ][0-9]{1,4}",ticker))
+    return ExchangeClock(mic, ZoneInfo(zone_name),
+                         us_regular_equity=mic in _US_EQUITY_MICS,
+                         cme_index_future=cme_index)
 
 
 # Keep the old Moscow-only chart default for archived MOEX UI regression tests.

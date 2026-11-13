@@ -301,9 +301,9 @@ class CandleChart(QWidget):
         self.visual_theme = theme
         self.update()
 
-    def set_exchange(self, mic: str):
-        """Change presentation/session VWAP without altering UTC OHLC or the view."""
-        clock=exchange_clock(mic)
+    def set_exchange(self, mic: str, symbol: str | None = None):
+        """Select venue and product sessions without altering stored UTC OHLC."""
+        clock=exchange_clock(mic,symbol)
         if clock == self.exchange:
             return
         self.exchange=clock
