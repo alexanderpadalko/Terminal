@@ -104,11 +104,37 @@ def cme_calendar_dates(payload, *, root, reference_year):
                        ("eventType","event","description","dateType","type","name")).lower()
         if "option" in label or "first notice" in label or "settlement" in label:
             continue
+        # Never accept a micro/other-root futures row merely because its
+        # generic contractMonth happens to match this product's maturity.
+        explicit=[obj[field] for field in
+                  ("contractSymbol","contract","symbol","contractCode")
+                  if isinstance(obj.get(field),str) and obj[field].strip()]
         contract=None
-        for field in ("contractSymbol","contract","symbol","contractMonth",
-                      "contractCode","maturity","expiration","month"):
-            contract=_calendar_contract_month(obj.get(field),root,reference_year)
-            if contract:
+        if explicit:
+            identities=[]
+            for value in explicit:
+                normalized=value.strip().upper().replace(" ","")
+                match=re.fullmatch(re.escape(root)+r"([FGHJKMNQUVXZ])(\d{1,4})",
+                                   normalized)
+                if match is None:
+                    identities=[]
+                    break
+                identities.append((_year(match.group(2),reference_year),
+                                   MONTH_INDEX[match.group(1)]))
+            if identities and len(set(identities))==1:
+                contract=identities[0]
+        else:
+            for field in ("contractMonth","maturity","expiration","month"):
+                contract=_calendar_contract_month(obj.get(field),root,reference_year)
+                if contract:
+                    break
+        if contract is None:
+            continue
+        # Disagreeing month/year fields mean the record is ambiguous.
+        for field in ("contractMonth","maturity","expiration","month"):
+            other=_calendar_contract_month(obj.get(field),root,reference_year)
+            if other is not None and other!=contract:
+                contract=None
                 break
         if contract is None:
             continue
@@ -188,6 +214,16 @@ def ice_brent_dates(html):
     return result
 
 
+def _safe_calendar_error(exc):
+    """Never expose response body, URL, token or exception message in UI."""
+    code=getattr(exc,"http_status",None)
+    if not isinstance(code,int):
+        code=getattr(exc,"code",None)
+    if isinstance(code,int) and 100<=code<=599:
+        return "HTTP "+str(code)
+    return type(exc).__name__
+
+
 def _fetch(url, *, opener=urlopen):
     request=Request(url,headers={
         "Accept":"application/json,text/html;q=0.8",
@@ -221,7 +257,7 @@ class OfficialExpiry:
                         self.errors[source]="таблица LTD не найдена"
                 except Exception as exc:
                     self._cache[source]={}
-                    self.errors[source]="недоступен официальный календарь ("+type(exc).__name__+")"
+                    self.errors[source]="недоступен официальный календарь ("+_safe_calendar_error(exc)+")"
         elif root in CME_ROOTS and mic in CME_ROOT_VENUES[root]:
             source="CME "+root
             if source not in self._cache:
@@ -235,7 +271,7 @@ class OfficialExpiry:
                         self.errors[source]="нет точной даты Last Trade Date в публичном ответе CME"
                 except Exception as exc:
                     self._cache[source]={}
-                    self.errors[source]="публичный календарь CME недоступен ("+type(exc).__name__+")"
+                    self.errors[source]="публичный календарь CME недоступен ("+_safe_calendar_error(exc)+")"
         else:
             return None,"для "+root+"@"+mic+" не настроен проверенный публичный календарь"
         found=self._cache[source].get((year,MONTH_INDEX[month]))
