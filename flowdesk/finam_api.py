@@ -125,6 +125,18 @@ class FinamAPI:
         self._asset_retry_after = {}  # throttle optional metadata errors
         self._asset_details = {}
 
+    def invalidate_session(self):
+        """Forget prior auth and account-scoped metadata after a secret change."""
+        with self._lock:
+            self._jwt=""
+            self._expiry=0.0
+            self.permissions=[]
+            self._account_ids=[]
+            self._exact_symbols.clear()
+            self._asset_ticks.clear()
+            self._asset_retry_after.clear()
+            self._asset_details.clear()
+
     def exchange_symbol(self, normalized_symbol):
         """Preserve exact ticker casing in Finam API requests (e.g. SiZ6)."""
         with self._lock:
