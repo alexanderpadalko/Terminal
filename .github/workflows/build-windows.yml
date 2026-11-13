@@ -12,9 +12,10 @@ concurrency:
 
 jobs:
   windows-exe:
-    runs-on: windows-latest
+    runs-on: windows-2025
     permissions:
       contents: read
+      id-token: write
     steps:
       - name: Check out source
         uses: actions/checkout@v4
@@ -46,10 +47,117 @@ jobs:
         run: python -u tools/check_exe_shutdown.py dist/FlowDesk/FlowDesk.exe
       - name: Verify frozen Finam worker executor and DNS without credentials
         run: python -u tools/check_exe_finam_runtime.py dist/FlowDesk/FlowDesk.exe
-      - name: Publish standalone EXE folder
+      # Main only: signing never runs from untrusted pull requests.
+      # Enabling signing without complete Azure setup MUST fail, never
+      # upload a falsely labelled SIGNED artifact.
+      - name: Validate Microsoft Artifact Signing configuration
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && vars.FLOWDESK_SIGNING_ENABLED == 'true'
+        shell: pwsh
+        env:
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          SIGNING_ENDPOINT: ${{ vars.AZURE_ARTIFACT_SIGNING_ENDPOINT }}
+          SIGNING_ACCOUNT: ${{ vars.AZURE_ARTIFACT_SIGNING_ACCOUNT }}
+          SIGNING_PROFILE: ${{ vars.AZURE_ARTIFACT_SIGNING_PROFILE }}
+        run: |
+          $required = @('AZURE_TENANT_ID','AZURE_CLIENT_ID','AZURE_SUBSCRIPTION_ID',
+                        'SIGNING_ENDPOINT','SIGNING_ACCOUNT','SIGNING_PROFILE')
+          foreach ($key in $required) {
+            $value = [Environment]::GetEnvironmentVariable($key)
+            if ([string]::IsNullOrWhiteSpace($value)) {
+              throw "Signing is enabled but $key is not configured. No signed artifact will be published."
+            }
+          }
+          if ($env:SIGNING_ENDPOINT -notmatch '^https://[a-z0-9-]+\.codesigning\.azure\.net/?      - name: Save smoke-test evidence
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: FlowDesk-0.2.26-Finam-Test-Evidence
+          path: |
+            shutdown-exe-result.json
+            finam-runtime-exe-result.json
+          retention-days: 30
+) {
+            throw 'Invalid Artifact Signing endpoint. Use the endpoint for the Azure region.'
+          }
+
+      - name: Authenticate to Azure using GitHub OIDC
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && vars.FLOWDESK_SIGNING_ENABLED == 'true'
+        uses: azure/login@v3
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Sign FlowDesk.exe with Microsoft Artifact Signing
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && vars.FLOWDESK_SIGNING_ENABLED == 'true'
+        uses: azure/artifact-signing-action@v2
+        with:
+          endpoint: ${{ vars.AZURE_ARTIFACT_SIGNING_ENDPOINT }}
+          signing-account-name: ${{ vars.AZURE_ARTIFACT_SIGNING_ACCOUNT }}
+          certificate-profile-name: ${{ vars.AZURE_ARTIFACT_SIGNING_PROFILE }}
+          files: ${{ github.workspace }}\dist\FlowDesk\FlowDesk.exe
+          file-digest: SHA256
+          timestamp-rfc3161: http://timestamp.acs.microsoft.com
+          timestamp-digest: SHA256
+          description: FlowDesk
+          description-url: https://github.com/alexanderpadalko/Terminal
+          exclude-environment-credential: true
+          exclude-workload-identity-credential: true
+          exclude-managed-identity-credential: true
+          exclude-shared-token-cache-credential: true
+          exclude-visual-studio-credential: true
+          exclude-visual-studio-code-credential: true
+          exclude-azure-cli-credential: false
+          exclude-azure-powershell-credential: true
+          exclude-azure-developer-cli-credential: true
+          exclude-interactive-browser-credential: true
+
+      - name: Verify Authenticode trust and RFC3161 timestamp
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && vars.FLOWDESK_SIGNING_ENABLED == 'true'
+        shell: pwsh
+        run: |
+          $exe = Join-Path $env:GITHUB_WORKSPACE 'dist\FlowDesk\FlowDesk.exe'
+          $signature = Get-AuthenticodeSignature -LiteralPath $exe
+          if ($signature.Status -ne 'Valid' -or $null -eq $signature.SignerCertificate) {
+            throw "FlowDesk.exe is not authenticode-trusted: $($signature.Status)"
+          }
+          if ($null -eq $signature.TimeStamperCertificate) {
+            throw 'No trusted timestamp found. Refusing SIGNED release.'
+          }
+          Write-Host "VALID Authenticode signature: $($signature.SignerCertificate.Subject)"
+          Write-Host "Timestamp authority: $($signature.TimeStamperCertificate.Subject)"
+
+      - name: Record signature state and SHA256 in the release folder
+        shell: pwsh
+        env:
+          FLOWDESK_SIGNING_ENABLED: ${{ vars.FLOWDESK_SIGNING_ENABLED }}
+        run: |
+          $exe = Join-Path $env:GITHUB_WORKSPACE 'dist\FlowDesk\FlowDesk.exe'
+          $enabled = $env:FLOWDESK_SIGNING_ENABLED -eq 'true' -and
+                     $env:GITHUB_REF -eq 'refs/heads/main' -and
+                     $env:GITHUB_EVENT_NAME -ne 'pull_request'
+          $signature = Get-AuthenticodeSignature -LiteralPath $exe
+          if ($enabled -and ($signature.Status -ne 'Valid' -or $null -eq $signature.TimeStamperCertificate)) {
+            throw 'Signed release verification failed.'
+          }
+          $record = [ordered]@{
+            app = 'FlowDesk'
+            version = '0.2.26'
+            commit = $env:GITHUB_SHA
+            status = $(if ($enabled) { 'SIGNED' } else { 'UNSIGNED' })
+            sha256 = (Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash
+            publisher = $(if ($enabled) { $signature.SignerCertificate.Subject } else { $null })
+          }
+          $manifest = Join-Path (Split-Path -Parent $exe) 'build-signature.json'
+          $record | ConvertTo-Json | Set-Content -Path $manifest -Encoding utf8
+          Write-Host "Release status: $($record.status), commit: $($record.commit)"
+
+      - name: Publish standalone Windows folder (signature status in artifact name)
         uses: actions/upload-artifact@v4
         with:
-          name: FlowDesk-0.2.26-Finam-Windows-x64
+          name: ${{ (github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && vars.FLOWDESK_SIGNING_ENABLED == 'true') && 'FlowDesk-0.2.26-Finam-Windows-x64-SIGNED' || 'FlowDesk-0.2.26-Finam-Windows-x64-UNSIGNED' }}
           path: dist/FlowDesk/
           if-no-files-found: error
           retention-days: 30

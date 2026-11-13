@@ -4,6 +4,12 @@
 
 ## Актуальная версия
 
+### Подпись Windows EXE — подготовлено 13.11.2026
+
+- Добавлена настройка **Microsoft Artifact Signing** через GitHub OIDC только на `main` с явным флагом `FLOWDESK_SIGNING_ENABLED=true`. Перед публикацией `SIGNED` CI обязательно проверяет доверенную Authenticode-подпись, сертификат timestamp и SHA256. Добавлен `build-signature.json`.
+- **Сертификат/профиль Azure пока НЕ настроены. Реального подписанного EXE нет.** Новые публичные artifacts до включения сервиса обозначены `-UNSIGNED`, в дальнейшем при правильных настройках — `-SIGNED`. Подпись не гарантирует мгновенного отсутствия SmartScreen.
+- Описание настройки / условий допустимости для организации либо физлица: `docs/CODE_SIGNING.md`. Версия приложения остаётся **0.2.26**. Windows CI проверяется отдельно без реальных секретов.
+
 ### Исправление 13.11.2026 — GC/COMEX и индикация выбранного таймфрейма
 
 **Подтверждённая Windows-сборка:** [CI №43419256958](https://github.com/alexanderpadalko/Terminal/actions/runs/43419256958) на коде `088ea5bbf68887b4b8b171ffa987961bce2f10ec` — **394 теста, OK**, GUI smoke, упаковка Windows x64 EXE, корректное закрытие, Finam frozen executor/DNS. **Скачать ZIP:** https://github.com/alexanderpadalko/Terminal/actions/runs/43419256958/artifacts/14033566579 (49 200 089 байт, целиком распаковать). Отдельная проверка живого GC-сессионного VWAP на котировках Finam с сопоставлением TradingView остаётся открыта.
