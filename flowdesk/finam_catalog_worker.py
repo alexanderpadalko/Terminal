@@ -71,6 +71,11 @@ class FinamCatalogWorker(QThread):
             if self.isInterruptionRequested():
                 return
             previous=self.roll_state.load()
+            # GetAsset may have cached a stale no-expiry response; recheck
+            # must hit Finam again without exposing credentials.
+            clear=getattr(self.api,"clear_asset_details_cache",None)
+            if callable(clear):
+                clear()
             futures,selections,notes=resolve_futures(
                 assets,self.api,now=self.clock(),previous=previous,
                 expiry_overrides=expiry_overrides,official=self.official_expiry,

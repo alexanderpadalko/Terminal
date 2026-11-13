@@ -63,6 +63,21 @@ class TestOfficialExchangeCalendar(unittest.TestCase):
         self.assertIn("ICE",src)
         self.assertEqual(official.get("BRNG27@IFEU")[0],date(2026,12,30))
 
+    def test_ice_ltd_header_may_move_columns_but_settlement_is_not_expiry(self):
+        html="""<table><tr><th>Contract Symbol</th>
+        <th>FSD (Final Settlement Date)</th><th>LTD (Last Trade Date)</th></tr>
+        <tr><td>Jan27</td><td>12/1/2026</td><td>11/30/2026</td></tr>
+        </table>"""
+        dates=ice_brent_dates(html)
+        self.assertEqual(dates[(2027,1)],date(2026,11,30))
+
+    def test_ice_rejects_conflicting_last_trading_days(self):
+        html="""<table><tr><th>Contract Symbol</th><th>FTD</th>
+        <th>LTD (Last Trade Date)</th></tr>
+        <tr><td>Jan27</td><td>x</td><td>11/30/2026</td></tr>
+        <tr><td>Jan27</td><td>x</td><td>12/1/2026</td></tr></table>"""
+        self.assertNotIn((2027,1),ice_brent_dates(html))
+
     def test_ice_no_ltd_column_is_not_trusted(self):
         html="<table><tr><th>Contract Symbol</th><th>First Trade</th><th>Delivery Date</th></tr><tr><td>Jan27</td><td>x</td><td>11/30/2026</td></tr></table>"
         self.assertEqual(ice_brent_dates(html),{})
@@ -114,6 +129,16 @@ class TestOfficialExchangeCalendar(unittest.TestCase):
         self.assertNotIn("secret",reason)
         self.assertNotIn("do-not-log",reason)
 
+    def test_finam_date_absence_is_specific_and_never_echoes_values(self):
+        from flowdesk.finam_rotation import expiry_absence
+        self.assertIn("отсутствует",expiry_absence({"ticker":"NQZ26"}))
+        self.assertIn("пустое",expiry_absence({"future_details":{
+            "expiration_date":None}}))
+        self.assertIn("формате",expiry_absence({"future_details":{
+            "expiration_date":"hidden-private-data"}}))
+        self.assertNotIn("hidden-private-data",expiry_absence({
+            "future_details":{"expiration_date":"hidden-private-data"}}))
+
     def test_empty_protobuf_timestamp_is_not_expiry(self):
         self.assertIsNone(expiry_date({"future_details":{
             "expiration_date":{"seconds":"0","nanos":0}
@@ -136,6 +161,36 @@ class TestOfficialExchangeCalendar(unittest.TestCase):
         self.assertEqual(len(calls),1)
         self.assertTrue(calls[0].startswith("https://www.cmegroup.com/"))
         self.assertIn("/ProductCalendar/Future/",calls[0])
+
+    def test_cme_404_tries_published_non_json_route(self):
+        class NotFound(Exception):
+            code=404
+        calls=[]
+        def fetch(url):
+            calls.append(url)
+            if url.endswith(".json"):
+                raise NotFound()
+            return json.dumps({"contracts":[{
+                "contractSymbol":"NQZ26","lastTradeDate":"2026-12-18"
+            }]})
+        official=OfficialExpiry(fetch=fetch,reference_year=2026)
+        self.assertEqual(official.get("NQZ26@XCME")[0],date(2026,12,18))
+        self.assertEqual(len(calls),2)
+        self.assertTrue(calls[0].endswith(".json"))
+        self.assertTrue(calls[1].endswith("/209"))
+
+    def test_cme_403_does_not_try_other_route(self):
+        class Forbidden(Exception):
+            code=403
+        urls=[]
+        def fetch(url):
+            urls.append(url)
+            raise Forbidden()
+        day,diagnostic=OfficialExpiry(
+            fetch=fetch,reference_year=2026).get("NQZ26@XCME")
+        self.assertIsNone(day)
+        self.assertEqual(len(urls),1)
+        self.assertIn("HTTP 403",diagnostic)
 
     def test_cme_calendar_unavailable_is_explicit_and_never_guessed(self):
         def fail(_):
