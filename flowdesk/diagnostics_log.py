@@ -6,7 +6,7 @@ The file lives in the user's local profile and is never sent to GitHub.
 """
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime, timezone
 from logging import Formatter, INFO, LogRecord
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
@@ -141,3 +141,23 @@ def log_contract(contract, item, *, path=None):
                    ("finam", finam),
                    ("calendar", calendar),
                    ("http", _http_code(description))), path=path)
+
+
+def log_snapshot(*, symbol="", timeframe="", asof="", delay_seconds=None, path=None):
+    """Record a safe chart observation, not a claim about actual feed latency."""
+    period = timeframe if timeframe in ("M1","M5","H1","H4","D1","W1","MN1") else "-"
+    stamp = "-"
+    try:
+        when = datetime.fromisoformat(str(asof).replace("Z","+00:00"))
+        if when.tzinfo is not None and 2000 <= when.year <= 2100:
+            stamp = when.astimezone(timezone.utc).isoformat(timespec="seconds")
+    except (TypeError, ValueError, OverflowError):
+        pass
+    delay = "-"
+    if type(delay_seconds) is int and 0 <= delay_seconds <= 86400:
+        delay = str(delay_seconds // 60)
+    return _write((("event","chart_observation"),
+                   ("symbol",_safe_symbol(symbol)),
+                   ("timeframe",period),
+                   ("asof_utc",stamp),
+                   ("permission_delay_min",delay)),path=path)
