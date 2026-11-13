@@ -182,4 +182,10 @@ def time_axis_ticks(candles, first, last, left_edge, pixels_per_bar,
                 previous_x = position
                 previous_label_time = current
         previous_bucket = bucket
+    if not ticks:
+        # Very small or heavily gapped windows still deserve one readable
+        # date/time label; it must correspond to a real observed candle.
+        midpoint = (first + last - 1) // 2
+        middle = localize(candles[midpoint].time)
+        ticks.append((midpoint, _calendar_label(middle, kind, prev)))
     return ticks
