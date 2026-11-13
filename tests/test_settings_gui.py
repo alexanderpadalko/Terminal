@@ -57,6 +57,11 @@ class TestSettingsGui(unittest.TestCase):
         popup.transparency.setValue(40)
         self.assertEqual(button.value,"#12345699")
         self.assertEqual(popup.percent.value(),40)
+        with tempfile.TemporaryDirectory() as folder:
+            store=SettingsStore(Path(folder)/"colors.json")
+            store.write(dialog.values()[0],ApplicationSettings())
+            loaded,_=SettingsStore(store.path).read()
+            self.assertEqual(loaded.upColor,"#12345699")
         popup.percent.setValue(100)
         self.assertEqual(button.value,"#12345600")
         popup.percent.setValue(0)
