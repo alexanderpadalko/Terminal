@@ -25,6 +25,7 @@ from PySide6.QtWidgets import (
 from . import __version__
 from .app_icon import application_icon, set_windows_application_id
 from .chart_view import ChartView, inside_mother_bars, time_axis_zoom_factor
+from .chart_axes import price_axis_ticks, time_axis_ticks
 from .chart_time import candle_time_text
 from .exchange_time import LEGACY_MOSCOW_CLOCK, exchange_clock
 from .fvg_display import DisplaySettings, select_fvg_display
@@ -713,19 +714,41 @@ class CandleChart(QWidget):
         def y(value: float):
             return self.bottom - (value - lowest) / max(1e-8, highest - lowest) * (self.bottom - self.top)
         p.setFont(QFont("Segoe UI", 9))
-        for j in range(7):
-            value = lowest + (highest - lowest) * j / 6
+        axis_text = colors.get("axis_text", colors["text"])
+        tick_size = (self.display_price_tick if self.display_price_tick is not None
+                     else self.analysis.minimum_tick)
+        # Trading-style adaptive rulers. Nice price levels are anchored to
+        # round exchange-legal increments, not seven arbitrary fractions.
+        # Zooming the price ruler changes the step (and number of captions).
+        for value in price_axis_ticks(
+                lowest, highest, self.bottom - self.top, tick_size):
             Y = y(value)
+            if Y < self.top + 9 or Y > self.bottom - 9:
+                continue
             p.setPen(QPen(colors["grid"], 0.8))
             p.drawLine(QPointF(self.x0, Y), QPointF(self.x1, Y))
-            p.setPen(colors.get("axis_text", colors["text"]))
-            p.drawText(QRectF(self.x1 + 8, Y - 11, 80, 20), 0, self.format_price(value))
-        for j in range(7):
-            idx = first + int(j * (count - 1) / 6)
+            p.setPen(axis_text)
+            p.drawText(QRectF(self.x1 + 8, Y - 11, 80, 20), 0,
+                       self.format_price(value))
+        # Calendar-aligned exchange-local times are drawn at *actual* bar
+        # positions. Labels automatically thin out when candles compress.
+        last_label_right = float("-inf")
+        for idx, caption in time_axis_ticks(
+                candles, first, last, left_edge, stride, self.exchange.local):
+            center = x(idx)
+            label_width = max(48, p.fontMetrics().horizontalAdvance(caption) + 12)
+            # Keep a real bar's label visible even if its center is very
+            # close to a plot edge; the grid line remains at the true bar.
+            label_left = max(self.x0 + 2, min(
+                center - label_width / 2, self.x1 - label_width - 2))
+            if label_left < last_label_right + 10:
+                continue
             p.setPen(QPen(colors["grid"], 0.8))
-            p.drawLine(QPointF(x(idx), self.top), QPointF(x(idx), self.bottom))
-            p.setPen(colors.get("axis_text", colors["text"]))
-            p.drawText(QRectF(x(idx) - 52, self.bottom + 10, 104, 20), int(Qt.AlignmentFlag.AlignCenter), self.exchange.local(candles[idx].time).strftime("%d.%m %H:%M" if self.analysis.timeframe in ("M1", "M5", "H1", "H4") else "%d.%m.%Y"))
+            p.drawLine(QPointF(center, self.top), QPointF(center, self.bottom))
+            p.setPen(axis_text)
+            p.drawText(QRectF(label_left, self.bottom + 10, label_width, 20),
+                       int(Qt.AlignmentFlag.AlignCenter), caption)
+            last_label_right = label_left + label_width
         p.save()
         p.setClipRect(QRectF(self.x0, self.top, self.x1 - self.x0, self.bottom - self.top))
         # FVG backgrounds and edges: local zones preserve break candle bounds.

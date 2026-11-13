@@ -1,6 +1,7 @@
 """Observed ruler gestures, exercised through actual Qt mouse events."""
 import os
 import unittest
+from unittest.mock import patch
 
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 try:
@@ -8,6 +9,7 @@ try:
     from PySide6.QtTest import QTest
     from PySide6.QtWidgets import QApplication
     from flowdesk.gui import CandleChart, demo_data
+    from flowdesk.chart_axes import price_axis_ticks, time_axis_ticks, nice_price_step
     from flowdesk.engine import analyze
     QT_AVAILABLE = True
 except ImportError:
@@ -36,6 +38,29 @@ class TestRulerGestures(unittest.TestCase):
         QTest.mouseMove(self.chart, start + QPoint(dx, dy))
         self.app.processEvents()
         QTest.mouseRelease(self.chart, Qt.MouseButton.LeftButton, pos=start + QPoint(dx, dy))
+
+    def test_chart_recomputes_price_and_time_rulers_during_zoom(self):
+        chart=self.chart
+        chart.price_range=(75,135)
+        n=len(chart.analysis.candles)
+        with (patch("flowdesk.gui.price_axis_ticks",wraps=price_axis_ticks) as price,
+              patch("flowdesk.gui.time_axis_ticks",wraps=time_axis_ticks) as dates):
+            chart.update()
+            chart.grab()
+            price_before=price.call_args.args
+            time_before=dates.call_args.args
+            self.assertGreater(len(price_axis_ticks(*price_before[:4])),7)
+            chart.price_range=(95,105)
+            chart.viewport.zoom(.5,.5,n)
+            chart.update()
+            chart.grab()
+            price_after=price.call_args.args
+            time_after=dates.call_args.args
+            self.assertLess(nice_price_step(*price_after[:4]),
+                            nice_price_step(*price_before[:4]))
+            self.assertGreater(time_after[4-1],time_before[4-1])
+            self.assertGreaterEqual(price.call_count,2)
+            self.assertGreaterEqual(dates.call_count,2)
 
     def test_price_axis_keeps_center_independent_of_press_height(self):
         chart = self.chart
