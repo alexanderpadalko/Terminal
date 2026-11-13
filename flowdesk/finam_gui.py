@@ -259,6 +259,7 @@ class FinamWindow(QMainWindow):
           QPushButton:hover {background:#343434;}
           QListWidget::item:selected {background:#2b4b68;}
         """)
+        self._on_screen_filter_changed()
 
     def _selected_screen_timeframes(self):
         return tuple(tf for tf,button in self.screen_buttons.items()
@@ -318,6 +319,7 @@ class FinamWindow(QMainWindow):
         if not marked and not no_data:
             return
         widget=QWidget(self.examples)
+        widget.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents,True)
         widget.setStyleSheet("QWidget {background:transparent;}")
         row_layout=QHBoxLayout(widget)
         row_layout.setContentsMargins(5,0,4,0)
