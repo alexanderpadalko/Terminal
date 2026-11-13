@@ -94,6 +94,30 @@ class TestCommoditySessionVwap(unittest.TestCase):
         self.assertEqual(vwap_series(bars,"Session","close",
                          exchange=exchange_clock("XCEC","GCZ6"))[0],[100,200,210])
 
+    def test_vwap_painter_separates_new_session_without_joining_first_point(self):
+        from types import SimpleNamespace
+        from flowdesk.indicator_paint import draw_vwap
+        from flowdesk.settings import IndicatorSettings
+
+        bars=[candle(12,16,55,100),candle(12,18,0,120),
+              candle(13,0,0,130)]
+        gold=exchange_clock("XCEC","GCZ26")
+        values,_=vwap_series(bars,"Session","close",exchange=gold)
+        chart=SimpleNamespace(
+            indicator_settings=IndicatorSettings().changed(
+                vwapAnchor="Session",vwapSource="close",
+                vwapEnabled=True,vwapShowPrevious=False),
+            analysis=SimpleNamespace(candles=bars,timeframe="M5"),
+            exchange=gold,vwap=values,vwap_previous=[]
+        )
+        class Painter:
+            def __init__(self):self.lines=[]
+            def setPen(self,pen):pass
+            def drawLine(self,p0,p1):self.lines.append((p0.x(),p1.x()))
+        painter=Painter()
+        draw_vwap(chart,painter,lambda i:float(i),lambda val:float(val),0,len(bars))
+        self.assertEqual(painter.lines,[(1.0,2.0)])
+
     def test_summer_winter_and_other_anchors(self):
         gold=exchange_clock("XCEC","GCZ6")
         self.assertEqual(et(12,18).hour,23)  # November EST

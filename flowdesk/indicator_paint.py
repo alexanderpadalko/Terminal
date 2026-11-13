@@ -3,7 +3,7 @@ from PySide6.QtCore import Qt,QPointF,QRectF
 from PySide6.QtGui import QFont,QFontMetrics,QPen,QColor,QBrush
 from .settings import SIZES
 from .settings_dialog import qcolor
-from .chart_indicators import summary_rows
+from .chart_indicators import summary_rows, period_key
 
 
 def font(size):
@@ -59,10 +59,17 @@ def draw_vwap(chart,p,x,y,first,last):
     cfg=chart.indicator_settings
     if not cfg.vwapEnabled or chart.analysis.timeframe not in ('M1','M5'):return
     p.setPen(QPen(qcolor(cfg.vwapColor),cfg.vwapWidth))
+    candles=chart.analysis.candles
     for i in range(max(1,first),last):
         before,current=chart.vwap[i-1:i+1]
-        if before is not None and current is not None:
-            p.drawLine(QPointF(x(i-1),y(before)),QPointF(x(i),y(current)))
+        if before is None or current is None:
+            continue
+        # A new VWAP anchor is a new line, not a diagonal connection
+        # from the last point of the previous trading session.
+        if period_key(candles[i-1].time,cfg.vwapAnchor,exchange=chart.exchange) != \
+                period_key(candles[i].time,cfg.vwapAnchor,exchange=chart.exchange):
+            continue
+        p.drawLine(QPointF(x(i-1),y(before)),QPointF(x(i),y(current)))
     if cfg.vwapShowPrevious:
         p.setPen(QPen(qcolor(cfg.vwapPreviousColor),cfg.vwapPreviousWidth,Qt.PenStyle.DashLine))
         for start,end,value in chart.vwap_previous:
