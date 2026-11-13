@@ -24,7 +24,7 @@ from .finam_universe import (
     compose_universe, cached_top20, is_in_universe
 )
 from .finam_catalog_worker import FinamCatalogWorker
-from .diagnostics_log import log_event
+from .diagnostics_log import log_event, log_snapshot
 from .finam_stream import FinamStreamWorker
 from .gui import CandleChart, TimeframeBar
 from .settings import IndicatorSettings, ApplicationSettings, SettingsStore
@@ -199,6 +199,7 @@ class FinamWindow(QMainWindow):
         self.feed=QLabel("Finam: ожидаем данные")
         self.feed.setStyleSheet("color:#a4a4a4")
         outer.addWidget(self.feed)
+        self.feed.hide()  # Technical observation belongs in diagnostics.log.
         split=QSplitter(Qt.Orientation.Horizontal)
         self.chart=CandleChart()
         self.chart.set_theme("dark")
@@ -236,6 +237,7 @@ class FinamWindow(QMainWindow):
         self.universe_info.setWordWrap(True)
         self.universe_info.setStyleSheet("color:#a2a9b3;font-size:11px")
         right.addWidget(self.universe_info)
+        self.universe_info.hide()  # Remove verbose technical footer from sidebar.
         self._populate_universe()
         split.addWidget(side)
         split.setStretchFactor(0,1)
@@ -519,6 +521,9 @@ class FinamWindow(QMainWindow):
         self.chart.empty_text=""
         self.status.setText("Finam · "+info["tf"]+" · "+str(len(main.candles))+
             " свечей · "+info["warning"])
+        log_snapshot(symbol=info["symbol"]+"@"+info["board"],
+                     timeframe=info["tf"],asof=info.get("asof"),
+                     delay_seconds=info.get("feed_delay_seconds"))
         delay=info.get("feed_delay_seconds",0)//60
         self.feed.setText("Finam · наблюдение "+
                           self._exchange_time(info["asof"],info["board"]) +
