@@ -112,7 +112,11 @@ class TestCmeNqEsSession(unittest.TestCase):
         self.assertEqual(period_key(before,"Session",exchange=generic),
                          date(2026,11,12))  # no invented gold session times
         equity=exchange_clock("XNGS","AAPL")
-        self.assertIsNone(period_key(before,"Session",exchange=equity))
+        # At 18:00 ET US equities are STILL in postmarket until 20:00;
+        # only CME NQ/ES start a new session then.
+        self.assertEqual(period_key(before,"Session",exchange=equity),
+                         date(2026,11,12))
+        self.assertIsNone(period_key(et(2026,11,12,20),"Session",exchange=equity))
         self.assertEqual(equity.vwap_session_key(et(2026,11,12,16,55)),
                          date(2026,11,12))
 
