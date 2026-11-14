@@ -111,12 +111,18 @@ def quote_last(response, symbol=None):
     return _price(price)
 
 
-def quote_age_problem(response, observed, symbol, *, max_seconds=900):
-    """Reject timestamped LAST older than the market observation horizon.
+# Analytical signals may use the last exchange trade across weekends,
+# holidays and market closures. Reject only a trade older than seven days.
+MAX_LAST_AGE_SECONDS = 7 * 24 * 60 * 60
 
-    Missing/unparseable timestamps are *unknown* and must not be treated
-    as evidence of a fresh trade. Existing Finam responses without a time
-    field remain usable only under the existing candle fallback policy.
+
+def quote_age_problem(response, observed, symbol, *,
+                      max_seconds=MAX_LAST_AGE_SECONDS):
+    """Reject timestamped LAST older than seven calendar days.
+
+    This deliberately allows last-traded prices across non-trading days;
+    it is an analytical lookback limit, not a claim of a live quote.
+    Missing timestamps retain the legacy fallback policy.
     """
     if not isinstance(response,dict):
         return ""
