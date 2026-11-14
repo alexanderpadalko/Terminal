@@ -497,7 +497,8 @@ class FinamWindow(QMainWindow):
         # sequential REST scan reached Russian futures last. Prioritise those
         # two verified contracts, preserving the order of all other rows.
         priority={"SIZ2026":0, "EUZ2026":1}
-        entries=tuple(sorted(entries,key=lambda item:priority.get(item.label,2)))
+        entries=tuple(sorted(entries,key=lambda item:(
+            priority.get(item.label,2) if item.group==RU_FUTURES else 2)))
         if not entries:
             return
         self.screener_rescan_requested=False
