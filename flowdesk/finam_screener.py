@@ -239,7 +239,7 @@ class FinamScreenerWorker(QThread):
         self.evaluate=evaluate
 
     def run(self):
-        for entry in self.instruments:
+        for index,entry in enumerate(self.instruments):
             if self.isInterruptionRequested():
                 break
             if not entry.verified or "@" not in entry.symbol:
@@ -258,6 +258,13 @@ class FinamScreenerWorker(QThread):
                                "rate_limited" if status==429 else "source_unavailable")
                 self.row.emit(result)
                 if status==429:
+                    # An early stop must not make the remaining instruments
+                    # look like they have insufficient weekly/monthly bars.
+                    # Their exact state is rate-limited, not history-short.
+                    for pending in self.instruments[index+1:]:
+                        if self.isInterruptionRequested():
+                            break
+                        self.row.emit(unknown(pending.symbol,"rate_limited"))
                     break
                 continue
             self.row.emit(result)
