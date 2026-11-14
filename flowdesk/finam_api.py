@@ -121,6 +121,7 @@ class FinamAPI:
         self._jwt = ""
         self._expiry = 0.0
         self.permissions = []
+        self.permissions_status = "unknown"
         self._account_ids = []  # TokenDetails only; never in logs/UI/reports.
         self._exact_symbols = {}
         self._asset_ticks = {}
@@ -137,6 +138,7 @@ class FinamAPI:
             self._jwt=""
             self._expiry=0.0
             self.permissions=[]
+            self.permissions_status="unknown"
             self._account_ids=[]
             self._exact_symbols.clear()
             self._asset_ticks.clear()
@@ -199,21 +201,59 @@ class FinamAPI:
             # Failure of the metadata lookup does not invalidate valid credentials.
             try:
                 details = self._json("POST", "/v1/sessions/details", {"token": token})
-                self.permissions = details.get("md_permissions") or []
+                raw=details.get("md_permissions")
+                self.permissions=[p for p in raw if isinstance(p,dict)] if isinstance(raw,list) else []
+                self.permissions_status="verified" if isinstance(raw,list) else "unknown"
                 account_ids=details.get("account_ids")
                 self._account_ids=([account for account in account_ids
                                     if isinstance(account,str) and account]
                                    if isinstance(account_ids,list) else [])
             except FinamAPIError:
                 self.permissions = []
+                self.permissions_status = "unknown"
                 self._account_ids = []
             return token
 
     def market_delay_minutes(self, mic):
-        """Unknown rights use a conservative 15-minute observation horizon."""
-        values = [int(p.get("delay_minutes", 15)) for p in self.permissions
-                  if isinstance(p, dict) and (p.get("mic") == mic or p.get("worldwide"))]
-        return max(0, min(values)) if values else 15
+        """Unknown rights use a conservative 15-minute observation horizon.
+
+        Never treat an explicit ACCESS_FORBIDDEN permission as market-data
+        entitlement. This fallback is a calculation policy, not proof that
+        the provider is delaying its feed by exactly fifteen minutes.
+        """
+        values=[]
+        for row in self.permissions:
+            if not isinstance(row,dict) or (
+                    row.get("mic")!=mic and not row.get("worldwide")):
+                continue
+            if row.get("quote_level")=="ACCESS_FORBIDDEN":
+                continue
+            try:
+                value=int(row.get("delay_minutes",15))
+                if 0<=value<=1440:values.append(value)
+            except (TypeError,ValueError,OverflowError):
+                continue
+        return min(values) if values else 15
+
+    def permission_summary(self):
+        """Allowlisted local-only rights; no account IDs or JWT."""
+        allowed={"LAST_PRICE","BEST_BID_OFFER","DEPTH_OF_MARKET",
+                 "DEPTH_OF_BOOK","ACCESS_FORBIDDEN"}
+        summary=[]
+        for p in self.permissions:
+            mic=str(p.get("mic") or "*")
+            level=str(p.get("quote_level") or "UNKNOWN")
+            if not re.fullmatch(r"[A-Z0-9]{4}|\*",mic):
+                mic="?"
+            if level not in allowed:
+                level="UNKNOWN"
+            try:
+                delay=int(p.get("delay_minutes",15))
+            except (ValueError,TypeError,OverflowError):
+                delay=15
+            summary.append({"mic":mic,"quote_level":level,
+                            "delay_minutes":max(0,min(delay,1440))})
+        return {"status":self.permissions_status,"permissions":summary}
 
     def active_assets(self, *, cancelled=lambda: False):
         """Read-only Finam instrument directory. No MOEX requests or trade API.
