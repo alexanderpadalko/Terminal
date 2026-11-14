@@ -157,8 +157,8 @@ def _backfill_higher_history(service, symbol, now, series, *,
         state={}
         service.scanner_history_progress=state
     problems={}
-    budget=3
-    for tf in ("D1","W1","MN1"):
+    budget=5
+    for tf in ("W1","MN1","D1"):
         if cancelled():
             raise InterruptedError()
         bars=series.get(tf) or ()
@@ -175,7 +175,8 @@ def _backfill_higher_history(service, symbol, now, series, *,
         if cursor is None:
             cursor=min((bar.time for bar in bars),default=now)
         chunk=timedelta(days=90 if tf=="D1" else 365)
-        while budget and cursor>cutoff and confirmed<MIN_BARS[tf]:
+        frame_budget=2 if tf in ("W1","MN1") else 1
+        while budget and frame_budget and cursor>cutoff and confirmed<MIN_BARS[tf]:
             if cancelled():
                 raise InterruptedError()
             start=max(cutoff,cursor-chunk)
@@ -201,6 +202,7 @@ def _backfill_higher_history(service, symbol, now, series, *,
                 confirmed=sum(candle_close_time(bar,tf)<=now for bar in bars)
             cursor=start
             budget-=1
+            frame_budget-=1
             state[key]={"cursor":cursor,"exhausted":cursor<=cutoff}
             if budget:
                 time_sleep(.4)
@@ -262,14 +264,14 @@ def scan_one(service, ticker, mic, settings, *, cancelled=lambda:False,
         # Avoid hitting Finam's request limit with a synchronous 38x6 burst.
         time_sleep(.4)
     series=service._series(symbol)
-    fetch_problems.update(_backfill_higher_history(
-        service,symbol,now,series,cancelled=cancelled,
-        time_sleep=time_sleep))
-    series=exclude_stock_closing_auction(service._series(symbol),mic)
     if not series.get("H1"):
         return unknown(symbol,"h1_unavailable",
                        reasons=tuple(fetch_problems.get(tf,"H1 недоступен")
                                      for tf in TIMEFRAMES))
+    fetch_problems.update(_backfill_higher_history(
+        service,symbol,now,series,cancelled=cancelled,
+        time_sleep=time_sleep))
+    series=exclude_stock_closing_auction(service._series(symbol),mic)
     delay=service.api.market_delay_minutes(mic)
     observed=now-timedelta(minutes=delay or 0)
     if cancelled():
