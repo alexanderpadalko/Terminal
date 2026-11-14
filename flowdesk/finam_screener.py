@@ -94,6 +94,10 @@ def quote_last(response, symbol=None):
             response=next((item for item in quotes
                            if isinstance(item,dict) and
                            str(item.get("symbol","")).upper()==symbol.upper()), {})
+            # Single-instrument REST responses may omit the symbol. Accept
+            # only if there is exactly one item; never guess among many.
+            if not response and len(quotes)==1 and isinstance(quotes[0],dict) and not quotes[0].get("symbol"):
+                response=quotes[0]
         else:
             response=quotes[0] if len(quotes)==1 and isinstance(quotes[0],dict) else {}
     elif isinstance(quotes, dict):
