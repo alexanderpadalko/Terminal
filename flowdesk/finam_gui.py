@@ -366,14 +366,24 @@ class FinamWindow(QMainWindow):
             missing=[tf for tf in selected
                      if result is None or signals.get(tf) is None]
             explanations=[]
+            short_labels=[]
             for tf in missing:
                 reason=reasons.get(tf) or (
                     "проверка Finam" if self.screener_worker is not None
                     else "ожидает проверки")
+                if not entry.verified:
+                    reason="тикер не подтверждён Finam"
                 explanations.append(f"{tf}: {reason}")
+                # A short but explicit counter fits the sidebar next to
+                # existing H1/H4/D/W/M badges; full reason is the tooltip.
+                short_labels.append(
+                    f"{tf} {reason[len('история '):]}" if
+                    reason.startswith("история ") and ";" not in reason
+                    else f"{tf}: {reason}")
             if not explanations:
                 explanations=["история недоступна"]
-            compact=", ".join(explanations)
+                short_labels=["нет свечей"]
+            compact=", ".join(short_labels)
             neutral=QLabel(compact,widget)
             neutral.setObjectName("screenerMissing")
             neutral.setStyleSheet(
