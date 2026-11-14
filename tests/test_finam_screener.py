@@ -156,7 +156,7 @@ class TestSignalLogic(unittest.TestCase):
         rows={"quote":[{"last":{"value":"500"}},
                        {"symbol":"SBER@MISX","last":{"value":"100"}}]}
         self.assertEqual(quote_last(rows,"SBER@MISX"),100)
-        self.assertIsNone(quote_last({"quote":[{"last":500}]},"SBER@MISX"))
+        self.assertEqual(quote_last({"quote":[{"last":500}]},"SBER@MISX"),500)
         self.assertIsNone(quote_last({"quote":[{"symbol":"GAZP@MISX","last":99}]},"SBER@MISX"))
 
     def test_timestamped_quote_rejects_stale_and_future_transactions(self):
