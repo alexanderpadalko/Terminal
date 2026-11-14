@@ -278,6 +278,19 @@ class TestFinamGui(unittest.TestCase):
         self.assertIn("H1",labels)
         self.assertIn("H4",labels)
         self.assertEqual(row.data(Qt.ItemDataRole.UserRole),entry.symbol)
+        # Selection used to override transparent foreground with Qt's
+        # highlighted text palette and render the title a second time.
+        from flowdesk.finam_gui import SignalRowDelegate
+        self.assertIsInstance(self.window.examples.itemDelegate(),SignalRowDelegate)
+        self.assertTrue(row.data(Qt.ItemDataRole.UserRole + 2))
+        self.window.examples.setCurrentItem(row)
+        self.app.processEvents()
+        self.assertEqual(row.sizeHint().width(),0)
+        self.assertEqual(sum(label.text().startswith("SBER ·")
+            for label in custom.findChildren(QLabel)),1)
+        self.assertEqual(self.window.examples.horizontalScrollBarPolicy(),
+                         Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.assertLessEqual(custom.width(),self.window.examples.viewport().width())
         self.window.search.setText("Сбербанк")
         self.assertFalse(row.isHidden())
         self.window.search.setText("Несуществующий")
