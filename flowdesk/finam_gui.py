@@ -197,8 +197,11 @@ class FinamWindow(QMainWindow):
         self.chart.empty_text="Добавьте токен Finam в настройках и выберите инструмент"
         split.addWidget(self.chart)
         side=QFrame()
-        side.setMaximumWidth(290)
-        side.setMinimumWidth(235)
+        # Make room for the instrument name and five independent TF badges.
+        # The splitter stays resizable; 460 px is only the initial width.
+        side.setMinimumWidth(360)
+        side.setMaximumWidth(600)
+        self.instrument_panel=side
         right=QVBoxLayout(side)
         title=QLabel("Инструменты · только выбранные")
         title.setStyleSheet("font-weight:700")
@@ -248,6 +251,8 @@ class FinamWindow(QMainWindow):
         self._populate_universe()
         split.addWidget(side)
         split.setStretchFactor(0,1)
+        split.setSizes([1000,460])
+        self.instrument_splitter=split
         outer.addWidget(split,1)
         self.status=QLabel("Только чтение · торговые заявки отключены")
         outer.addWidget(self.status)
@@ -350,6 +355,11 @@ class FinamWindow(QMainWindow):
                 "padding:3px;font-size:10px;")
             row_layout.addWidget(neutral)
         row.setSizeHint(widget.sizeHint())
+        # QListWidget normally paints item.text() UNDER the custom row
+        # widget. Keep item.text() intact for search, accessibility and
+        # existing tests, but hide native glyphs; only the QLabel paints
+        # the instrument name (once), alongside the colored TF badges.
+        row.setForeground(Qt.GlobalColor.transparent)
         self.examples.setItemWidget(row,widget)
 
     def _populate_universe(self):
