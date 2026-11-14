@@ -389,8 +389,8 @@ class TestFinamGui(unittest.TestCase):
         self.assertNotIn("нет данных",[self.window.examples.item(i).text()
                           for i in range(self.window.examples.count())])
         self.assertEqual(self.window.examples.objectName(),"instrumentList")
-        self.assertIn("border:2px solid #687383",self.window.styleSheet())
-        self.assertIn("border:1px solid #86baf0",self.window.styleSheet())
+        self.assertIn("border:2px solid #687383",self.window.centralWidget().styleSheet())
+        self.assertIn("border:1px solid #86baf0",self.window.centralWidget().styleSheet())
         self.window.screen_buttons["W"].setChecked(True)
         row=next(self.window.examples.item(i) for i in
                  range(self.window.examples.count())
