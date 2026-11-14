@@ -450,7 +450,7 @@ class FinamWindow(QMainWindow):
         self.examples.clear()
         self._sections=[]
         no_data=[]
-        for group in (US_FUTURES,RU_STOCKS,RU_FUTURES):
+        for group in (US_FUTURES,RU_FUTURES,RU_STOCKS):
             header=QListWidgetItem(GROUP_LABELS[group])
             header.setFlags(Qt.ItemFlag.NoItemFlags)
             header.setForeground(Qt.GlobalColor.gray)
