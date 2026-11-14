@@ -102,12 +102,16 @@ def network_and_market_guards():
     clock = datetime(2026, 11, 14, 12, tzinfo=timezone.utc)
     recent = {"quote": [{"symbol": "SBER@MISX", "last": {"value": "110"},
                          "timestamp": "2026-11-14T11:59:30Z"}]}
+    weekend = {"quote": [{"symbol": "SBER@MISX", "last": {"value": "110"},
+                          "timestamp": "2026-11-13T11:59:30Z"}]}
     old = {"quote": [{"symbol": "SBER@MISX", "last": {"value": "110"},
-                      "timestamp": "2026-11-13T11:59:30Z"}]}
+                      "timestamp": "2026-11-07T11:59:30Z"}]}
     check(not quote_age_problem(recent, clock, "SBER@MISX"),
           "recent LAST incorrectly rejected")
+    check(not quote_age_problem(weekend, clock, "SBER@MISX"),
+          "previous-session LAST incorrectly rejected")
     check(quote_age_problem(old, clock, "SBER@MISX"),
-          "stale LAST incorrectly accepted")
+          "over-seven-day LAST incorrectly accepted")
     mixed = {"quote": [{"last": 999},
                        {"symbol": "SBER@MISX", "last": {"value": "110"}}]}
     check(quote_last(mixed, "SBER@MISX") == 110,
