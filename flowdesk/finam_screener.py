@@ -12,7 +12,7 @@ import time
 
 from PySide6.QtCore import QThread, Signal
 
-from .finam_api import decimal_number, symbol_name
+from .finam_api import decimal_number, symbol_name, DEPTH_DAYS, FinamAPI
 from .finam_auction import exclude_stock_closing_auction
 from .fvg_display import working_zone
 from .market_data import candle_close_time
@@ -138,6 +138,79 @@ def select_working_fvg_signals(main, latest_price, *, symbol="", fetch_problems=
                       missing_reasons=tuple(reasons))
 
 
+
+def _backfill_higher_history(service, symbol, now, series, *,
+                             cancelled=lambda: False, time_sleep=time.sleep):
+    """Resume bounded Finam backfill for short D/W/M source histories.
+
+    At most three extra requests per instrument and pass. All successful
+    candles go into the existing Finam-only SQLite cache; progress is kept
+    in memory so later five-minute passes resume from the prior boundary.
+    A 429 is propagated to stop the entire scan, not disguised as no bars.
+    An old individual future is never stitched to another contract.
+    """
+    if not isinstance(getattr(service, "api", None), FinamAPI):
+        return {}
+    state=getattr(service,"scanner_history_progress",None)
+    if state is None:
+        state={}
+        service.scanner_history_progress=state
+    problems={}
+    budget=3
+    for tf in ("D1","W1","MN1"):
+        if cancelled():
+            raise InterruptedError()
+        bars=series.get(tf) or ()
+        cutoff=now-timedelta(days=DEPTH_DAYS[tf])
+        confirmed=sum(candle_close_time(bar,tf)<=now for bar in bars)
+        if confirmed>=MIN_BARS[tf]:
+            continue
+        key=(symbol,tf)
+        progress=state.get(key,{})
+        if progress.get("exhausted"):
+            problems[tf]="доступный период Finam проверен"
+            continue
+        cursor=progress.get("cursor")
+        if cursor is None:
+            cursor=min((bar.time for bar in bars),default=now)
+        chunk=timedelta(days=90 if tf=="D1" else 365)
+        while budget and cursor>cutoff and confirmed<MIN_BARS[tf]:
+            if cancelled():
+                raise InterruptedError()
+            start=max(cutoff,cursor-chunk)
+            try:
+                older=service.api.bars(symbol,tf,start=start,end=cursor)
+            except Exception as exc:
+                if getattr(exc,"http_status",None)==429:
+                    raise
+                code=getattr(exc,"http_status",None)
+                problems[tf]=(
+                    "нет доступа Finam (403)" if code==403 else
+                    "ошибка авторизации Finam (401)" if code==401 else
+                    "контракт не найден Finam (404)" if code==404 else
+                    "дозагрузка Finam недоступна")
+                break
+            if older:
+                with service.lock:
+                    service._upsert(symbol,tf,older)
+                # Compare timestamps, not response count: intervals may
+                # overlap an already cached candle at a boundary.
+                known={bar.time for bar in bars}
+                bars=[*bars,*(bar for bar in older if bar.time not in known)]
+                confirmed=sum(candle_close_time(bar,tf)<=now for bar in bars)
+            cursor=start
+            budget-=1
+            state[key]={"cursor":cursor,"exhausted":cursor<=cutoff}
+            if budget:
+                time_sleep(.4)
+        if tf not in problems and confirmed<MIN_BARS[tf]:
+            problems[tf]=(
+                "доступный период Finam проверен" if cursor<=cutoff
+                else "дозагрузка истории")
+        if budget==0:
+            break
+    return problems
+
 def scan_one(service, ticker, mic, settings, *, cancelled=lambda:False,
              time_sleep=time.sleep):
     """Read only Finam REST and the same local SQLite store as the terminal.
@@ -186,7 +259,11 @@ def scan_one(service, ticker, mic, settings, *, cancelled=lambda:False,
         if cancelled():
             raise InterruptedError()
         # Avoid hitting Finam's request limit with a synchronous 38x6 burst.
-        time_sleep(.12)
+        time_sleep(.4)
+    series=service._series(symbol)
+    fetch_problems.update(_backfill_higher_history(
+        service,symbol,now,series,cancelled=cancelled,
+        time_sleep=time_sleep))
     series=exclude_stock_closing_auction(service._series(symbol),mic)
     if not series.get("H1"):
         return unknown(symbol,"h1_unavailable",
