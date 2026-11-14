@@ -377,7 +377,7 @@ class TestFinamGui(unittest.TestCase):
         sber=next(item for item in self.window.universe[RU_STOCKS]
                   if item.label=="SBER")
         self.window.screen_results[sber.symbol]=ScanResult(
-            sber.symbol,(1,-1,1,0,-1))
+            sber.symbol,(1,-1,1,-1,-1))
         self.window._populate_universe()
         self.assertFalse(any(button.isChecked() for button in
                              self.window.screen_buttons.values()))
@@ -410,8 +410,11 @@ class TestFinamGui(unittest.TestCase):
     def test_selected_tf_missing_reason_is_clear_even_with_other_tf_signal(self):
         from PySide6.QtWidgets import QLabel
         from flowdesk.finam_screener import ScanResult
-        from flowdesk.finam_universe import US_FUTURES
-        entry=self.window.universe[US_FUTURES][0]
+        from flowdesk.finam_universe import US_FUTURES, Item
+        original=self.window.universe[US_FUTURES][0]
+        entry=Item(original.label,original.name,original.group,
+                   "NQZ26@XCME",True,"Finam GetAsset")
+        self.window.universe[US_FUTURES][0]=entry
         self.window.screen_results[entry.symbol]=ScanResult(
             entry.symbol,(1,0,1,None,None),
             missing_reasons=("", "", "", "история 10/35", "история 3/30"))
