@@ -6,7 +6,7 @@ import unittest
 
 from flowdesk.finam_screener import (
     LABELS, MIN_BARS, ScanResult, quote_last, unknown,
-    select_working_fvg_signals, scan_one,
+    select_working_fvg_signals, scan_one, FinamScreenerWorker,
 )
 from flowdesk.market_data import Candle
 
@@ -116,6 +116,27 @@ class TestSignalLogic(unittest.TestCase):
         self.assertIsNone(quote_last({"last":"nan"}))
         self.assertIsNone(quote_last({"last":"-4"}))
         self.assertIsNone(quote_last({"quote":[]}))
+
+    def test_rate_limit_explicitly_marks_remaining_not_yet_checked_rows(self):
+        from flowdesk.finam_api import FinamAPIError
+        items=[SimpleNamespace(symbol=f"TEST{i}@MISX",verified=True)
+               for i in range(4)]
+        results=[]
+        calls=[]
+        def evaluate(_service,ticker,mic,_settings,**kwargs):
+            calls.append(ticker)
+            if ticker=="TEST1":
+                raise FinamAPIError("stop",http_status=429)
+            return ScanResult(ticker+"@"+mic,(0,0,0,0,0))
+        worker=FinamScreenerWorker(object(),items,object(),evaluate=evaluate)
+        worker.row.connect(results.append)
+        worker.run()
+        self.assertEqual(calls,["TEST0","TEST1"])
+        self.assertEqual(len(results),4)
+        self.assertEqual(results[0].directions,(0,0,0,0,0))
+        for result in results[1:]:
+            self.assertEqual(result.error_code,"rate_limited")
+            self.assertEqual(result.missing_reasons[4],"лимит запросов Finam")
 
     def test_scanner_downloads_only_finam_and_caches_native_frames(self):
         now=datetime(2026,11,13,16,tzinfo=timezone.utc)
