@@ -138,6 +138,54 @@ class TestSignalLogic(unittest.TestCase):
             self.assertEqual(result.error_code,"rate_limited")
             self.assertEqual(result.missing_reasons[4],"лимит запросов Finam")
 
+    def test_bounded_history_backfill_resumes_and_persists_without_contract_stitching(self):
+        from flowdesk.finam_api import FinamAPI
+        from flowdesk.finam_market import FinamMarketService
+        from flowdesk.finam_screener import _backfill_higher_history
+        from pathlib import Path
+        import tempfile
+        from threading import RLock
+        now=datetime(2026,11,13,16,tzinfo=timezone.utc)
+        symbol="SIZ6@RTSX"
+        class HistoryAPI(FinamAPI):
+            def __init__(self):
+                self.calls=[]
+            def bars(self,name,tf,*,start=None,end=None,**unused):
+                self.calls.append((name,tf,start,end))
+                step=timedelta(days=7 if tf=="W1" else 30)
+                if tf not in ("W1","MN1") or start is None:
+                    return []
+                return [Candle(start+step*i,99,101,98,100,30)
+                        for i in range(1,9) if start+step*i<end]
+        with tempfile.TemporaryDirectory() as folder:
+            service=FinamMarketService(Path(folder)/"finam.sqlite3",
+                                       api=HistoryAPI(),clock=lambda:now)
+            recent=[
+                Candle(now-timedelta(days=i*7),99,101,98,100,30)
+                for i in range(1,6)]
+            service._upsert(symbol,"W1",recent)
+            service._upsert(symbol,"MN1",[
+                Candle(now-timedelta(days=i*30),99,101,98,100,30)
+                for i in range(1,4)])
+            first=_backfill_higher_history(
+                service,symbol,now,service._series(symbol),
+                time_sleep=lambda delay:None)
+            self.assertIn("W1",first)
+            self.assertGreater(len(service._series(symbol)["W1"]),5)
+            initial_calls=list(service.api.calls)
+            self.assertTrue(initial_calls)
+            self.assertTrue(all(row[0]==symbol and row[2]<row[3]
+                                for row in initial_calls))
+            second=_backfill_higher_history(
+                service,symbol,now,service._series(symbol),
+                time_sleep=lambda delay:None)
+            self.assertGreaterEqual(len(service._series(symbol)["W1"]),35)
+            previous={(tf,start,end) for _,tf,start,end in initial_calls}
+            self.assertTrue(all((tf,start,end) not in previous
+                                for _,tf,start,end in service.api.calls[len(initial_calls):]))
+            self.assertTrue(all(name==symbol for name,_,_,_ in service.api.calls))
+            self.assertIn("MN1",service._series(symbol))
+
     def test_scanner_downloads_only_finam_and_caches_native_frames(self):
         now=datetime(2026,11,13,16,tzinfo=timezone.utc)
         class FakeApi:
