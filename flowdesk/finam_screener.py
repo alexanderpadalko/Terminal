@@ -63,6 +63,7 @@ _ERROR_LABELS={
     "unverified": "тикер не подтверждён Finam",
     "rate_limited": "лимит запросов Finam",
     "source_unavailable": "Finam недоступен",
+    "scan_incomplete": "проверка не завершена; повтор через 5 мин",
 }
 
 
