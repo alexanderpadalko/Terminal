@@ -139,6 +139,7 @@ class FinamWindow(QMainWindow):
         self.screen_results = {}
         self.screener_worker = None
         self.screener_rescan_requested = False
+        self.screener_pending = set()
         self.universe, self.ranking_status = compose_universe()
         self._make_ui()
         self.feed_timer = QTimer(self)
@@ -500,6 +501,8 @@ class FinamWindow(QMainWindow):
         if not entries:
             return
         self.screener_rescan_requested=False
+        self.screener_pending={entry.symbol.upper() for entry in entries
+                               if entry.verified and entry.symbol}
         worker=FinamScreenerWorker(self.service,entries,
                                   self.indicator_settings,self)
         self.screener_worker=worker
@@ -516,6 +519,7 @@ class FinamWindow(QMainWindow):
         if not is_in_universe(result.symbol,self.universe):
             return
         self.screen_results[result.symbol.upper()]=result
+        self.screener_pending.discard(result.symbol.upper())
         self._populate_universe()
 
     def _screener_finished(self):
@@ -524,6 +528,15 @@ class FinamWindow(QMainWindow):
             return
         self.screener_worker=None
         worker.deleteLater()
+        # Do not leave Si/Eu (or any other contract) permanently in the
+        # misleading "ожидает проверки" state if a pass ended early.
+        if not self.closing and not self.screener_rescan_requested:
+            for symbol in self.screener_pending:
+                if is_in_universe(symbol,self.universe):
+                    self.screen_results[symbol]=unknown(symbol,"scan_incomplete")
+            if self.screener_pending:
+                self._populate_universe()
+        self.screener_pending.clear()
         if self.closing:
             self._finish_close()
         elif self.screener_rescan_requested:
