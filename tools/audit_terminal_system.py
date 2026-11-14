@@ -4,6 +4,7 @@ This does not access production Finam credentials or assert live market parity.
 Runs on the GitHub Windows runner and writes redacted machine-readable evidence.
 """
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import closing
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import patch
@@ -57,7 +58,7 @@ def storage_stress(folder):
     with ThreadPoolExecutor(max_workers=3) as pool:
         completed = list(pool.map(write, symbols))
     check(len(completed) == 38, "missing instruments")
-    with sqlite3.connect(path) as db:
+    with closing(sqlite3.connect(path)) as db:
         check(db.execute("PRAGMA journal_mode").fetchone()[0].lower() == "wal",
               "SQLite WAL not enabled")
         check(db.execute("PRAGMA integrity_check").fetchone()[0] == "ok",
