@@ -5,7 +5,7 @@ from unittest.mock import patch
 import unittest
 
 from flowdesk.finam_screener import (
-    LABELS, TIMEFRAMES, ScanResult, quote_last, unknown,
+    LABELS, TIMEFRAMES, ScanResult, quote_last, quote_age_problem, unknown,
     select_working_fvg_signals, scan_one, FinamScreenerWorker,
 )
 from flowdesk.market_data import Candle
@@ -151,6 +151,55 @@ class TestSignalLogic(unittest.TestCase):
         self.assertIsNone(quote_last({"last":"nan"}))
         self.assertIsNone(quote_last({"last":"-4"}))
         self.assertIsNone(quote_last({"quote":[]}))
+
+    def test_exact_quote_takes_precedence_over_unlabelled_batch_member(self):
+        rows={"quote":[{"last":{"value":"500"}},
+                       {"symbol":"SBER@MISX","last":{"value":"100"}}]}
+        self.assertEqual(quote_last(rows,"SBER@MISX"),100)
+        self.assertIsNone(quote_last({"quote":[{"last":500}]},"SBER@MISX"))
+        self.assertIsNone(quote_last({"quote":[{"symbol":"GAZP@MISX","last":99}]},"SBER@MISX"))
+
+    def test_timestamped_quote_rejects_stale_and_future_transactions(self):
+        observed=datetime(2026,11,13,16,tzinfo=timezone.utc)
+        def payload(stamp):
+            return {"quote":[{"symbol":"SBER@MISX","last":100,"timestamp":stamp}]}
+        self.assertEqual(quote_age_problem(payload("2026-11-13T15:59:00Z"),
+                                           observed,"SBER@MISX"),"")
+        self.assertIn("устарела",quote_age_problem(
+            payload("2026-11-12T10:00:00Z"),observed,"SBER@MISX"))
+        self.assertIn("опережает",quote_age_problem(
+            payload("2026-11-13T17:00:00Z"),observed,"SBER@MISX"))
+        self.assertEqual(quote_age_problem({"symbol":"SBER@MISX","last":100},
+                                           observed,"SBER@MISX"),"")
+
+    def test_monthly_backfill_migrates_five_year_boundary_and_checks_old_window(self):
+        from flowdesk.finam_api import FinamAPI, DEPTH_DAYS
+        from flowdesk.finam_market import FinamMarketService
+        from flowdesk.finam_screener import _backfill_higher_history
+        from pathlib import Path
+        import tempfile
+        now=datetime(2026,11,14,12,tzinfo=timezone.utc)
+        boundary=now-timedelta(days=DEPTH_DAYS["MN1"])
+        class Archive(FinamAPI):
+            def __init__(self):self.calls=[]
+            def bars(self,symbol,tf,*,start=None,end=None):
+                self.calls.append((symbol,tf,start,end))
+                return [Candle(datetime(2000,5,1,tzinfo=timezone.utc),
+                               100,101,99,100,5)] if tf=="MN1" else []
+        with tempfile.TemporaryDirectory() as folder:
+            market=FinamMarketService(Path(folder)/"finam.sqlite",api=Archive(),
+                                      clock=lambda:now)
+            market._upsert("SBER@MISX","MN1",[
+                Candle(boundary,100,101,99,100,5)])
+            market.save_history_progress("SBER@MISX","MN1",{
+                "cursor":boundary,"exhausted":True})
+            _backfill_higher_history(market,"SBER@MISX",now,
+                                     market._series("SBER@MISX"))
+            self.assertTrue(any(tf=="MN1" and start<boundary
+                                for _,tf,start,end in market.api.calls))
+            self.assertIn(datetime(2000,5,1,tzinfo=timezone.utc),
+                {bar.time for bar in market._series("SBER@MISX")["MN1"]})
+            self.assertNotIn("GAZP@MISX",{symbol for symbol,_,_,_ in market.api.calls})
 
     def test_rate_limit_explicitly_marks_remaining_not_yet_checked_rows(self):
         from flowdesk.finam_api import FinamAPIError
