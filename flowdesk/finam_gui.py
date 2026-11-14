@@ -441,6 +441,12 @@ class FinamWindow(QMainWindow):
         """38 fixed universe entries; filter by active working FVG only."""
         current=self.search.text().strip().lower() if hasattr(self,"search") else ""
         selected=self._selected_screen_timeframes()
+        current_item=self.examples.currentItem()
+        selected_symbol=(current_item.data(Qt.ItemDataRole.UserRole)
+                         if current_item is not None else None)
+        selected_label=current_item.text() if current_item is not None else ""
+        scroll=self.examples.verticalScrollBar().value()
+        self.examples.setUpdatesEnabled(False)
         self.examples.clear()
         self._sections=[]
         no_data=[]
@@ -467,6 +473,16 @@ class FinamWindow(QMainWindow):
             for entry,group in no_data:
                 self._add_screen_item(entry,group,no_data=True)
         self._filter_universe(current)
+        if selected_label:
+            for index in range(self.examples.count()):
+                item=self.examples.item(index)
+                if not item.isHidden() and (
+                    selected_symbol and item.data(Qt.ItemDataRole.UserRole)==selected_symbol
+                    or not selected_symbol and item.text()==selected_label):
+                    self.examples.setCurrentItem(item)
+                    break
+        self.examples.verticalScrollBar().setValue(scroll)
+        self.examples.setUpdatesEnabled(True)
 
     def _filter_universe(self,text):
         term=text.strip().lower()
@@ -779,9 +795,12 @@ class FinamWindow(QMainWindow):
                      timeframe=info["tf"],asof=info.get("asof"),
                      delay_seconds=info.get("feed_delay_seconds"))
         delay=info.get("feed_delay_seconds",0)//60
+        permissions_known=getattr(self.service.api,"permissions_status","unknown")=="verified"
+        delay_label=("разрешённая задержка " if permissions_known
+                     else "права не подтверждены; расчётная задержка ")
         self.feed.setText("Finam · наблюдение "+
                           self._exchange_time(info["asof"],info["board"]) +
-                          " · разрешённая задержка "+str(delay)+" мин · только чтение")
+                          " · "+delay_label+str(delay)+" мин · только чтение")
         self._indicator()
 
     def _current_load_signal(self):
