@@ -74,6 +74,41 @@ class TestSignalLogic(unittest.TestCase):
         self.assertFalse(result.matched(("H1","M")))
         self.assertEqual(unknown("A@RTSX").directions,(None,)*5)
 
+    def test_weekly_and_monthly_unknowns_explain_short_contract_history(self):
+        main=make_main()
+        main.summary_sources["W1"].confirmed_bars=11
+        main.summary_sources["MN1"].confirmed_bars=3
+        main.summary_sources["W1"].candles=main.summary_sources["W1"].candles[:11]
+        main.summary_sources["MN1"].candles=main.summary_sources["MN1"].candles[:3]
+        with patch("flowdesk.finam_screener.working_zone",return_value=None):
+            result=select_working_fvg_signals(
+                main,100,symbol="SIZ26@RTSX",
+                fetch_problems={"W1":"Finam не вернул свечи"})
+        self.assertEqual(result.directions,(0,0,0,None,None))
+        self.assertEqual(result.reason_map()["W"],
+                         "история 11/35; Finam не вернул свечи")
+        self.assertEqual(result.reason_map()["M"],"история 3/30")
+        self.assertTrue(result.missing(("W","M")))
+        self.assertFalse(result.matched(("W","M")))
+        self.assertEqual(result.reason_map()["H1"],"")
+
+    def test_missing_sources_and_access_denial_have_distinct_safe_messages(self):
+        main=make_main()
+        main.summary_sources.pop("MN1")
+        main.summary_sources.pop("W1")
+        with patch("flowdesk.finam_screener.working_zone",return_value=None):
+            result=select_working_fvg_signals(
+                main,100,fetch_problems={
+                    "MN1":"нет доступа Finam (403)",
+                    "W1":"Finam не вернул свечи",
+                })
+        self.assertEqual(result.directions[-2:],(None,None))
+        self.assertEqual(result.reason_map()["M"],"нет свечей; нет доступа Finam (403)")
+        self.assertEqual(result.reason_map()["W"],"нет свечей; Finam не вернул свечи")
+        self.assertEqual(unknown("NQZ26@XCME","rate_limited").reason_map()["M"],
+                         "лимит запросов Finam")
+        self.assertNotIn("secret",result.reason_map()["W"])
+
     def test_parser_never_confuses_bid_offer_and_close_with_last(self):
         self.assertEqual(quote_last({"quote":[{"last":{"value":"102.5"}}]}),102.5)
         self.assertEqual(quote_last({"last":"123"}),123.0)
