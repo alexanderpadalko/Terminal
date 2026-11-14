@@ -165,8 +165,14 @@ class TestSignalLogic(unittest.TestCase):
             return {"quote":[{"symbol":"SBER@MISX","last":100,"timestamp":stamp}]}
         self.assertEqual(quote_age_problem(payload("2026-11-13T15:59:00Z"),
                                            observed,"SBER@MISX"),"")
+        # A previous-session LAST is acceptable for an analytical screener,
+        # including on weekends. Seven days is the inclusive limit.
+        self.assertEqual(quote_age_problem(
+            payload("2026-11-12T10:00:00Z"),observed,"SBER@MISX"),"")
+        self.assertEqual(quote_age_problem(
+            payload("2026-11-06T16:00:00Z"),observed,"SBER@MISX"),"")
         self.assertIn("устарела",quote_age_problem(
-            payload("2026-11-12T10:00:00Z"),observed,"SBER@MISX"))
+            payload("2026-11-06T15:59:59Z"),observed,"SBER@MISX"))
         self.assertIn("опережает",quote_age_problem(
             payload("2026-11-13T17:00:00Z"),observed,"SBER@MISX"))
         self.assertEqual(quote_age_problem({"symbol":"SBER@MISX","last":100},
