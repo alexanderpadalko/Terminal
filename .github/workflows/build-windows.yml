@@ -34,6 +34,12 @@ jobs:
           python tools/build_v211_reference.py
           python tools/build_v211_settings.py
           python -m unittest discover -s tests -v
+      - name: Audit analytical terminal under synthetic multi-instrument load
+        shell: pwsh
+        run: |
+          $env:QT_QPA_PLATFORM='offscreen'
+          $env:FINAM_TRADE_API_SECRET=''
+          python -u tools/audit_terminal_system.py --output terminal-system-audit.json
       - name: Smoke test Finam-only Qt window with no token
         shell: pwsh
         run: |
@@ -160,4 +166,5 @@ jobs:
           path: |
             shutdown-exe-result.json
             finam-runtime-exe-result.json
+            terminal-system-audit.json
           retention-days: 30
