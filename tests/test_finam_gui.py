@@ -246,6 +246,64 @@ class TestFinamGui(unittest.TestCase):
         # The working instrument list is unaffected by the removed checkbox.
         self.assertGreater(self.window.examples.count(),0)
 
+    def test_screener_badges_have_one_visible_title_and_wider_sidebar(self):
+        from PySide6.QtCore import Qt
+        from PySide6.QtWidgets import QLabel
+        from flowdesk.finam_screener import ScanResult
+        from flowdesk.finam_universe import RU_STOCKS
+        self.app.processEvents()
+        pane=self.window.instrument_panel
+        self.assertGreaterEqual(pane.minimumWidth(),360)
+        self.assertGreater(pane.width(),290)
+        self.assertEqual(pane.maximumWidth(),600)
+        self.assertEqual(len(self.window.instrument_splitter.sizes()),2)
+        entry=next(i for i in self.window.universe[RU_STOCKS]
+                   if i.label=="SBER")
+        self.window.screen_results[entry.symbol]=ScanResult(
+            entry.symbol,(1,-1,0,0,0))
+        self.window._populate_universe()
+        self.app.processEvents()
+        row=next(self.window.examples.item(i) for i in
+                 range(self.window.examples.count())
+                 if self.window.examples.item(i).text().startswith("SBER ·"))
+        custom=self.window.examples.itemWidget(row)
+        self.assertIsNotNone(custom)
+        # The item keeps its real label for search and keyboard selection,
+        # but Qt must not paint that text underneath the custom badge row.
+        self.assertEqual(row.foreground().color().alpha(),0)
+        self.assertIn("SBER",row.text())
+        labels=[label.text() for label in custom.findChildren(QLabel)]
+        self.assertEqual(sum(label.startswith("SBER ·") for label in labels),1)
+        self.assertIn("H1",labels)
+        self.assertIn("H4",labels)
+        self.assertEqual(row.data(Qt.ItemDataRole.UserRole),entry.symbol)
+        self.window.search.setText("Сбербанк")
+        self.assertFalse(row.isHidden())
+        self.window.search.setText("Несуществующий")
+        self.assertTrue(row.isHidden())
+        self.window.search.clear()
+        self.window.screen_buttons["H1"].setChecked(True)
+        row=next(self.window.examples.item(i) for i in
+                 range(self.window.examples.count())
+                 if self.window.examples.item(i).text().startswith("SBER ·"))
+        self.assertEqual(row.foreground().color().alpha(),0)
+        self.assertIsNotNone(self.window.examples.itemWidget(row))
+
+    def test_unknown_badge_has_only_one_instrument_label(self):
+        from PySide6.QtCore import Qt
+        from PySide6.QtWidgets import QLabel
+        self.window.screen_buttons["D"].setChecked(True)
+        self.app.processEvents()
+        row=next(self.window.examples.item(i) for i in
+                 range(self.window.examples.count())
+                 if self.window.examples.item(i).text().startswith("SBER ·"))
+        widget=self.window.examples.itemWidget(row)
+        self.assertIsNotNone(widget)
+        self.assertEqual(row.foreground().color().alpha(),0)
+        labels=[label.text() for label in widget.findChildren(QLabel)]
+        self.assertEqual(sum(label.startswith("SBER ·") for label in labels),1)
+        self.assertEqual(labels.count("нет данных"),1)
+
     def test_embedded_fvg_filter_or_unknown_section_and_chart_persist(self):
         from PySide6.QtWidgets import QLabel
         from flowdesk.finam_screener import ScanResult
