@@ -6,7 +6,7 @@ import unittest
 
 from flowdesk.finam_screener import (
     LABELS, MIN_BARS, ScanResult, quote_last, unknown,
-    select_working_fvg_signals, scan_one,
+    select_working_fvg_signals, scan_one, FinamScreenerWorker,
 )
 from flowdesk.market_data import Candle
 
@@ -74,6 +74,41 @@ class TestSignalLogic(unittest.TestCase):
         self.assertFalse(result.matched(("H1","M")))
         self.assertEqual(unknown("A@RTSX").directions,(None,)*5)
 
+    def test_weekly_and_monthly_unknowns_explain_short_contract_history(self):
+        main=make_main()
+        main.summary_sources["W1"].confirmed_bars=11
+        main.summary_sources["MN1"].confirmed_bars=3
+        main.summary_sources["W1"].candles=main.summary_sources["W1"].candles[:11]
+        main.summary_sources["MN1"].candles=main.summary_sources["MN1"].candles[:3]
+        with patch("flowdesk.finam_screener.working_zone",return_value=None):
+            result=select_working_fvg_signals(
+                main,100,symbol="SIZ26@RTSX",
+                fetch_problems={"W1":"Finam не вернул свечи"})
+        self.assertEqual(result.directions,(0,0,0,None,None))
+        self.assertEqual(result.reason_map()["W"],
+                         "история 11/35; Finam не вернул свечи")
+        self.assertEqual(result.reason_map()["M"],"история 3/30")
+        self.assertTrue(result.missing(("W","M")))
+        self.assertFalse(result.matched(("W","M")))
+        self.assertEqual(result.reason_map()["H1"],"")
+
+    def test_missing_sources_and_access_denial_have_distinct_safe_messages(self):
+        main=make_main()
+        main.summary_sources.pop("MN1")
+        main.summary_sources.pop("W1")
+        with patch("flowdesk.finam_screener.working_zone",return_value=None):
+            result=select_working_fvg_signals(
+                main,100,fetch_problems={
+                    "MN1":"нет доступа Finam (403)",
+                    "W1":"Finam не вернул свечи",
+                })
+        self.assertEqual(result.directions[-2:],(None,None))
+        self.assertEqual(result.reason_map()["M"],"нет свечей; нет доступа Finam (403)")
+        self.assertEqual(result.reason_map()["W"],"нет свечей; Finam не вернул свечи")
+        self.assertEqual(unknown("NQZ26@XCME","rate_limited").reason_map()["M"],
+                         "лимит запросов Finam")
+        self.assertNotIn("secret",result.reason_map()["W"])
+
     def test_parser_never_confuses_bid_offer_and_close_with_last(self):
         self.assertEqual(quote_last({"quote":[{"last":{"value":"102.5"}}]}),102.5)
         self.assertEqual(quote_last({"last":"123"}),123.0)
@@ -81,6 +116,27 @@ class TestSignalLogic(unittest.TestCase):
         self.assertIsNone(quote_last({"last":"nan"}))
         self.assertIsNone(quote_last({"last":"-4"}))
         self.assertIsNone(quote_last({"quote":[]}))
+
+    def test_rate_limit_explicitly_marks_remaining_not_yet_checked_rows(self):
+        from flowdesk.finam_api import FinamAPIError
+        items=[SimpleNamespace(symbol=f"TEST{i}@MISX",verified=True)
+               for i in range(4)]
+        results=[]
+        calls=[]
+        def evaluate(_service,ticker,mic,_settings,**kwargs):
+            calls.append(ticker)
+            if ticker=="TEST1":
+                raise FinamAPIError("stop",http_status=429)
+            return ScanResult(ticker+"@"+mic,(0,0,0,0,0))
+        worker=FinamScreenerWorker(object(),items,object(),evaluate=evaluate)
+        worker.row.connect(results.append)
+        worker.run()
+        self.assertEqual(calls,["TEST0","TEST1"])
+        self.assertEqual(len(results),4)
+        self.assertEqual(results[0].directions,(0,0,0,0,0))
+        for result in results[1:]:
+            self.assertEqual(result.error_code,"rate_limited")
+            self.assertEqual(result.missing_reasons[4],"лимит запросов Finam")
 
     def test_scanner_downloads_only_finam_and_caches_native_frames(self):
         now=datetime(2026,11,13,16,tzinfo=timezone.utc)

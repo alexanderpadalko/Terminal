@@ -37,6 +37,12 @@ class ScanResult:
     price: float | None = None
     price_origin: str = ""
     error_code: str = ""
+    # Per-timeframe explanations for unavailable signals. Never store
+    # responses, secrets, error strings or a fabricated direction.
+    missing_reasons: tuple[str, ...] = ("",) * len(TIMEFRAMES)
+
+    def reason_map(self):
+        return dict(zip(LABELS,self.missing_reasons))
 
     def as_map(self):
         return dict(zip(LABELS, self.directions))
@@ -48,8 +54,23 @@ class ScanResult:
         return any(self.as_map().get(tf) is None for tf in selected)
 
 
-def unknown(symbol, code="missing_history"):
-    return ScanResult(symbol, (None,) * len(TIMEFRAMES), error_code=code)
+_ERROR_LABELS={
+    "missing_history": "история не загружена",
+    "price_or_h1_unavailable": "нет цены или истории H1",
+    "price_unavailable": "нет последней цены Finam",
+    "h1_unavailable": "H1 недоступен",
+    "analysis_unavailable": "расчёт недоступен",
+    "unverified": "тикер не подтверждён Finam",
+    "rate_limited": "лимит запросов Finam",
+    "source_unavailable": "Finam недоступен",
+}
+
+
+def unknown(symbol, code="missing_history", *, reasons=None):
+    if reasons is None:
+        reasons=(_ERROR_LABELS.get(code,"проверка данных"),)*len(TIMEFRAMES)
+    return ScanResult(symbol,(None,)*len(TIMEFRAMES),
+                      error_code=code,missing_reasons=tuple(reasons))
 
 
 def _price(value):
@@ -79,7 +100,7 @@ def quote_last(response, symbol=None):
     return _price(price)
 
 
-def select_working_fvg_signals(main, latest_price, *, symbol=""):
+def select_working_fvg_signals(main, latest_price, *, symbol="", fetch_problems=None):
     """One active *selected* FVG for each independently confirmed flow.
 
     Never fall back to an older FVG if the working guard is broken. Every TF
@@ -93,17 +114,28 @@ def select_working_fvg_signals(main, latest_price, *, symbol=""):
              main.timeframe:main}
     cutoff=chart_cutoff(main)
     direction=[]
+    reasons=[]
     for tf in TIMEFRAMES:
         source=sources.get(tf)
-        if (not source or len(source.candles)<MIN_BARS[tf] or
-                source.confirmed_bars < MIN_BARS[tf]):
+        required=MIN_BARS[tf]
+        confirmed=max(0,int(source.confirmed_bars)) if source is not None else 0
+        # Confirmed source bars are a lower bound for the working-flow
+        # history. A new December futures contract cannot magically supply
+        # 30 months of its own prices.
+        if not source or not source.candles or confirmed<required:
             direction.append(None)
+            error=(fetch_problems or {}).get(tf,"")
+            detail=(f"история {confirmed}/{required}" if confirmed
+                    else "нет свечей")
+            reasons.append(detail+(("; "+error) if error else ""))
             continue
         zone=working_zone(source,cutoff,cutoff)
         direction.append(
             zone.side if zone is not None and
             zone.bottom<=latest_price<=zone.top else 0)
-    return ScanResult(symbol,tuple(direction),price=latest_price)
+        reasons.append("")
+    return ScanResult(symbol,tuple(direction),price=latest_price,
+                      missing_reasons=tuple(reasons))
 
 
 def scan_one(service, ticker, mic, settings, *, cancelled=lambda:False,
@@ -124,6 +156,7 @@ def scan_one(service, ticker, mic, settings, *, cancelled=lambda:False,
         service.scanner_last_pull={}
         last_pull=service.scanner_last_pull
     errors=[]
+    fetch_problems={}
     for tf in (*TIMEFRAMES,"M1"):
         if cancelled():
             raise InterruptedError()
@@ -139,17 +172,26 @@ def scan_one(service, ticker, mic, settings, *, cancelled=lambda:False,
                 last_pull[(symbol,tf)]=now
             elif not series.get(tf):
                 errors.append("missing_"+tf)
+                fetch_problems[tf]="Finam не вернул свечи"
         except Exception as exc:
-            if getattr(exc,"http_status",None)==429:
+            code=getattr(exc,"http_status",None)
+            if code==429:
                 raise  # Worker will back off for the entire remaining batch.
             errors.append("fetch_"+tf)
+            fetch_problems[tf]=(
+                "нет доступа Finam (403)" if code==403 else
+                "контракт не найден Finam (404)" if code==404 else
+                "ошибка авторизации Finam (401)" if code==401 else
+                "загрузка Finam недоступна")
         if cancelled():
             raise InterruptedError()
         # Avoid hitting Finam's request limit with a synchronous 38x6 burst.
         time_sleep(.12)
     series=exclude_stock_closing_auction(service._series(symbol),mic)
     if not series.get("H1"):
-        return unknown(symbol,"h1_unavailable")
+        return unknown(symbol,"h1_unavailable",
+                       reasons=tuple(fetch_problems.get(tf,"H1 недоступен")
+                                     for tf in TIMEFRAMES))
     delay=service.api.market_delay_minutes(mic)
     observed=now-timedelta(minutes=delay or 0)
     if cancelled():
@@ -177,9 +219,11 @@ def scan_one(service, ticker, mic, settings, *, cancelled=lambda:False,
             origin="finam_candle_close"
     if price is None:
         return unknown(symbol,"price_unavailable")
-    result=select_working_fvg_signals(main,price,symbol=symbol)
+    result=select_working_fvg_signals(
+        main,price,symbol=symbol,fetch_problems=fetch_problems)
     return ScanResult(symbol,result.directions,price,origin,
-                      "partial_source" if errors else "")
+                      "partial_source" if errors else "",
+                      result.missing_reasons)
 
 
 class FinamScreenerWorker(QThread):
@@ -195,7 +239,7 @@ class FinamScreenerWorker(QThread):
         self.evaluate=evaluate
 
     def run(self):
-        for entry in self.instruments:
+        for index,entry in enumerate(self.instruments):
             if self.isInterruptionRequested():
                 break
             if not entry.verified or "@" not in entry.symbol:
@@ -214,6 +258,13 @@ class FinamScreenerWorker(QThread):
                                "rate_limited" if status==429 else "source_unavailable")
                 self.row.emit(result)
                 if status==429:
+                    # An early stop must not make the remaining instruments
+                    # look like they have insufficient weekly/monthly bars.
+                    # Their exact state is rate-limited, not history-short.
+                    for pending in self.instruments[index+1:]:
+                        if self.isInterruptionRequested():
+                            break
+                        self.row.emit(unknown(pending.symbol,"rate_limited"))
                     break
                 continue
             self.row.emit(result)

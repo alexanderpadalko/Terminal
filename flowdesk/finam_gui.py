@@ -240,6 +240,7 @@ class FinamWindow(QMainWindow):
         self.search.textChanged.connect(self._filter_universe)
         right.addWidget(self.search)
         self.examples=QListWidget(side)
+        self.examples.setObjectName("instrumentList")
         self.examples.itemActivated.connect(self._example)
         self.examples.itemClicked.connect(self._example)
         right.addWidget(self.examples,1)
@@ -262,7 +263,14 @@ class FinamWindow(QMainWindow):
           QPushButton,QLineEdit,QComboBox,QListWidget {background:#282828;
             color:#e7e7e7;border:1px solid #444;border-radius:4px;padding:7px;}
           QPushButton:hover {background:#343434;}
-          QListWidget::item:selected {background:#2b4b68;}
+          QListWidget#instrumentList {border:2px solid #687383;
+            border-radius:5px;background:#252525;padding:3px;outline:none;}
+          QListWidget#instrumentList::item {border:1px solid transparent;
+            border-radius:4px;margin:1px;padding:2px;}
+          QListWidget#instrumentList::item:selected {background:#2b4b68;
+            border:1px solid #86baf0;border-radius:4px;}
+          QListWidget#instrumentList::item:selected:!active {background:#30465b;
+            border:1px solid #8d9db0;}
         """)
         self._on_screen_filter_changed()
 
@@ -318,7 +326,10 @@ class FinamWindow(QMainWindow):
             row.setToolTip(entry.symbol)
         self.examples.addItem(row)
         result=self.screen_results.get(entry.symbol.upper())
-        signals=result.as_map() if result is not None else {}
+        selected=self._selected_screen_timeframes()
+        # No selected TF means this is a normal watchlist: absolutely no
+        # color badges or misleading stale signal decorations.
+        signals=result.as_map() if result is not None and selected else {}
         marked=[(tf,direction) for tf,direction in signals.items()
                 if direction in (-1,1)]
         if not marked and not no_data:
@@ -349,10 +360,37 @@ class FinamWindow(QMainWindow):
             badge.setToolTip(tf+(" · LONG" if signal==1 else " · SHORT"))
             row_layout.addWidget(badge)
         if no_data:
-            neutral=QLabel("нет данных",widget)
+            # Explain *which selected timeframe* cannot be assessed. A W
+            # result may be unknown even though a valid H1 signal is shown.
+            reasons=result.reason_map() if result is not None else {}
+            missing=[tf for tf in selected
+                     if result is None or signals.get(tf) is None]
+            explanations=[]
+            short_labels=[]
+            for tf in missing:
+                reason=reasons.get(tf) or (
+                    "проверка Finam" if self.screener_worker is not None
+                    else "ожидает проверки")
+                if not entry.verified:
+                    reason="тикер не подтверждён Finam"
+                explanations.append(f"{tf}: {reason}")
+                # A short but explicit counter fits the sidebar next to
+                # existing H1/H4/D/W/M badges; full reason is the tooltip.
+                short_labels.append(
+                    f"{tf} {reason[len('история '):]}" if
+                    reason.startswith("история ") and ";" not in reason
+                    else f"{tf}: {reason}")
+            if not explanations:
+                explanations=["история недоступна"]
+                short_labels=["нет свечей"]
+            compact=", ".join(short_labels)
+            neutral=QLabel(compact,widget)
+            neutral.setObjectName("screenerMissing")
             neutral.setStyleSheet(
-                "background:#393d43;color:#c1c6cf;border-radius:3px;"
-                "padding:3px;font-size:10px;")
+                "background:#393d43;color:#c1c6cf;border:1px solid #6c727c;"
+                "border-radius:3px;padding:3px;font-size:10px;")
+            neutral.setToolTip("\n".join(explanations))
+            neutral.setMaximumWidth(185)
             row_layout.addWidget(neutral)
         row.setSizeHint(widget.sizeHint())
         # QListWidget normally paints item.text() UNDER the custom row
