@@ -117,13 +117,13 @@ class TestFinamAPI(unittest.TestCase):
         api=FinamAPI(opener=opener,secret_reader=lambda:"dummy")
         api._jwt,api._expiry="fake_session",float("inf")
         start=NOW-timedelta(days=120)
-        self.assertEqual(api.bars("SiZ6@RTSX","W1",start=start,end=NOW),[])
+        self.assertEqual(api.bars("SIZ6@RTSX","W1",start=start,end=NOW),[])
         query=parse_qs(urlparse(requests[0]).query)
         self.assertEqual(query["timeframe"],["TIME_FRAME_W"])
         self.assertEqual(query["interval.start_time"],[start.isoformat().replace("+00:00","Z")])
         self.assertEqual(query["interval.end_time"],[NOW.isoformat().replace("+00:00","Z")])
         with self.assertRaises(ValueError):
-            api.bars("SiZ6@RTSX","W1",start=NOW,end=start)
+            api.bars("SIZ6@RTSX","W1",start=NOW,end=start)
         self.assertEqual(len(requests),1)
 
     def test_finam_active_instruments_catalog_is_read_only_paginated(self):
