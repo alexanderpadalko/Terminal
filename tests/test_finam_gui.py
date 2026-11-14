@@ -427,7 +427,7 @@ class TestFinamGui(unittest.TestCase):
         self.assertIn("D",badge_labels)
         missing=next(label for label in labels
                      if label.objectName()=="screenerMissing")
-        self.assertEqual(missing.text(),"W: история 10/35, M: история 3/30")
+        self.assertEqual(missing.text(),"W 10/35, M 3/30")
         self.assertIn("M: история 3/30",missing.toolTip())
         self.assertNotIn("нет данных",missing.text())
 
