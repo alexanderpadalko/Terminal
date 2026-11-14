@@ -163,7 +163,7 @@ class TestSignalLogic(unittest.TestCase):
             if ticker=="TEST1":
                 raise FinamAPIError("stop",http_status=429)
             return ScanResult(ticker+"@"+mic,(0,0,0,0,0))
-        worker=FinamScreenerWorker(object(),items,object(),evaluate=evaluate)
+        worker=FinamScreenerWorker(object(),items,object(),evaluate=evaluate,max_workers=1)
         worker.row.connect(results.append)
         worker.run()
         self.assertEqual(calls,["TEST0","TEST1"])
@@ -233,30 +233,26 @@ class TestSignalLogic(unittest.TestCase):
                 self.calls.append((symbol,"quote"))
                 return {"quote":[{"last":{"value":"100"}}]}
             def market_delay_minutes(self,mic):return 0
-        class FakeService:
-            def __init__(self):
-                from threading import RLock
-                self.api=FakeApi()
-                self.clock=lambda:now
-                self.lock=RLock()
-                self.data={}
-                self.scanner_last_pull={}
-            def _series(self,symbol):return dict(self.data)
-            def _upsert(self,symbol,tf,bars):self.data[tf]=bars
-        service=FakeService()
-        with patch("flowdesk.finam_screener.analyze_timeframes",
+        import tempfile
+        from pathlib import Path
+        from flowdesk.finam_market import FinamMarketService
+        from flowdesk.settings import IndicatorSettings
+        temp=tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        service=FinamMarketService(Path(temp.name)/"cache.sqlite3",api=FakeApi(),clock=lambda:now)
+        with patch("flowdesk.finam_market.analyze_timeframes",
                    return_value=(make_main(),{})):
             with patch("flowdesk.finam_screener.select_working_fvg_signals",
                        return_value=ScanResult("SBER@MISX",(1,0,0,0,0))):
-                result=scan_one(service,"SBER","MISX",object(),
+                result=scan_one(service,"SBER","MISX",IndicatorSettings(),
                                 time_sleep=lambda _:None)
-                again=scan_one(service,"SBER","MISX",object(),
+                again=scan_one(service,"SBER","MISX",IndicatorSettings(),
                                time_sleep=lambda _:None)
         self.assertEqual(result.directions[0],1)
         self.assertEqual(result.price,100)
         requested=[tf for _,tf in service.api.calls if tf!="quote"]
-        self.assertEqual(set(requested),{"H1","H4","D1","W1","MN1","M1"})
-        self.assertEqual(len(requested),6)
+        self.assertEqual(set(requested),{"H1","H4","D1","W1","MN1"})
+        self.assertEqual(len(requested),5)
         self.assertEqual(again.price_origin,"finam_last")
         self.assertNotIn("M5",requested)
 

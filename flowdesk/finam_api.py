@@ -18,6 +18,7 @@ import time
 
 from .market_data import Candle, normalize
 from .price_format import tick_from_asset
+from .finam_requests import RequestCoordinator
 
 BASE_URL = "https://api.finam.ru"
 CREDENTIAL_SERVICE = "FlowDesk.FinamTradeAPI"
@@ -31,9 +32,10 @@ SAFE_SYMBOL = re.compile(r"^[A-Z0-9._-]{1,32}@[A-Z0-9]{4}$")
 
 
 class FinamAPIError(RuntimeError):
-    def __init__(self, message, *, http_status=None):
+    def __init__(self, message, *, http_status=None, retry_after=None):
         super().__init__(message)
         self.http_status = http_status
+        self.retry_after = retry_after
 
 
 def read_secret():
@@ -111,7 +113,7 @@ def finam_bar(row, timeframe):
 
 class FinamAPI:
     """Thread-safe finite-life JWT obtained from local secret; never printed."""
-    def __init__(self, *, opener=None, secret_reader=None, clock=None):
+    def __init__(self, *, opener=None, secret_reader=None, clock=None, coordinator=None):
         self.opener = opener or urlopen
         self.secret_reader = secret_reader or read_secret
         self.clock = clock or (lambda: datetime.now(timezone.utc))
@@ -124,6 +126,10 @@ class FinamAPI:
         self._asset_ticks = {}
         self._asset_retry_after = {}  # throttle optional metadata errors
         self._asset_details = {}
+        self.coordinator = coordinator or RequestCoordinator()
+
+    def request_scope(self, *, priority=10, cancelled=lambda: False):
+        return self.coordinator.scope(priority=priority, cancelled=cancelled)
 
     def invalidate_session(self):
         """Forget prior auth and account-scoped metadata after a secret change."""
@@ -147,6 +153,10 @@ class FinamAPI:
             raise ValueError("Only read-only Finam API endpoints are supported")
         if method == "POST" and path not in ("/v1/sessions", "/v1/sessions/details"):
             raise ValueError("Trade API writes are disabled")
+        key = (method, path, token) if method == "GET" else None
+        return self.coordinator.run(key, lambda: self._send_json(method, path, payload, token))
+
+    def _send_json(self, method, path, payload=None, token=None):
         body = json.dumps(payload).encode("utf-8") if payload is not None else None
         headers = {"Accept": "application/json", "User-Agent": "FlowDesk/0.2.26"}
         if body is not None:
@@ -167,8 +177,10 @@ class FinamAPI:
                 429: "Превышен лимит запросов. Повторите позже.",
             }
             hint = hints.get(exc.code, "Сервис не выполнил запрос.")
+            raw_retry = exc.headers.get("Retry-After", "") if exc.headers else ""
+            retry_after = min(300, max(1, int(raw_retry))) if raw_retry.isdigit() else None
             raise FinamAPIError(f"Finam HTTP {exc.code}: {hint}",
-                                http_status=exc.code) from None
+                                http_status=exc.code, retry_after=retry_after) from None
         except (TimeoutError, URLError, OSError) as exc:
             raise FinamAPIError(f"Нет связи с Finam Trade API ({type(exc).__name__})") from None
 
@@ -267,7 +279,7 @@ class FinamAPI:
 
     def asset_details(self,symbol):
         """Authoritative expiry/specification of ticker@MIC; GET only."""
-        if not SAFE_SYMBOL.fullmatch(symbol):
+        if not SAFE_SYMBOL.fullmatch(symbol.upper()):
             raise ValueError("Некорректный символ Finam")
         key=symbol.upper()
         with self._lock:

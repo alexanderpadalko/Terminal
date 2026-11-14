@@ -4,6 +4,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from dataclasses import replace
 from functools import partial
+from contextlib import nullcontext
 from pathlib import Path
 import re
 import sys
@@ -26,6 +27,7 @@ from .finam_universe import (
     compose_universe, cached_top20, is_in_universe
 )
 from .finam_catalog_worker import FinamCatalogWorker
+from .qt_gc import install_gui_gc
 from .diagnostics_log import log_event, log_snapshot
 from .finam_stream import FinamStreamWorker
 from .finam_screener import FinamScreenerWorker, ScanResult, LABELS, unknown
@@ -76,6 +78,11 @@ class FinamLoadWorker(QThread):
         self.allow_http, self.refresh, self.events = allow_http, refresh, events
 
     def run(self):
+        scope=getattr(getattr(self.service,"api",None),"request_scope",None)
+        with scope(priority=0,cancelled=self.isInterruptionRequested) if scope else nullcontext():
+            self._run()
+
+    def _run(self):
         try:
             if self.events:
                 self.service.ingest_stream(self.ticker,self.mic,self.events)
@@ -83,7 +90,8 @@ class FinamLoadWorker(QThread):
                 return
             result = self.service.view(self.ticker,self.mic,self.timeframe,
                 allow_http=self.allow_http,refresh=self.refresh,
-                settings=self.settings,progress=self.progress.emit)
+                settings=self.settings,progress=self.progress.emit,
+                cancelled=self.isInterruptionRequested)
             if self.isInterruptionRequested():
                 return
             # Asset metadata is read-only and independent of the HTTP *candle*
@@ -107,6 +115,7 @@ class FinamLoadWorker(QThread):
 class FinamWindow(QMainWindow):
     def __init__(self, *, service=None, stream_factory=None, settings_store=None):
         super().__init__()
+        install_gui_gc(QApplication.instance())
         self.setWindowTitle(f"FlowDesk {__version__} · Finam Trade API · только данные")
         self.setWindowIcon(application_icon())
         self.resize(1420,840)
@@ -135,7 +144,6 @@ class FinamWindow(QMainWindow):
         self.catalog_worker = None
         self.catalog_ready = False
         self.catalog_error = ""
-        self.moex_status=""
         self.screen_results = {}
         self.screener_worker = None
         self.screener_rescan_requested = False
@@ -243,6 +251,9 @@ class FinamWindow(QMainWindow):
             self.screen_buttons[timeframe]=control
         screener_bar.addStretch()
         right.addLayout(screener_bar)
+        self.scan_progress=QLabel("Проверка ещё не запускалась",side)
+        self.scan_progress.setStyleSheet("color:#a2a9b3;font-size:11px;")
+        right.addWidget(self.scan_progress)
         # Preserve private controls for internal navigation and existing tests.
         # Do not expose a manual entry that bypasses the user's fixed universe.
         self.symbol_edit=QLineEdit(side)
@@ -502,9 +513,15 @@ class FinamWindow(QMainWindow):
         worker=FinamScreenerWorker(self.service,entries,
                                   self.indicator_settings,self)
         self.screener_worker=worker
+        self._screener_progress(0,len(entries))
         worker.row.connect(self._screener_row)
+        worker.progress.connect(self._screener_progress)
         worker.finished.connect(self._screener_finished)
         worker.start()
+
+    def _screener_progress(self,completed,total):
+        if not self.closing:
+            self.scan_progress.setText(f"Проверено {completed} из {total}")
 
     def _screener_row(self,result):
         if self.closing or self.screener_rescan_requested:
@@ -565,7 +582,6 @@ class FinamWindow(QMainWindow):
                 payload.get("futures",{}).get(group+":"+contract.label,contract)
                 for contract in self.universe[group]
             ]
-        self.moex_status=payload.get("moex_status","")
         self.screen_results.clear()  # Do not reuse stale contract/roll signals.
         self._populate_universe()
         self._request_screener_scan()
@@ -649,6 +665,8 @@ class FinamWindow(QMainWindow):
         # the previous token. Reconnect with the new secret from keyring.
         self._stop_stream()
         self.service.api.invalidate_session()
+        invalidate=getattr(self.service,"invalidate_network_cache",None)
+        if callable(invalidate):invalidate()
         self.status.setText("Токен сохранён в Windows Credential Manager; проверка подключения…")
         self._load(refresh=True)
         self._start_stream()
@@ -870,6 +888,11 @@ class FinamWindow(QMainWindow):
         if event.kind=="status":
             previous_state=self.stream_state
             self.stream_state=event.state
+            if event.state in ("resync","reconnecting","unavailable"):
+                mark=getattr(self.service,"mark_stream_reconnect",None)
+                if callable(mark):mark(symbol_name(event.symbol,event.board))
+            if event.state=="ready":
+                QTimer.singleShot(0,self._http_refresh)
             if previous_state != event.state and event.state in ("unavailable","reconnecting"):
                 log_event("stream_"+event.state,
                           symbol=event.symbol+"@"+event.board,error=event.detail)
@@ -883,6 +906,8 @@ class FinamWindow(QMainWindow):
             if event.state=="unavailable":
                 self.status.setText("Finam: "+event.detail)
         elif event.kind=="quote":
+            ingest=getattr(self.service,"ingest_quote",None)
+            if callable(ingest):ingest(event)
             q=event.quote
             last=q.get("last")
             if last is not None:

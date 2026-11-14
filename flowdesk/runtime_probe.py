@@ -5,8 +5,11 @@ import json
 from pathlib import Path
 import socket
 import sys
+from types import SimpleNamespace
 
 from .finam_stream import FinamStreamWorker
+from .finam_requests import RequestCoordinator
+from .finam_screener import FinamScreenerWorker, ScanResult
 
 
 def check_finam_runtime(output):
@@ -18,11 +21,22 @@ def check_finam_runtime(output):
         addresses = await asyncio.get_running_loop().getaddrinfo(
             "localhost", 443, type=socket.SOCK_STREAM)
         result["localhost_resolved"] = bool(addresses)
+        scheduler=RequestCoordinator()
+        result["scheduler_result"]=await asyncio.to_thread(
+            lambda:scheduler.run("local",lambda:23))
     worker._connect_loop = exercise_executor
     try:
         worker.run()
+        entries=[SimpleNamespace(symbol=f"TEST{i}@MISX",verified=True) for i in range(3)]
+        scanner=FinamScreenerWorker(object(),entries,object(),backfill=False,
+            evaluate=lambda service,ticker,mic,settings,**kwargs:ScanResult(ticker+"@"+mic,(0,)*5))
+        rows=[]
+        scanner.row.connect(rows.append)
+        scanner.run()
+        result["scanner_rows"]=len(rows)
         result["ok"] = (result.get("executor_callable") and
-                        result.get("thread_result") == 17 and result.get("localhost_resolved"))
+                        result.get("thread_result") == 17 and result.get("localhost_resolved")
+                        and result.get("scheduler_result")==23 and result.get("scanner_rows")==3)
     except Exception as exc:
         result["error_type"] = type(exc).__name__
     Path(output).write_text(json.dumps(result, indent=2), encoding="utf-8")

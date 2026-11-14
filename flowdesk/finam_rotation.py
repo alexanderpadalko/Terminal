@@ -108,7 +108,8 @@ def expiry_date(asset, *, mic=""):
     details=asset.get("asset_details") or {}
     if not isinstance(details,dict):
         details={}
-    futures=(asset.get("future_details"),details.get("future_details"),asset)
+    # Explicit calendar dates are not instants to shift across time zones.
+    futures=(asset,details,asset.get("future_details"),details.get("future_details"))
     for source in futures:
         if isinstance(source,dict):
             found=_date(source.get("expiration_date"),mic=mic)
@@ -237,8 +238,7 @@ def _preferred_candidate(contract, eligible, saved):
     return eligible[0] if eligible else None
 
 
-def resolve_contract(contract, assets, api, *, today, now, saved="", cancelled=lambda:False,
-                     quote_fn=None, expiry_overrides=None, official=None):
+def resolve_contract(contract, assets, api, *, today, now, saved="", cancelled=lambda:False):
     """Select current series until the last calendar day before expiry.
 
     Date-based rollover has priority over any quote statistics. Unknown expiry
@@ -274,8 +274,12 @@ def resolve_contract(contract, assets, api, *, today, now, saved="", cancelled=l
     unknown=[]
     errors={}
     sources={}
-    expiry_overrides=expiry_overrides or {}
-    for key,symbol in sorted(entries.items()):
+    initial=match_contract(contract,assets)
+    preferred=next((s for s in entries.values() if s.upper()==saved.upper()),None)
+    if preferred is None:
+        preferred=next((s for s in entries.values() if s.upper()==initial.upper()),None)
+    ordered=sorted(entries.items(),key=lambda pair:(pair[1]!=preferred,pair[0]))
+    for key,symbol in ordered:
         if cancelled():
             raise InterruptedError()
         mic=symbol.rsplit("@",1)[-1]
@@ -300,28 +304,14 @@ def resolve_contract(contract, assets, api, *, today, now, saved="", cancelled=l
                     "Finam GetAsset: HTTP "+str(code)
                     if isinstance(code,int) else
                     "Finam GetAsset: "+type(exc).__name__)
-        if expiry is None and contract.group=="ru":
-            expiry=_date(expiry_overrides.get(symbol.upper()),mic=mic)
-            if expiry is not None:
-                sources[symbol.upper()]="MOEX LASTTRADEDATE"
-        if expiry is None and contract.group=="us" and official is not None:
-            try:
-                exchange_day,exchange_info=official.get(symbol)
-                if isinstance(exchange_day,date):
-                    expiry=exchange_day
-                    sources[symbol.upper()]=exchange_info
-                elif exchange_info:
-                    errors[symbol.upper()]=(errors.get(symbol.upper(),"Finam: нет даты")+
-                                            "; "+exchange_info)
-            except InterruptedError:
-                raise
-            except Exception as exc:
-                errors[symbol.upper()]=(errors.get(symbol.upper(),"Finam: нет даты")+
-                                         "; официальный календарь: "+type(exc).__name__)
         if expiry is None:
             unknown.append(symbol)
         elif expiry>=today:
             verified.append((expiry,symbol))
+        if symbol==preferred and (expiry is None or today<expiry-timedelta(days=1)):
+            # The selected series has not reached its roll day, or its date is
+            # unknown and rolling is forbidden. Do not query five distant cards.
+            break
     verified.sort(key=lambda x:(x[0],x[1]))
 
     # A missing date for the currently active ticker must NOT force an
@@ -329,7 +319,6 @@ def resolve_contract(contract, assets, api, *, today, now, saved="", cancelled=l
     allowed={sym.upper():sym for sym in unknown}
     active_verified={sym.upper() for _,sym in verified}
     present=allowed.get(saved.upper())
-    initial=match_contract(contract,assets)
     if present is None and initial.upper() not in active_verified:
         present=allowed.get(initial.upper())
     if present is not None:
@@ -361,18 +350,17 @@ def resolve_contract(contract, assets, api, *, today, now, saved="", cancelled=l
 
     root,_,_=_root_and_label(contract)
     match=SERIES.fullmatch(current.split("@",1)[0].upper())
-    label=(root+match.group(2)+str(expiry.year)) if match else contract.display
+    series_year=_series_year(match.group(3),today.year) if match else None
+    label=(root+match.group(2)+str(series_year)) if series_year else contract.display
     return RollResult(Item(label,contract.name,contract.group,current,True,reason),
                       current,reason)
 
 
-def resolve_futures(assets,api,*,today=None,now=None,previous=None,moex_volume=None,
-                    expiry_overrides=None,official=None,cancelled=lambda:False,
+def resolve_futures(assets,api,*,today=None,now=None,previous=None,cancelled=lambda:False,
                     progress=lambda msg:None):
     """Resolve 8 US + 10 RU rows using each exchange's local calendar date.
 
-    moex_volume remains an unused compatibility parameter for older callers.
-    The rollover trigger no longer depends on any volume or turnover data.
+    Only Finam dates authorize rolling. No external expiry or liquidity feed.
     """
     now=now or datetime.now(timezone.utc)
     if now.tzinfo is None:
@@ -389,8 +377,7 @@ def resolve_futures(assets,api,*,today=None,now=None,previous=None,moex_volume=N
             exchange_clock(contract.mics[0]).zone).date()
         try:
             result=resolve_contract(contract,assets,api,today=local_day,now=now,
-                                    saved=previous.get(key,""),cancelled=cancelled,
-                                    expiry_overrides=expiry_overrides,official=official)
+                                    saved=previous.get(key,""),cancelled=cancelled)
         except InterruptedError:
             raise
         except Exception:

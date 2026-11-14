@@ -12,7 +12,7 @@ from flowdesk.finam_universe import US_CONTRACTS, RU_CONTRACTS
 from flowdesk.finam_rotation import (
     RollState, dominates, resolve_contract, resolve_futures, expiry_date,
 )
-from flowdesk.moex_reference import MoexFuturesVolume, MoexFuturesDates, refresh_top20
+from flowdesk.moex_reference import refresh_top20
 from flowdesk.finam_catalog_worker import FinamCatalogWorker
 
 
@@ -166,36 +166,7 @@ class TestRollover(unittest.TestCase):
 
 
 class TestMoexTurnover(unittest.TestCase):
-    def test_futures_use_real_moex_voltoday_valtoday(self):
-        rows=[["SiZ6", "RFUD","2026-11-13","17:22:00",12000,240000],
-              ["SiH7", "RFUD","2026-11-13","17:22:00",23000,410000]]
-        def fetch(path,params):
-            self.assertIn("RFUD",path)
-            self.assertEqual(params["iss.only"],"marketdata,marketdata.cursor")
-            start=int(params.get("start",0))
-            chunk=rows[start:]
-            return {"marketdata":{"columns":["SECID","BOARDID","TRADEDATE",
-                                            "UPDATETIME","VOLTODAY","VALTODAY"],
-                                  "data":chunk},
-                    "marketdata.cursor":{"columns":["INDEX","TOTAL","PAGESIZE"],
-                                         "data":[[start,len(rows),100]]}}
-        market=MoexFuturesVolume(fetch=fetch)
-        self.assertEqual(market.refresh(),2)
-        a=market.quote("SIZ6@RTSX")
-        b=market.quote("SIH7@RTSX")
-        self.assertTrue(dominates(a,b,mic="RTSX",symbol="SiZ6",now=NOW))
-        self.assertEqual(a["quote"]["turnover"]["value"],"240000")
 
-    def test_futures_fails_closed_if_moex_missing_criteria(self):
-        def fetch(path,params):
-            return {"marketdata":{"columns":["SECID","TRADEDATE","UPDATETIME","VOLTODAY"],
-                                  "data":[["SiZ6","2026-11-13","17:22:00",12000]]},
-                    "marketdata.cursor":{"columns":["INDEX","TOTAL","PAGESIZE"],
-                                         "data":[[0,1,100]]}}
-        market=MoexFuturesVolume(fetch=fetch)
-        market.refresh()
-        with self.assertRaises(KeyError):
-            market.quote("SIZ6@RTSX")
 
     def test_exact_moex_top20_refreshes_at_launch(self):
         from flowdesk.watchlist import WatchlistService
@@ -233,8 +204,8 @@ class TestCatalogStartup(unittest.TestCase):
         base=WatchlistService().cached()
         rows=[row("NQZ6","XCME","2026-11-14"),
               row("NQH7","XCME","2027-03-19"),
-              row("SiZ6","RTSX"),  # MOEX last-trading-day fallback
-              row("SiH7","RTSX")]
+              row("SiZ6","RTSX","2026-11-14"),
+              row("SiH7","RTSX","2027-03-18")]
         api=API(rows)
         class StockSource:
             def __init__(self):self.calls=0
@@ -244,27 +215,16 @@ class TestCatalogStartup(unittest.TestCase):
                 self.stocks_only=stocks_only
                 self.calls+=1
                 return base
-        class Dates:
-            def __init__(self):
-                self.calls=0
-                self.dates={}
-            def refresh(self,*,cancelled):
-                self.calls+=1
-                self.dates={"SIZ6@RTSX":"2026-11-14",
-                            "SIH7@RTSX":"2027-03-18"}
-                return 2
         with tempfile.TemporaryDirectory() as directory:
             source=StockSource()
-            dates=Dates()
             worker=FinamCatalogWorker(api,watchlist=source,
                 roll_state=RollState(Path(directory)/"state.json"),
-                moex_dates=dates,clock=lambda:NOW)
+                clock=lambda:NOW)
             messages=[]
             worker.loaded.connect(messages.append)
             worker.run()
             self.assertEqual(source.calls,1)
             self.assertTrue(source.stocks_only)
-            self.assertEqual(dates.calls,1)
             self.assertEqual(len(messages),1)
             payload=messages[0]
             self.assertEqual(len(payload["stocks"]),20)
@@ -275,34 +235,7 @@ class TestCatalogStartup(unittest.TestCase):
             self.assertTrue((Path(directory)/"state.json").exists())
             self.assertFalse(any(kind=="quote" for kind,_ in api.calls))
 
-    def test_moex_rfud_futures_dates_are_read_only(self):
-        cols=["SECID","BOARDID","LASTTRADEDATE"]
-        def fetch(path,params):
-            self.assertIn("RFUD/securities",path)
-            self.assertEqual(params["securities.columns"],
-                             "SECID,BOARDID,LASTTRADEDATE")
-            self.assertEqual(params["iss.only"],
-                             "securities,securities.cursor")
-            return {"securities":{"columns":cols,"data":[
-                ["SiZ6","RFUD","2026-12-17"],
-                ["SiH7","RFUD","2027-03-18"]]},
-                "securities.cursor":{"columns":["INDEX","TOTAL","PAGESIZE"],
-                                     "data":[[0,2,100]]}}
-        source=MoexFuturesDates(fetch=fetch)
-        self.assertEqual(source.refresh(),2)
-        self.assertEqual(source.dates["SIZ6@RTSX"],"2026-12-17")
-        self.assertEqual(source.dates["SIH7@RTSX"],"2027-03-18")
 
-    def test_moex_fallback_applies_only_to_russian_futures(self):
-        from flowdesk.finam_rotation import resolve_futures
-        rows=[row("NQZ6","XCME"),row("NQH7","XCME"),
-              row("SiZ6","RTSX"),row("SiH7","RTSX")]
-        offsets={"SIZ6@RTSX":"2026-11-14","SIH7@RTSX":"2027-03-18",
-                 "NQZ6@XCME":"2026-11-14","NQH7@XCME":"2027-03-19"}
-        result,_,_=resolve_futures(rows,API(rows),now=NOW,expiry_overrides=offsets)
-        self.assertEqual(result["ru:SIZ2026"].symbol,"SiH7@RTSX")
-        self.assertEqual(result["us:NQZ2026"].symbol,"NQZ6@XCME")
-        self.assertIn("не подтверждена",result["us:NQZ2026"].source)
 
 
 if __name__=="__main__":

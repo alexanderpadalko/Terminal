@@ -1,11 +1,11 @@
 """Nonblocking startup: Finam catalog + MOEX top-20 + date-based roll.
 
 The next expiry is selected on the calendar day before confirmed expiration.
-No turnover/volume API calls for the roll decision. MOEX ISS is read-only:
-stock turnover ranking, optionally Russian last trading dates. Graph market
-data is Finam only; no trades/orders are submitted.
+No turnover/volume API calls for the roll decision. MOEX ISS is used solely
+for stock turnover ranking. All expiry and market data come from Finam.
 """
 from datetime import datetime, timezone
+from contextlib import nullcontext
 
 from PySide6.QtCore import QThread, Signal
 
@@ -14,8 +14,7 @@ from .finam_universe import (
 )
 from .finam_rotation import RollState, resolve_futures
 from .diagnostics_log import log_event, log_contract
-from .exchange_expiry import OfficialExpiry
-from .moex_reference import refresh_top20, MoexFuturesDates
+from .moex_reference import refresh_top20
 from .watchlist import WatchlistService
 
 
@@ -24,17 +23,19 @@ class FinamCatalogWorker(QThread):
     failed=Signal(str)
     progress=Signal(str)
 
-    def __init__(self,api,parent=None,*,watchlist=None,roll_state=None,
-                 moex_dates=None,clock=None,official_expiry=None):
+    def __init__(self,api,parent=None,*,watchlist=None,roll_state=None,clock=None):
         super().__init__(parent)
         self.api=api
         self.watchlist=watchlist or WatchlistService()
         self.roll_state=roll_state or RollState()
-        self.moex_dates=moex_dates or MoexFuturesDates()
-        self.official_expiry=official_expiry or OfficialExpiry()
         self.clock=clock or (lambda:datetime.now(timezone.utc))
 
     def run(self):
+        scope=getattr(self.api,"request_scope",None)
+        with scope(priority=5,cancelled=self.isInterruptionRequested) if scope else nullcontext():
+            self._run()
+
+    def _run(self):
         try:
             log_event("catalog_start")
             self.progress.emit("Finam: проверка действующих контрактов и списка акций…")
@@ -61,19 +62,6 @@ class FinamCatalogWorker(QThread):
                 ranking_status+=" · ошибка MOEX, сохранён прошлый рейтинг"
             if self.isInterruptionRequested():
                 return
-            self.progress.emit("MOEX: проверка дат окончания торгов фьючерсов РФ…")
-            expiry_overrides={}
-            moex_status="MOEX RFUD: даты недоступны; используем Finam"
-            try:
-                self.moex_dates.refresh(cancelled=self.isInterruptionRequested)
-                expiry_overrides=self.moex_dates.dates
-                moex_status="MOEX RFUD: даты окончания торгов проверены"
-            except InterruptedError:
-                raise
-            except Exception as exc:
-                log_event("moex_expiry_unavailable",error=type(exc).__name__)
-            if self.isInterruptionRequested():
-                return
             previous=self.roll_state.load()
             # GetAsset may have cached a stale no-expiry response; recheck
             # must hit Finam again without exposing credentials.
@@ -82,7 +70,6 @@ class FinamCatalogWorker(QThread):
                 clear()
             futures,selections,notes=resolve_futures(
                 assets,self.api,now=self.clock(),previous=previous,
-                expiry_overrides=expiry_overrides,official=self.official_expiry,
                 cancelled=self.isInterruptionRequested,
                 progress=self.progress.emit)
             if self.isInterruptionRequested():
@@ -119,7 +106,6 @@ class FinamCatalogWorker(QThread):
                 "futures":futures,
                 "roll_map":roll_map,
                 "roll_notes":notes,
-                "moex_status":moex_status,
             })
         except InterruptedError:
             return

@@ -286,7 +286,7 @@ class TestFinamMarket(unittest.TestCase):
             self.api.calls.append((symbol,tf))
             raise FinamAPIError("Finam HTTP 404: проверьте тикер, MIC и доступ токена.",http_status=404)
         self.api.bars=missing
-        with self.assertRaisesRegex(RuntimeError,"TSLA@XNAS · H1: Finam HTTP 404"):
+        with self.assertRaisesRegex(RuntimeError,"TSLA@XNAS · H1:.*404"):
             self.service.view("TSLA","XNAS","H1",allow_http=True)
         self.assertEqual(self.api.calls,[("TSLA@XNAS","H1")])
 
@@ -295,6 +295,7 @@ class TestFinamMarket(unittest.TestCase):
         def offline(*args,**kwargs):
             raise FinamAPIError("Finam HTTP 503")
         self.api.bars=offline
+        self.service.clock=lambda:NOW+timedelta(seconds=301)
         again,_,info=self.service.view("SBER","MISX","H1",allow_http=True,refresh=True)
         self.assertEqual(first.candles,again.candles)
         self.assertIn("Не обновлены",info["warning"])

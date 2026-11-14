@@ -1,0 +1,153 @@
+{
+  "started_at_utc": "2026-11-14T21:18:08.180511+00:00",
+  "expiry_source": "Finam only",
+  "cache_mode": "isolated backup of existing saved candles",
+  "backfill_in_timing": false,
+  "expiry": [
+    {
+      "label": "NQZ2026",
+      "symbol": "NQZ26@XCME",
+      "verified": true,
+      "expiry": "2026-12-18"
+    },
+    {
+      "label": "ESZ2026",
+      "symbol": "ESZ26@XCME",
+      "verified": true,
+      "expiry": "2026-12-18"
+    },
+    {
+      "label": "GCZ2026",
+      "symbol": "GCZ26@XCEC",
+      "verified": true,
+      "expiry": "2026-12-29"
+    },
+    {
+      "label": "SIZ2026",
+      "symbol": "SIZ26@XCEC",
+      "verified": true,
+      "expiry": "2026-12-29"
+    },
+    {
+      "label": "PLF2027",
+      "symbol": "PLF27@XNYM",
+      "verified": true,
+      "expiry": "2027-01-27"
+    },
+    {
+      "label": "PAZ2026",
+      "symbol": "PAZ26@XNYM",
+      "verified": true,
+      "expiry": "2026-12-29"
+    },
+    {
+      "label": "NGZ2026",
+      "symbol": "NGZ26@XNYM",
+      "verified": true,
+      "expiry": "2026-11-25"
+    },
+    {
+      "label": "BRNF2027",
+      "symbol": "BRNF27@IFEU",
+      "verified": true,
+      "expiry": "2026-11-30"
+    },
+    {
+      "label": "SIZ2026",
+      "symbol": "SiZ6@RTSX",
+      "verified": true,
+      "expiry": "2026-12-17"
+    },
+    {
+      "label": "CRZ2026",
+      "symbol": "CRZ6@RTSX",
+      "verified": true,
+      "expiry": "2026-12-17"
+    },
+    {
+      "label": "EUZ2026",
+      "symbol": "EuZ6@RTSX",
+      "verified": true,
+      "expiry": "2026-12-17"
+    },
+    {
+      "label": "EDZ2026",
+      "symbol": "EDZ6@RTSX",
+      "verified": true,
+      "expiry": "2026-12-17"
+    },
+    {
+      "label": "USDRUB.P",
+      "symbol": "USDRUBF@RTSX",
+      "verified": true,
+      "expiry": null
+    },
+    {
+      "label": "CNYRUB.P",
+      "symbol": "CNYRUBF@RTSX",
+      "verified": true,
+      "expiry": null
+    },
+    {
+      "label": "EURRUB.P",
+      "symbol": "EURRUBF@RTSX",
+      "verified": true,
+      "expiry": null
+    },
+    {
+      "label": "MIXZ2026",
+      "symbol": "MXZ6@RTSX",
+      "verified": true,
+      "expiry": "2026-12-17"
+    },
+    {
+      "label": "RIZ2026",
+      "symbol": "RIZ6@RTSX",
+      "verified": true,
+      "expiry": "2026-12-17"
+    },
+    {
+      "label": "IRUS.P",
+      "symbol": "IMOEXF@RTSX",
+      "verified": true,
+      "expiry": null
+    }
+  ],
+  "instruments": 38,
+  "catalog_requests": {
+    "auth": 2,
+    "catalog": 43,
+    "asset": 28
+  },
+  "passes": [
+    {
+      "pass": 1,
+      "seconds": 81.594,
+      "requests": {
+        "quotes": 38,
+        "bars": 190
+      },
+      "rows": 38,
+      "timed_out": false,
+      "progress": [
+        38,
+        38
+      ]
+    },
+    {
+      "pass": 2,
+      "seconds": 10.562,
+      "requests": {
+        "quotes": 30
+      },
+      "rows": 38,
+      "timed_out": false,
+      "progress": [
+        38,
+        38
+      ]
+    }
+  ],
+  "finished_at_utc": "2026-11-14T21:20:06.461770+00:00",
+  "directions_equal_between_passes": true
+}

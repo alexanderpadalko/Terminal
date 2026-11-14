@@ -11,4 +11,5 @@ subprocess.run([str(exe), "--check-finam-runtime", str(output)], check=True, tim
                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
 result = json.loads(output.read_text(encoding="utf-8"))
 assert result["ok"] and result["frozen"], result
+assert result["scheduler_result"]==23 and result["scanner_rows"]==3, result
 print("PACKAGED_FINAM_RUNTIME_OK", json.dumps(result), flush=True)

@@ -9,22 +9,24 @@ from dataclasses import dataclass
 from datetime import timedelta
 from math import isfinite
 import time
+import threading
+import concurrent.futures
+from contextlib import nullcontext
 
 from PySide6.QtCore import QThread, Signal
 
 from .finam_api import decimal_number, symbol_name, DEPTH_DAYS, FinamAPI
 from .finam_auction import exclude_stock_closing_auction
 from .fvg_display import working_zone
-from .pipeline import analyze_timeframes
 from .publication import chart_cutoff, published_state
+from .finam_market import TTL_SECONDS
+from .asyncio_runtime import prepare_asyncio_runtime
 
 TIMEFRAMES = ("H1", "H4", "D1", "W1", "MN1")
 LABELS = ("H1", "H4", "D", "W", "M")
 DISPLAY = dict(zip(TIMEFRAMES, LABELS))
 INTERNAL = dict(zip(LABELS, TIMEFRAMES))
 # Signal readiness comes from the confirmed flow, not a fixed bar count.
-TTL_SECONDS = {"H1": 300, "H4": 900, "D1": 1800,
-               "W1": 3600, "MN1": 14400, "M1": 300}
 
 
 @dataclass(frozen=True)
@@ -154,8 +156,12 @@ def _backfill_higher_history(service, symbol, now, series, *,
         return {}
     state=getattr(service,"scanner_history_progress",None)
     if state is None:
-        state={}
-        service.scanner_history_progress=state
+        with service.lock:
+            state=getattr(service,"scanner_history_progress",None)
+            if state is None:
+                load=getattr(service,"load_history_progress",None)
+                state=load() if callable(load) else {}
+                service.scanner_history_progress=state
     problems={}
     budget=5
     for tf in ("W1","MN1","D1"):
@@ -196,8 +202,8 @@ def _backfill_higher_history(service, symbol, now, series, *,
             budget-=1
             frame_budget-=1
             state[key]={"cursor":cursor,"exhausted":cursor<=cutoff}
-            if budget:
-                time_sleep(.4)
+            save=getattr(service,"save_history_progress",None)
+            if callable(save):save(symbol,tf,state[key])
         if tf not in problems:
             problems[tf]=(
                 "доступный период Finam проверен" if cursor<=cutoff
@@ -218,69 +224,31 @@ def scan_one(service, ticker, mic, settings, *, cancelled=lambda:False,
     if cancelled():
         raise InterruptedError()
     now=service.clock()
-    series=service._series(symbol)
-    last_pull=getattr(service,"scanner_last_pull",None)
-    if last_pull is None:
-        service.scanner_last_pull={}
-        last_pull=service.scanner_last_pull
-    errors=[]
-    fetch_problems={}
-    for tf in (*TIMEFRAMES,"M1"):
-        if cancelled():
-            raise InterruptedError()
-        pulled=last_pull.get((symbol,tf))
-        fresh=bool(pulled and (now-pulled).total_seconds()<TTL_SECONDS[tf])
-        if fresh and series.get(tf):
-            continue
-        try:
-            bars=service.api.bars(symbol,tf)
-            if bars:
-                with service.lock:
-                    service._upsert(symbol,tf,bars)
-                last_pull[(symbol,tf)]=now
-            elif not series.get(tf):
-                errors.append("missing_"+tf)
-                fetch_problems[tf]="Finam не вернул свечи"
-        except Exception as exc:
-            code=getattr(exc,"http_status",None)
-            if code==429:
-                raise  # Worker will back off for the entire remaining batch.
-            errors.append("fetch_"+tf)
-            fetch_problems[tf]=(
-                "нет доступа Finam (403)" if code==403 else
-                "контракт не найден Finam (404)" if code==404 else
-                "ошибка авторизации Finam (401)" if code==401 else
-                "загрузка Finam недоступна")
-        if cancelled():
-            raise InterruptedError()
-        # Avoid hitting Finam's request limit with a synchronous 38x6 burst.
-        time_sleep(.4)
+    price=None
+    origin=""
+    try:
+        price=quote_last(service.latest_quote(symbol,cancelled=cancelled),symbol)
+        if price is not None:origin="finam_last"
+    except InterruptedError:raise
+    except Exception as exc:
+        if getattr(exc,"http_status",None)==429:raise
+    fetch_problems=service.refresh_series(symbol,TIMEFRAMES,priority=10,cancelled=cancelled)
+    if price is None:
+        fetch_problems.update(service.refresh_series(symbol,("M1",),priority=10,cancelled=cancelled))
     series=service._series(symbol)
     if not series.get("H1"):
         return unknown(symbol,"h1_unavailable",
                        reasons=tuple(fetch_problems.get(tf,"H1 недоступен")
                                      for tf in TIMEFRAMES))
-    fetch_problems.update(_backfill_higher_history(
-        service,symbol,now,series,cancelled=cancelled,
-        time_sleep=time_sleep))
     series=exclude_stock_closing_auction(service._series(symbol),mic)
     delay=service.api.market_delay_minutes(mic)
-    observed=now-timedelta(minutes=delay or 0)
+    observed=service.clock()-timedelta(minutes=delay or 0)
     if cancelled():
         raise InterruptedError()
     try:
-        main, _ = analyze_timeframes(series,"H1",asof=observed,
-                                      settings=settings)
+        main, _ = service.analyze_cached(symbol,"H1",series,settings,observed)
     except (ValueError,IndexError,TypeError,AttributeError):
         return unknown(symbol,"analysis_unavailable")
-    price=None
-    origin=""
-    try:
-        price=quote_last(service.api.latest_quote(symbol),symbol)
-        if price is not None:
-            origin="finam_last"
-    except Exception:
-        pass
     if price is None:
         # Finam-only fallback when the quote endpoint is unavailable. Use
         # the last known M1 close, then H1 close; never invent a bid or trade.
@@ -294,50 +262,86 @@ def scan_one(service, ticker, mic, settings, *, cancelled=lambda:False,
     result=select_working_fvg_signals(
         main,price,symbol=symbol,fetch_problems=fetch_problems)
     return ScanResult(symbol,result.directions,price,origin,
-                      "partial_source" if errors else "",
+                      "partial_source" if fetch_problems else "",
                       result.missing_reasons)
 
 
 class FinamScreenerWorker(QThread):
     row=Signal(object)
+    progress=Signal(int,int)
     finished_pass=Signal()
 
     def __init__(self, service, instruments, settings, parent=None, *,
-                 evaluate=scan_one):
+                 evaluate=scan_one,max_workers=3,backfill=True):
         super().__init__(parent)
         self.service=service
         self.instruments=tuple(instruments)
         self.settings=settings
         self.evaluate=evaluate
+        self.max_workers=max_workers
+        self.backfill=backfill
 
     def run(self):
-        for index,entry in enumerate(self.instruments):
-            if self.isInterruptionRequested():
-                break
-            if not entry.verified or "@" not in entry.symbol:
-                self.row.emit(unknown(entry.symbol,"unverified"))
-                continue
-            ticker,mic=entry.symbol.split("@",1)
-            try:
-                result=self.evaluate(self.service,ticker,mic,self.settings,
-                                     cancelled=self.isInterruptionRequested)
-            except InterruptedError:
-                break
-            except Exception as exc:
-                status=getattr(exc,"http_status",None)
-                # No exception message, URL, token or account ID can reach UI.
-                result=unknown(entry.symbol,
-                               "rate_limited" if status==429 else "source_unavailable")
-                self.row.emit(result)
-                if status==429:
-                    # An early stop must not make the remaining instruments
-                    # look like they have insufficient weekly/monthly bars.
-                    # Their exact state is rate-limited, not history-short.
-                    for pending in self.instruments[index+1:]:
-                        if self.isInterruptionRequested():
-                            break
-                        self.row.emit(unknown(pending.symbol,"rate_limited"))
+        prepare_asyncio_runtime()
+        stop=threading.Event()
+        cancelled=lambda:self.isInterruptionRequested() or stop.is_set()
+        completed=set()
+        outcomes={}
+        rate_limited=False
+        def one(entry,extend=False):
+            if cancelled():raise InterruptedError()
+            if not entry.verified or "@" not in entry.symbol:return unknown(entry.symbol,"unverified")
+            scope=getattr(getattr(self.service,"api",None),"request_scope",None)
+            with scope(priority=20 if extend else 10,cancelled=cancelled) if scope else nullcontext():
+                if extend:
+                    symbol=symbol_name(*entry.symbol.split("@",1))
+                    _backfill_higher_history(self.service,symbol,self.service.clock(),
+                        self.service._series(symbol),cancelled=cancelled)
+                return self.evaluate(self.service,*entry.symbol.split("@",1),self.settings,cancelled=cancelled)
+        self.progress.emit(0,len(self.instruments))
+        pool=concurrent.futures.ThreadPoolExecutor(max_workers=self.max_workers,thread_name_prefix="FinamScan")
+        try:
+            # First publish all instruments; archive backfill has a separate low-priority pass.
+            for extend in (False,True):
+                if extend and (not self.backfill or not isinstance(getattr(self.service,"api",None),FinamAPI)):
                     break
-                continue
-            self.row.emit(result)
-        self.finished_pass.emit()
+                pending={}
+                cursor=iter(enumerate(self.instruments))
+                exhausted=False
+                while not cancelled():
+                    while len(pending)<self.max_workers and not exhausted:
+                        try:index,entry=next(cursor)
+                        except StopIteration:
+                            exhausted=True
+                            break
+                        pending[pool.submit(one,entry,extend)]=(index,entry)
+                    if not pending:break
+                    ready,_=concurrent.futures.wait(pending,timeout=.1,
+                        return_when=concurrent.futures.FIRST_COMPLETED)
+                    for future in ready:
+                        index,entry=pending.pop(future)
+                        try:result=future.result()
+                        except InterruptedError:continue
+                        except Exception as exc:
+                            limited=getattr(exc,"http_status",None)==429
+                            result=unknown(entry.symbol,"rate_limited" if limited else "source_unavailable")
+                            if limited:
+                                rate_limited=True
+                                stop.set()
+                        if not extend or outcomes.get(index)!=result:
+                            self.row.emit(result)
+                        outcomes[index]=result
+                        if not extend:
+                            completed.add(index)
+                            self.progress.emit(len(completed),len(self.instruments))
+                if cancelled():break
+        finally:
+            stop.set()
+            pool.shutdown(wait=True,cancel_futures=True)
+            if rate_limited and not self.isInterruptionRequested():
+                for index,entry in enumerate(self.instruments):
+                    if index not in completed:
+                        self.row.emit(unknown(entry.symbol,"rate_limited"))
+                        completed.add(index)
+                        self.progress.emit(len(completed),len(self.instruments))
+            self.finished_pass.emit()

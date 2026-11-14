@@ -113,7 +113,10 @@ class FinamStreamWorker(QThread):
                                            state=state,detail=detail))
             status("connecting")
             try:
-                token = await asyncio.to_thread(self.api.access_key, force=epoch>1)
+                def access_key():
+                    with self.api.request_scope(priority=0,cancelled=self._stopped.is_set):
+                        return self.api.access_key(force=epoch>1)
+                token = await asyncio.to_thread(access_key)
                 async with connect(WS_URL,open_timeout=15,close_timeout=3,
                                    additional_headers={"Authorization": token},
                                    ping_interval=20,ping_timeout=15,max_size=4*1024*1024) as ws:
