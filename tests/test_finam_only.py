@@ -104,6 +104,28 @@ class TestFinamAPI(unittest.TestCase):
         self.assertIn("timeframe=TIME_FRAME_H1",paths[-1][1])
         self.assertEqual(paths[-1][2],"Bearer access_dummy")
 
+    def test_bounded_history_request_uses_exact_inclusive_exclusive_dates(self):
+        from urllib.parse import parse_qs, urlparse
+        requests=[]
+        def opener(request,timeout):
+            requests.append(request.full_url)
+            class Response:
+                def __enter__(self):return self
+                def __exit__(self,*args):return None
+                def read(self):return b'{"bars":[]}'
+            return Response()
+        api=FinamAPI(opener=opener,secret_reader=lambda:"dummy")
+        api._jwt,api._expiry="fake_session",float("inf")
+        start=NOW-timedelta(days=120)
+        self.assertEqual(api.bars("SiZ6@RTSX","W1",start=start,end=NOW),[])
+        query=parse_qs(urlparse(requests[0]).query)
+        self.assertEqual(query["timeframe"],["TIME_FRAME_W"])
+        self.assertEqual(query["interval.start_time"],[start.isoformat().replace("+00:00","Z")])
+        self.assertEqual(query["interval.end_time"],[NOW.isoformat().replace("+00:00","Z")])
+        with self.assertRaises(ValueError):
+            api.bars("SiZ6@RTSX","W1",start=NOW,end=start)
+        self.assertEqual(len(requests),1)
+
     def test_finam_active_instruments_catalog_is_read_only_paginated(self):
         from urllib.parse import parse_qs, urlparse
         paths=[]
