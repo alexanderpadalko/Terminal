@@ -261,6 +261,7 @@ class TestFinamGui(unittest.TestCase):
                    if i.label=="SBER")
         self.window.screen_results[entry.symbol]=ScanResult(
             entry.symbol,(1,-1,0,0,0))
+        self.window.screen_buttons["H1"].setChecked(True)
         self.window._populate_universe()
         self.app.processEvents()
         row=next(self.window.examples.item(i) for i in
