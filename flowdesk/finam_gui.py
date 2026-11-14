@@ -795,7 +795,7 @@ class FinamWindow(QMainWindow):
                      timeframe=info["tf"],asof=info.get("asof"),
                      delay_seconds=info.get("feed_delay_seconds"))
         delay=info.get("feed_delay_seconds",0)//60
-        permissions_known=getattr(self.service.api,"permissions_status","unknown")=="verified"
+        permissions_known=getattr(getattr(self.service,"api",None),"permissions_status","unknown")=="verified"
         delay_label=("разрешённая задержка " if permissions_known
                      else "права не подтверждены; расчётная задержка ")
         self.feed.setText("Finam · наблюдение "+
