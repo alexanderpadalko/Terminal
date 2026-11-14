@@ -452,7 +452,7 @@ class TestFinamGui(unittest.TestCase):
         self.window.universe[US_FUTURES][0]=entry
         self.window.screen_results[entry.symbol]=ScanResult(
             entry.symbol,(1,0,1,None,None),
-            missing_reasons=("", "", "", "история 10/35", "история 3/30"))
+            missing_reasons=("", "", "", "поток ещё не сформирован", "нет подтверждённого состояния"))
         self.window.screen_buttons["W"].setChecked(True)
         self.window.screen_buttons["M"].setChecked(True)
         row=next(self.window.examples.item(i) for i in
@@ -465,8 +465,9 @@ class TestFinamGui(unittest.TestCase):
         self.assertIn("D",badge_labels)
         missing=next(label for label in labels
                      if label.objectName()=="screenerMissing")
-        self.assertEqual(missing.text(),"W 10/35, M 3/30")
-        self.assertIn("M: история 3/30",missing.toolTip())
+        self.assertEqual(missing.text(),"W: поток ещё не сформирован, M: нет подтверждённого состояния")
+        self.assertIn("M: нет подтверждённого состояния",missing.toolTip())
+        self.assertNotIn("/30",missing.toolTip())
         self.assertNotIn("нет данных",missing.text())
 
     def test_known_future_expiry_is_visible_in_compact_sidebar(self):

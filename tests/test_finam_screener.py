@@ -5,21 +5,26 @@ from unittest.mock import patch
 import unittest
 
 from flowdesk.finam_screener import (
-    LABELS, MIN_BARS, ScanResult, quote_last, unknown,
+    LABELS, TIMEFRAMES, ScanResult, quote_last, unknown,
     select_working_fvg_signals, scan_one, FinamScreenerWorker,
 )
 from flowdesk.market_data import Candle
+from flowdesk.engine import FlowState, FVG, analyze
 
 
-def make_main():
+def make_main(count=6):
     ts=datetime(2026,11,13,12,tzinfo=timezone.utc)
     sources={}
-    for tf in MIN_BARS:
-        bar=Candle(ts-timedelta(days=40),10,11,9,10,20)
-        # Fake source has the same published bar count as the native chart.
-        source=SimpleNamespace(candles=[bar]*MIN_BARS[tf],
-                               confirmed_bars=MIN_BARS[tf],timeframe=tf,
-                               flows=[],asof=ts)
+    steps={"H1":timedelta(hours=1),"H4":timedelta(hours=4),
+           "D1":timedelta(days=1),"W1":timedelta(days=7),"MN1":timedelta(days=31)}
+    for tf in TIMEFRAMES:
+        step=steps[tf]
+        bars=[Candle(ts-step*(count-i),100,120,80,100,20,
+                     scheduled_close=ts-step*(count-i-1)) for i in range(count)]
+        guard=FVG(0,1,2,110,90,1,source_tf=tf)
+        source=SimpleNamespace(candles=bars,confirmed_bars=count,timeframe=tf,
+            flows=[FlowState(i,side=1,lo=80,hi=120,start=0,guard=guard)
+                   for i in range(count)],asof=ts)
         sources[tf]=source
     main=sources["H1"]
     main.summary_sources=sources
@@ -62,9 +67,9 @@ class TestSignalLogic(unittest.TestCase):
             self.assertEqual(select_working_fvg_signals(main,105).directions,
                              (0,0,0,0,0))
 
-    def test_short_history_is_unknown_not_negative_signal(self):
+    def test_uninitialized_flow_and_absent_history_are_unknown_not_negative_signal(self):
         main=make_main()
-        main.summary_sources["W1"].confirmed_bars=1
+        main.summary_sources["W1"].flows=[FlowState(i) for i in range(6)]
         main.summary_sources["MN1"].candles=[]
         with patch("flowdesk.finam_screener.working_zone",return_value=None):
             result=select_working_fvg_signals(main,105)
@@ -74,20 +79,50 @@ class TestSignalLogic(unittest.TestCase):
         self.assertFalse(result.matched(("H1","M")))
         self.assertEqual(unknown("A@RTSX").directions,(None,)*5)
 
-    def test_weekly_and_monthly_unknowns_explain_short_contract_history(self):
+    def test_short_ready_history_can_signal_on_every_timeframe_without_bar_floor(self):
+        # The genuine selected-guard/publication path, not a mocked zone:
+        # four closed candles are below every former 70/50/45/35/30 floor.
+        main=make_main(count=4)
+        result=select_working_fvg_signals(main,100,symbol="SIZ6@RTSX")
+        self.assertEqual(result.directions,(1,1,1,1,1))
+        self.assertEqual(result.missing_reasons,("",)*5)
+
+    def test_real_uninitialized_monthly_history_never_fabricates_signal(self):
         main=make_main()
-        main.summary_sources["W1"].confirmed_bars=11
-        main.summary_sources["MN1"].confirmed_bars=3
-        main.summary_sources["W1"].candles=main.summary_sources["W1"].candles[:11]
-        main.summary_sources["MN1"].candles=main.summary_sources["MN1"].candles[:3]
+        ts=main.asof
+        # One closed month and one forming month, like the observed Brent
+        # archive. Run the actual pinned engine for this source.
+        bars=[Candle(ts-timedelta(days=40),100,110,90,101,20,
+                     scheduled_close=ts-timedelta(days=10)),
+              Candle(ts-timedelta(days=10),101,111,91,102,20,
+                     scheduled_close=ts+timedelta(days=20))]
+        main.summary_sources["MN1"]=analyze(bars,"MN1",asof=ts)
+        result=select_working_fvg_signals(main,100)
+        self.assertIsNone(result.as_map()["M"])
+        self.assertEqual(result.reason_map()["M"],"поток ещё не сформирован")
+
+    def test_forming_month_without_any_closed_state_stays_unknown(self):
+        main=make_main()
+        ts=main.asof
+        bars=[Candle(ts-timedelta(days=10),100,110,90,101,20,
+                     scheduled_close=ts+timedelta(days=20))]
+        main.summary_sources["MN1"]=analyze(bars,"MN1",asof=ts)
+        result=select_working_fvg_signals(main,100)
+        self.assertIsNone(result.as_map()["M"])
+        self.assertEqual(result.reason_map()["M"],"нет подтверждённого состояния")
+
+    def test_unready_state_and_missing_published_state_have_explicit_reasons(self):
+        main=make_main()
+        main.summary_sources["W1"].flows=[FlowState(i) for i in range(6)]
+        main.summary_sources["MN1"].flows=[]
         with patch("flowdesk.finam_screener.working_zone",return_value=None):
             result=select_working_fvg_signals(
                 main,100,symbol="SIZ26@RTSX",
                 fetch_problems={"W1":"Finam не вернул свечи"})
         self.assertEqual(result.directions,(0,0,0,None,None))
         self.assertEqual(result.reason_map()["W"],
-                         "история 11/35; Finam не вернул свечи")
-        self.assertEqual(result.reason_map()["M"],"история 3/30")
+                         "поток ещё не сформирован; Finam не вернул свечи")
+        self.assertEqual(result.reason_map()["M"],"нет подтверждённого состояния")
         self.assertTrue(result.missing(("W","M")))
         self.assertFalse(result.matched(("W","M")))
         self.assertEqual(result.reason_map()["H1"],"")

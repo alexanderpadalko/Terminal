@@ -15,17 +15,14 @@ from PySide6.QtCore import QThread, Signal
 from .finam_api import decimal_number, symbol_name, DEPTH_DAYS, FinamAPI
 from .finam_auction import exclude_stock_closing_auction
 from .fvg_display import working_zone
-from .market_data import candle_close_time
 from .pipeline import analyze_timeframes
-from .publication import chart_cutoff
+from .publication import chart_cutoff, published_state
 
 TIMEFRAMES = ("H1", "H4", "D1", "W1", "MN1")
 LABELS = ("H1", "H4", "D", "W", "M")
 DISPLAY = dict(zip(TIMEFRAMES, LABELS))
 INTERNAL = dict(zip(LABELS, TIMEFRAMES))
-# Conservative minimum historical bar counts. Missing source is unknown,
-# never a fabricated 0/SHORT signal.
-MIN_BARS = {"H1": 70, "H4": 50, "D1": 45, "W1": 35, "MN1": 30}
+# Signal readiness comes from the confirmed flow, not a fixed bar count.
 TTL_SECONDS = {"H1": 300, "H4": 900, "D1": 1800,
                "W1": 3600, "MN1": 14400, "M1": 300}
 
@@ -118,16 +115,18 @@ def select_working_fvg_signals(main, latest_price, *, symbol="", fetch_problems=
     reasons=[]
     for tf in TIMEFRAMES:
         source=sources.get(tf)
-        required=MIN_BARS[tf]
-        confirmed=max(0,int(source.confirmed_bars)) if source is not None else 0
-        # Confirmed source bars are a lower bound for the working-flow
-        # history. A new December futures contract cannot magically supply
-        # 30 months of its own prices.
-        if not source or not source.candles or confirmed<required:
+        detail=""
+        if not source or not source.candles:
+            detail="нет свечей"
+        else:
+            state,_,_=published_state(source,cutoff)
+            if state is None:
+                detail="нет подтверждённого состояния"
+            elif state.side not in (-1,1) or state.lo is None or state.hi is None:
+                detail="поток ещё не сформирован"
+        if detail:
             direction.append(None)
             error=(fetch_problems or {}).get(tf,"")
-            detail=(f"история {confirmed}/{required}" if confirmed
-                    else "нет свечей")
             reasons.append(detail+(("; "+error) if error else ""))
             continue
         zone=working_zone(source,cutoff,cutoff)
@@ -148,7 +147,7 @@ def _backfill_higher_history(service, symbol, now, series, *,
     candles go into the existing Finam-only SQLite cache; progress is kept
     in memory so later five-minute passes resume from the prior boundary.
     A 429 is propagated to stop the entire scan, not disguised as no bars.
-    Continue to the documented depth even once the signal minimum is met.
+    Continue to the existing depth boundary independently of signal readiness.
     An old individual future is never stitched to another contract.
     """
     if not isinstance(getattr(service, "api", None), FinamAPI):
@@ -164,7 +163,6 @@ def _backfill_higher_history(service, symbol, now, series, *,
             raise InterruptedError()
         bars=series.get(tf) or ()
         cutoff=now-timedelta(days=DEPTH_DAYS[tf])
-        confirmed=sum(candle_close_time(bar,tf)<=now for bar in bars)
         key=(symbol,tf)
         progress=state.get(key,{})
         if progress.get("exhausted"):
@@ -194,18 +192,13 @@ def _backfill_higher_history(service, symbol, now, series, *,
             if older:
                 with service.lock:
                     service._upsert(symbol,tf,older)
-                # Compare timestamps, not response count: intervals may
-                # overlap an already cached candle at a boundary.
-                known={bar.time for bar in bars}
-                bars=[*bars,*(bar for bar in older if bar.time not in known)]
-                confirmed=sum(candle_close_time(bar,tf)<=now for bar in bars)
             cursor=start
             budget-=1
             frame_budget-=1
             state[key]={"cursor":cursor,"exhausted":cursor<=cutoff}
             if budget:
                 time_sleep(.4)
-        if tf not in problems and confirmed<MIN_BARS[tf]:
+        if tf not in problems:
             problems[tf]=(
                 "доступный период Finam проверен" if cursor<=cutoff
                 else "дозагрузка истории")

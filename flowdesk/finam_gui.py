@@ -399,12 +399,7 @@ class FinamWindow(QMainWindow):
                 if not entry.verified:
                     reason="тикер не подтверждён Finam"
                 explanations.append(f"{tf}: {reason}")
-                # A short but explicit counter fits the sidebar next to
-                # existing H1/H4/D/W/M badges; full reason is the tooltip.
-                short_labels.append(
-                    f"{tf} {reason[len('история '):]}" if
-                    reason.startswith("история ") and ";" not in reason
-                    else f"{tf}: {reason}")
+                short_labels.append(f"{tf}: {reason}")
             if not explanations:
                 explanations=["история недоступна"]
                 short_labels=["нет свечей"]
