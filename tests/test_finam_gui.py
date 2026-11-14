@@ -76,6 +76,18 @@ class TestFinamGui(unittest.TestCase):
         self.window.mic.setCurrentText(mic)
         self.window._select()
 
+    def mixed_case_currency_futures(self):
+        from dataclasses import replace
+        from flowdesk.finam_universe import RU_FUTURES
+        symbols={"SIZ2026":"SiZ6@RTSX","EUZ2026":"EuZ6@RTSX"}
+        entries=[]
+        for index,entry in enumerate(self.window.universe[RU_FUTURES]):
+            if entry.label in symbols:
+                entry=replace(entry,symbol=symbols[entry.label],verified=True)
+                self.window.universe[RU_FUTURES][index]=entry
+                entries.append(entry)
+        return entries
+
     def test_failed_new_symbol_clears_previous_chart_and_labels_requested_symbol(self):
         self.select("SBER")
         self.settle()
@@ -385,13 +397,8 @@ class TestFinamGui(unittest.TestCase):
         self.assertNotIn("D",tags)
 
     def test_ru_si_eu_are_scheduled_before_other_scan_instruments(self):
-        from flowdesk.finam_universe import RU_FUTURES, Item
         from unittest.mock import MagicMock
-        current=self.window.universe[RU_FUTURES]
-        for index in (0,2):
-            old=current[index]
-            current[index]=Item(old.label,old.name,old.group,
-                                old.label+"@RTSX",True,"verified")
+        self.mixed_case_currency_futures()
         self.window.catalog_ready=True
         with (patch("flowdesk.finam_gui.read_secret",return_value="local"),
               patch("flowdesk.finam_gui.FinamScreenerWorker") as worker_class):
@@ -401,9 +408,51 @@ class TestFinamGui(unittest.TestCase):
             instruments=worker_class.call_args.args[1]
             self.assertEqual([entry.label for entry in instruments[:2]],
                              ["SIZ2026","EUZ2026"])
-            self.assertIn("SIZ2026@RTSX",self.window.screener_pending)
-            self.assertIn("EUZ2026@RTSX",self.window.screener_pending)
+            self.assertIn("SIZ6@RTSX",self.window.screener_pending)
+            self.assertIn("EUZ6@RTSX",self.window.screener_pending)
             self.window.screener_worker=None
+
+    def test_screener_accepts_normalized_si_eu_results_from_catalog_entries(self):
+        from flowdesk.finam_screener import ScanResult
+        entries=self.mixed_case_currency_futures()
+        self.window.screen_buttons["H1"].setChecked(True)
+        self.window.screener_pending={entry.symbol.upper() for entry in entries}
+        for entry,direction in zip(entries,(1,-1)):
+            result=ScanResult(entry.symbol.upper(),(direction,0,0,0,0))
+            self.window._screener_row(result)
+            with self.subTest(symbol=entry.symbol):
+                self.assertIs(self.window.screen_results.get(result.symbol),result)
+                self.assertNotIn(result.symbol,self.window.screener_pending)
+                self.assertEqual(self.window._screen_outcome(entry,["H1"]),"matched")
+        self.assertFalse(self.window.screener_pending)
+
+    def test_unfinished_si_eu_get_explicit_retry_reason_after_scan(self):
+        from unittest.mock import MagicMock
+        from PySide6.QtCore import Qt
+        from PySide6.QtWidgets import QLabel
+        entries=self.mixed_case_currency_futures()
+        self.window.screen_buttons["H1"].setChecked(True)
+        worker=MagicMock()
+        self.window.screener_worker=worker
+        self.window.screener_pending={entry.symbol.upper() for entry in entries}
+        with patch.object(self.window,"sender",return_value=worker):
+            self.window._screener_finished()
+        for entry in entries:
+            with self.subTest(symbol=entry.symbol):
+                result=self.window.screen_results.get(entry.symbol.upper())
+                self.assertIsNotNone(result)
+                self.assertEqual(result.error_code,"scan_incomplete")
+                row=next(self.window.examples.item(i) for i in
+                         range(self.window.examples.count()) if
+                         self.window.examples.item(i).data(Qt.ItemDataRole.UserRole)==entry.symbol)
+                labels=self.window.examples.itemWidget(row).findChildren(QLabel)
+                self.assertTrue(any("проверка не завершена" in label.text()
+                                    for label in labels))
+                self.assertFalse(any("ожидает проверки" in label.text()
+                                     for label in labels))
+        self.assertFalse(self.window.screener_pending)
+        self.assertIsNone(self.window.screener_worker)
+        worker.deleteLater.assert_called_once()
 
     def test_no_filter_shows_all_38_instruments_without_any_tf_badges(self):
         from PySide6.QtWidgets import QLabel

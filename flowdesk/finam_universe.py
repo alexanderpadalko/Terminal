@@ -147,5 +147,7 @@ def compose_universe(assets=(),*,watchlist=None):
 
 
 def is_in_universe(symbol, universe):
-    return any(row.symbol==symbol and row.verified
+    """Match normalized internal symbols without rewriting catalog/API casing."""
+    normalized=symbol.upper()
+    return any(row.symbol.upper()==normalized and row.verified
                for group in universe.values() for row in group)

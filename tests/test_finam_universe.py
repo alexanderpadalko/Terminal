@@ -5,7 +5,7 @@ from pathlib import Path
 
 from flowdesk.finam_universe import (
     US_CONTRACTS, RU_CONTRACTS, US_FUTURES, RU_FUTURES, RU_STOCKS,
-    compose_universe, cached_top20, match_contract, is_in_universe
+    compose_universe, cached_top20, match_contract, is_in_universe, Item
 )
 
 
@@ -98,6 +98,22 @@ class TestCuratedFinamUniverse(unittest.TestCase):
         self.assertTrue(is_in_universe("NQZ6@XCME",groups))
         self.assertFalse(is_in_universe("NQH27@XCME",groups))
         self.assertFalse(is_in_universe("AAPL@XNGS",groups))
+
+    def test_normalized_currency_symbols_keep_exact_contract_and_venue(self):
+        rows=[Item("SIZ2026","USD/RUB",RU_FUTURES,"SiZ6@RTSX",True),
+              Item("EUZ2026","EUR/RUB",RU_FUTURES,"EuZ6@RTSX",True),
+              Item("CRZ2026","CNY/RUB",RU_FUTURES,"CRZ6@RTSX",False)]
+        groups={RU_FUTURES:rows}
+        for row in rows[:2]:
+            for symbol in (row.symbol,row.symbol.upper(),row.symbol.lower()):
+                with self.subTest(symbol=symbol):
+                    self.assertTrue(is_in_universe(symbol,groups))
+        for symbol in ("SIH7@RTSX","EUH7@RTSX","SIZ26@RTSX",
+                       "SIZ6@XCEC","EUZ6@XCME","CRZ6@RTSX",""):
+            with self.subTest(rejected=symbol):
+                self.assertFalse(is_in_universe(symbol,groups))
+        self.assertEqual([row.symbol for row in rows[:2]],
+                         ["SiZ6@RTSX","EuZ6@RTSX"])
 
 
 if __name__=="__main__":
