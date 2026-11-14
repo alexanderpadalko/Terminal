@@ -350,6 +350,20 @@ class TestFinamWebSocket(unittest.TestCase):
         self.assertEqual(batch[0].kind,"candles")
         self.assertEqual(batch[0].timeframe,"H1")
         self.assertEqual(batch[0].candles[0].high,252)
+    def test_tf_subscription_error_isolated_and_raw_server_secret_not_visible(self):
+        packet={"type":"ERROR","subscription_type":"BARS",
+                "subscription_key":"SiZ6@RTSX:TIME_FRAME_MN",
+                "error_info":{"message":"secret=not_for_ui account_id=private"}}
+        result=interpret_packet(packet,"SIZ6","RTSX",1,NOW)
+        self.assertEqual(result.state,"subscription_error")
+        self.assertIn("MN1",result.detail)
+        self.assertNotIn("secret",result.detail)
+        self.assertNotIn("private",result.detail)
+        fatal=interpret_packet({"type":"ERROR","error_info":{
+            "message":"Bearer hidden_auth_key"}},"SIZ6","RTSX",1,NOW)
+        self.assertEqual(fatal.state,"unavailable")
+        self.assertNotIn("hidden_auth_key",fatal.detail)
+
     def test_order_envelopes_ignored(self):
         self.assertIsNone(interpret_packet({"type":"DATA","subscription_type":"ORDERS",
                             "payload":{"orders":[{"id":"x"}]}}, "AAPL","XNAS",1,NOW))
