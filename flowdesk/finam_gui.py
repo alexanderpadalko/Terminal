@@ -8,12 +8,12 @@ from pathlib import Path
 import re
 import sys
 
-from PySide6.QtCore import QSettings, QThread, QTimer, Qt, Signal
+from PySide6.QtCore import QSettings, QThread, QTimer, Qt, Signal, QSize
 from PySide6.QtWidgets import (
     QApplication, QComboBox, QHBoxLayout, QLabel, QLineEdit,
     QMainWindow, QMessageBox, QPushButton, QVBoxLayout, QWidget,
     QListWidget, QListWidgetItem, QInputDialog, QSplitter, QFormLayout, QFrame,
-    QToolButton, QSizePolicy
+    QToolButton, QSizePolicy, QStyledItemDelegate, QStyleOptionViewItem, QStyle
 )
 
 from . import __version__
@@ -42,6 +42,25 @@ EXAMPLES = (
     ("TSLA","XNGS","Tesla · NASDAQ"),
     ("IBM","XNYS","IBM · NYSE"),
 )
+
+
+class SignalRowDelegate(QStyledItemDelegate):
+    """Draw Qt row selection without drawing text under custom badge widgets.
+
+    A selected QListWidget item uses the palette's highlighted-text color,
+    overriding even a transparent item foreground. Preserve item.text() for
+    search and accessibility while excluding only the *native* text painting.
+    """
+
+    def paint(self, painter, option, index):
+        if not index.data(Qt.ItemDataRole.UserRole + 2):
+            return super().paint(painter, option, index)
+        visual = QStyleOptionViewItem(option)
+        self.initStyleOption(visual, index)
+        visual.text = ""
+        style = visual.widget.style() if visual.widget else QApplication.style()
+        style.drawControl(QStyle.ControlElement.CE_ItemViewItem,
+                          visual, painter, visual.widget)
 
 
 class FinamLoadWorker(QThread):
@@ -241,6 +260,10 @@ class FinamWindow(QMainWindow):
         right.addWidget(self.search)
         self.examples=QListWidget(side)
         self.examples.setObjectName("instrumentList")
+        # Custom signal widgets must fit the viewport, not the intrinsic
+        # width of a long Russian label or a multi-timeframe explanation.
+        self.examples.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.examples.setItemDelegate(SignalRowDelegate(self.examples))
         self.examples.itemActivated.connect(self._example)
         self.examples.itemClicked.connect(self._example)
         right.addWidget(self.examples,1)
@@ -343,6 +366,7 @@ class FinamWindow(QMainWindow):
         description=QLabel(title,widget)
         description.setStyleSheet("color:"+("#999" if not entry.verified
                                    else "#e8e8e8")+";background:transparent;")
+        description.setMinimumWidth(0)
         description.setSizePolicy(QSizePolicy.Policy.Ignored,
                                   QSizePolicy.Policy.Preferred)
         description.setToolTip(title)
@@ -390,14 +414,21 @@ class FinamWindow(QMainWindow):
                 "background:#393d43;color:#c1c6cf;border:1px solid #6c727c;"
                 "border-radius:3px;padding:3px;font-size:10px;")
             neutral.setToolTip("\n".join(explanations))
-            neutral.setMaximumWidth(185)
+            # The complete reasons remain available on hover. The visible
+            # text is elided rather than expanding the QListWidget viewport.
+            neutral.setFixedWidth(160)
+            neutral.setText(neutral.fontMetrics().elidedText(
+                compact, Qt.TextElideMode.ElideRight, 152))
             row_layout.addWidget(neutral)
-        row.setSizeHint(widget.sizeHint())
+        # Width must not enter QListWidget content-size calculation: that
+        # otherwise clips the rightmost badge when selecting a long symbol.
+        row.setSizeHint(QSize(0, max(27, widget.sizeHint().height())))
         # QListWidget normally paints item.text() UNDER the custom row
         # widget. Keep item.text() intact for search, accessibility and
         # existing tests, but hide native glyphs; only the QLabel paints
         # the instrument name (once), alongside the colored TF badges.
         row.setForeground(Qt.GlobalColor.transparent)
+        row.setData(Qt.ItemDataRole.UserRole + 2, True)
         self.examples.setItemWidget(row,widget)
 
     def _populate_universe(self):
@@ -462,6 +493,11 @@ class FinamWindow(QMainWindow):
             return
         entries=tuple(row for group in (US_FUTURES,RU_STOCKS,RU_FUTURES)
                       for row in self.universe[group])
+        # Si and Eu appeared indefinitely as pending because a full 38x6
+        # sequential REST scan reached Russian futures last. Prioritise those
+        # two verified contracts, preserving the order of all other rows.
+        priority={"SIZ2026":0, "EUZ2026":1}
+        entries=tuple(sorted(entries,key=lambda item:priority.get(item.label,2)))
         if not entries:
             return
         self.screener_rescan_requested=False
