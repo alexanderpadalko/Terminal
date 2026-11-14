@@ -302,7 +302,8 @@ class TestFinamGui(unittest.TestCase):
         self.assertEqual(row.foreground().color().alpha(),0)
         labels=[label.text() for label in widget.findChildren(QLabel)]
         self.assertEqual(sum(label.startswith("SBER ·") for label in labels),1)
-        self.assertEqual(labels.count("нет данных"),1)
+        self.assertEqual(sum(text.startswith("D:") for text in labels),1)
+        self.assertEqual(labels[-1],"D: ожидает проверки")
 
     def test_embedded_fvg_filter_or_unknown_section_and_chart_persist(self):
         from PySide6.QtWidgets import QLabel
@@ -366,8 +367,69 @@ class TestFinamGui(unittest.TestCase):
         sber_row=next(row for row in visible if row.text().startswith("SBER"))
         tags=[label.text() for label in
               self.window.examples.itemWidget(sber_row).findChildren(QLabel)]
-        self.assertIn("нет данных",tags)
+        self.assertEqual(tags[-1],"D: ожидает проверки")
         self.assertNotIn("D",tags)
+
+    def test_no_filter_shows_all_38_instruments_without_any_tf_badges(self):
+        from PySide6.QtWidgets import QLabel
+        from flowdesk.finam_screener import ScanResult
+        from flowdesk.finam_universe import RU_STOCKS
+        sber=next(item for item in self.window.universe[RU_STOCKS]
+                  if item.label=="SBER")
+        self.window.screen_results[sber.symbol]=ScanResult(
+            sber.symbol,(1,-1,1,0,-1))
+        self.window._populate_universe()
+        self.assertFalse(any(button.isChecked() for button in
+                             self.window.screen_buttons.values()))
+        self.assertEqual(self.window.examples.count(),41)
+        row=next(self.window.examples.item(i) for i in
+                 range(self.window.examples.count())
+                 if self.window.examples.item(i).text().startswith("SBER ·"))
+        self.assertIsNone(self.window.examples.itemWidget(row))
+        self.assertNotIn("нет данных",[self.window.examples.item(i).text()
+                          for i in range(self.window.examples.count())])
+        self.assertEqual(self.window.examples.objectName(),"instrumentList")
+        self.assertIn("border:2px solid #687383",self.window.styleSheet())
+        self.assertIn("border:1px solid #86baf0",self.window.styleSheet())
+        self.window.screen_buttons["W"].setChecked(True)
+        row=next(self.window.examples.item(i) for i in
+                 range(self.window.examples.count())
+                 if self.window.examples.item(i).text().startswith("SBER ·"))
+        widget=self.window.examples.itemWidget(row)
+        self.assertIsNotNone(widget)
+        badges=[label.text() for label in widget.findChildren(QLabel)]
+        self.assertIn("H1",badges)
+        self.assertIn("H4",badges)
+        self.assertIn("M",badges)
+        self.window.screen_buttons["W"].setChecked(False)
+        row=next(self.window.examples.item(i) for i in
+                 range(self.window.examples.count())
+                 if self.window.examples.item(i).text().startswith("SBER ·"))
+        self.assertIsNone(self.window.examples.itemWidget(row))
+
+    def test_selected_tf_missing_reason_is_clear_even_with_other_tf_signal(self):
+        from PySide6.QtWidgets import QLabel
+        from flowdesk.finam_screener import ScanResult
+        from flowdesk.finam_universe import US_FUTURES
+        entry=self.window.universe[US_FUTURES][0]
+        self.window.screen_results[entry.symbol]=ScanResult(
+            entry.symbol,(1,0,1,None,None),
+            missing_reasons=("", "", "", "история 10/35", "история 3/30"))
+        self.window.screen_buttons["W"].setChecked(True)
+        self.window.screen_buttons["M"].setChecked(True)
+        row=next(self.window.examples.item(i) for i in
+                 range(self.window.examples.count())
+                 if self.window.examples.item(i).text().startswith(entry.label+" ·"))
+        widget=self.window.examples.itemWidget(row)
+        labels=widget.findChildren(QLabel)
+        badge_labels=[label.text() for label in labels]
+        self.assertIn("H1",badge_labels)
+        self.assertIn("D",badge_labels)
+        missing=next(label for label in labels
+                     if label.objectName()=="screenerMissing")
+        self.assertEqual(missing.text(),"W: история 10/35, M: история 3/30")
+        self.assertIn("M: история 3/30",missing.toolTip())
+        self.assertNotIn("нет данных",missing.text())
 
     def test_known_future_expiry_is_visible_in_compact_sidebar(self):
         from flowdesk.finam_universe import Item, US_FUTURES
