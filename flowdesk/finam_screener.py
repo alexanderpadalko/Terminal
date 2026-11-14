@@ -218,11 +218,16 @@ def _backfill_higher_history(service, symbol, now, series, *,
         cursor=progress.get("cursor")
         if cursor is None:
             cursor=min((bar.time for bar in bars),default=now)
-        if progress.get("exhausted") and cursor<=cutoff:
-            problems[tf]="достигнута граница проверенных окон"
+        # Old monthly records were marked exhausted at the former five-year
+        # boundary. Migrate only those records, never repeatedly reopen a
+        # genuinely empty older window on every five-minute scan.
+        legacy_cutoff=now-timedelta(days=DEPTH_DAYS[tf])
+        legacy_monthly=(tf=="MN1" and symbol.upper().endswith("@MISX")
+                        and abs((cursor-legacy_cutoff).total_seconds())<35*86400)
+        if progress.get("exhausted") and not legacy_monthly:
+            problems[tf]="архивное окно проверено; более ранние данные не гарантированы"
             continue
-        # Migrate progress created under the former five-year hard stop.
-        if progress.get("exhausted") and cursor>cutoff:
+        if legacy_monthly:
             progress={"cursor":cursor,"exhausted":False}
         chunk=timedelta(days=90 if tf=="D1" else
                         (5*365 if tf=="MN1" else 365))
