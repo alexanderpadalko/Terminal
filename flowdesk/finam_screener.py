@@ -6,7 +6,7 @@ not a separate MOEX feed or reimplementation of flow reversal rules.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from math import isfinite
 import time
 import threading
@@ -15,7 +15,7 @@ from contextlib import nullcontext
 
 from PySide6.QtCore import QThread, Signal
 
-from .finam_api import decimal_number, symbol_name, DEPTH_DAYS, FinamAPI
+from .finam_api import decimal_number, symbol_name, DEPTH_DAYS, FinamAPI, parse_instant
 from .finam_auction import exclude_stock_closing_auction
 from .fvg_display import working_zone
 from .publication import chart_cutoff, published_state
@@ -63,6 +63,7 @@ _ERROR_LABELS={
     "rate_limited": "лимит запросов Finam",
     "source_unavailable": "Finam недоступен",
     "scan_incomplete": "проверка не завершена; повтор через 5 мин",
+    "stale_quote": "котировка Finam устарела",
 }
 
 
@@ -87,17 +88,55 @@ def quote_last(response, symbol=None):
         return None
     quotes=response.get("quote")
     if isinstance(quotes, list):
-        response=next((item for item in quotes
-                       if isinstance(item,dict) and
-                       (not symbol or not item.get("symbol") or
-                        item["symbol"].upper()==symbol.upper())), {})
+        if symbol:
+            # Never accept an unlabelled quote before the exact requested
+            # symbol: it can belong to another item in a batch.
+            response=next((item for item in quotes
+                           if isinstance(item,dict) and
+                           str(item.get("symbol","")).upper()==symbol.upper()), {})
+        else:
+            response=quotes[0] if len(quotes)==1 and isinstance(quotes[0],dict) else {}
     elif isinstance(quotes, dict):
         response=quotes
     if symbol and response.get("symbol") and (
             str(response["symbol"]).upper()!=symbol.upper()):
         return None
+    if not isinstance(response,dict):
+        return None
     price=response.get("last")
     return _price(price)
+
+
+def quote_age_problem(response, observed, symbol, *, max_seconds=900):
+    """Reject timestamped LAST older than the market observation horizon.
+
+    Missing/unparseable timestamps are *unknown* and must not be treated
+    as evidence of a fresh trade. Existing Finam responses without a time
+    field remain usable only under the existing candle fallback policy.
+    """
+    if not isinstance(response,dict):
+        return ""
+    quotes=response.get("quote")
+    if isinstance(quotes,list):
+        response=next((row for row in quotes if isinstance(row,dict) and
+                       str(row.get("symbol","")).upper()==symbol.upper()),{})
+    elif isinstance(quotes,dict):
+        response=quotes
+    if not isinstance(response,dict):
+        return ""
+    stamp=response.get("timestamp") or response.get("trade_time") or response.get("last_time")
+    if stamp is None:
+        return ""
+    try:
+        trade_time=parse_instant(stamp)
+    except (TypeError,ValueError,KeyError,OverflowError):
+        return "время последней сделки Finam не распознано"
+    delta=(observed-trade_time).total_seconds()
+    if delta > max_seconds:
+        return "последняя сделка устарела"
+    if delta < -60:
+        return "время сделки опережает наблюдаемый рынок"
+    return ""
 
 
 def select_working_fvg_signals(main, latest_price, *, symbol="", fetch_problems=None):
@@ -168,16 +207,25 @@ def _backfill_higher_history(service, symbol, now, series, *,
         if cancelled():
             raise InterruptedError()
         bars=series.get(tf) or ()
-        cutoff=now-timedelta(days=DEPTH_DAYS[tf])
+        # The five-year API limit is PER REQUEST for MN1, not the maximum
+        # lifetime of the instrument. Live Finam returned SBER from 1999.
+        # Keep daily/weekly policies unchanged; extend only monthly stocks.
+        cutoff=(datetime(1990,1,1,tzinfo=timezone.utc)
+                if tf=="MN1" and symbol.upper().endswith("@MISX")
+                else now-timedelta(days=DEPTH_DAYS[tf]))
         key=(symbol,tf)
         progress=state.get(key,{})
-        if progress.get("exhausted"):
-            problems[tf]="доступный период Finam проверен"
-            continue
         cursor=progress.get("cursor")
         if cursor is None:
             cursor=min((bar.time for bar in bars),default=now)
-        chunk=timedelta(days=90 if tf=="D1" else 365)
+        if progress.get("exhausted") and cursor<=cutoff:
+            problems[tf]="достигнута граница проверенных окон"
+            continue
+        # Migrate progress created under the former five-year hard stop.
+        if progress.get("exhausted") and cursor>cutoff:
+            progress={"cursor":cursor,"exhausted":False}
+        chunk=timedelta(days=90 if tf=="D1" else
+                        (5*365 if tf=="MN1" else 365))
         frame_budget=2 if tf in ("W1","MN1") else 1
         while budget and frame_budget and cursor>cutoff:
             if cancelled():
@@ -201,12 +249,18 @@ def _backfill_higher_history(service, symbol, now, series, *,
             cursor=start
             budget-=1
             frame_budget-=1
-            state[key]={"cursor":cursor,"exhausted":cursor<=cutoff}
+            # A completely empty old window is a stopping heuristic, not
+            # evidence that ALL dates before it are unavailable.
+            stop_on_empty=not older
+            state[key]={"cursor":cursor,"exhausted":cursor<=cutoff or stop_on_empty}
             save=getattr(service,"save_history_progress",None)
             if callable(save):save(symbol,tf,state[key])
+            if stop_on_empty:
+                problems[tf]="старое окно Finam пусто; более ранняя история не проверена"
+                break
         if tf not in problems:
             problems[tf]=(
-                "доступный период Finam проверен" if cursor<=cutoff
+                "достигнута граница проверенных окон" if cursor<=cutoff
                 else "дозагрузка истории")
         if budget==0:
             break
@@ -226,8 +280,13 @@ def scan_one(service, ticker, mic, settings, *, cancelled=lambda:False,
     now=service.clock()
     price=None
     origin=""
+    quote_problem=""
     try:
-        price=quote_last(service.latest_quote(symbol,cancelled=cancelled),symbol)
+        last_quote=service.latest_quote(symbol,cancelled=cancelled)
+        observed_quote=now-timedelta(minutes=service.api.market_delay_minutes(mic))
+        quote_problem=quote_age_problem(last_quote,observed_quote,symbol)
+        if not quote_problem:
+            price=quote_last(last_quote,symbol)
         if price is not None:origin="finam_last"
     except InterruptedError:raise
     except Exception as exc:
@@ -249,7 +308,7 @@ def scan_one(service, ticker, mic, settings, *, cancelled=lambda:False,
         main, _ = service.analyze_cached(symbol,"H1",series,settings,observed)
     except (ValueError,IndexError,TypeError,AttributeError):
         return unknown(symbol,"analysis_unavailable")
-    if price is None:
+    if price is None and not quote_problem:
         # Finam-only fallback when the quote endpoint is unavailable. Use
         # the last known M1 close, then H1 close; never invent a bid or trade.
         recent=series.get("M1") or series["H1"]
@@ -257,6 +316,8 @@ def scan_one(service, ticker, mic, settings, *, cancelled=lambda:False,
         if available:
             price=_price(available[-1].close)
             origin="finam_candle_close"
+    if quote_problem:
+        return unknown(symbol,"stale_quote",reasons=(quote_problem,)*len(TIMEFRAMES))
     if price is None:
         return unknown(symbol,"price_unavailable")
     result=select_working_fvg_signals(
@@ -324,6 +385,13 @@ class FinamScreenerWorker(QThread):
                         except InterruptedError:continue
                         except Exception as exc:
                             limited=getattr(exc,"http_status",None)==429
+                            # Archive failures must not erase already valid
+                            # primary-pass signals. Keep their earlier result.
+                            if extend and index in outcomes:
+                                if limited:
+                                    rate_limited=True
+                                    stop.set()
+                                continue
                             result=unknown(entry.symbol,"rate_limited" if limited else "source_unavailable")
                             if limited:
                                 rate_limited=True
