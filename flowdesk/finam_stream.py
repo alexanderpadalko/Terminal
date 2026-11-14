@@ -36,9 +36,21 @@ def interpret_packet(packet, ticker, mic, epoch, now):
         return isinstance(value,str) and value.upper()==symbol
     ptype = packet.get("type")
     if ptype == "ERROR":
-        info = packet.get("error_info") or {}
+        # A failed TF subscription is local to that subscription. Treat only
+        # unscoped errors as connection/auth failures; never surface the raw
+        # provider message, which may include tokens/account identifiers.
+        key=str(packet.get("subscription_key") or "")
+        kind=str(packet.get("subscription_type") or "")
+        known=(kind=="QUOTES" and symbol.upper() in key.upper()) or (
+            kind=="BARS" and symbol.upper() in key.upper())
+        frame=next((name for name,code in FRAMES.items() if code in key),"")
+        if known or (frame and symbol.upper() in key.upper()):
+            label="QUOTES" if kind=="QUOTES" else "BARS "+(frame or "неизвестный ТФ")
+            return FinamEvent("status",ticker,mic,epoch,now,
+                              state="subscription_error",
+                              detail="Недоступна подписка Finam "+label)
         return FinamEvent("status",ticker,mic,epoch,now,state="unavailable",
-                          detail=str(info.get("message") or info.get("type") or "Ошибка подписки"))
+                          detail="Finam: ошибка соединения или авторизации")
     if ptype != "DATA":
         return None
     subscription = packet.get("subscription_type")
@@ -160,8 +172,9 @@ class FinamStreamWorker(QThread):
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
-                # Never log token, Authorization headers or raw server payload.
-                msg = f"{type(exc).__name__}: {str(exc)[:180]}"
+                # Never propagate raw provider exception text to UI/logs: it
+                # may contain authorization headers, token or account data.
+                msg = "Finam: "+type(exc).__name__
                 if isinstance(exc,PermissionError):
                     status("unavailable",msg)
                     return
