@@ -414,11 +414,10 @@ class FinamWindow(QMainWindow):
                 "background:#393d43;color:#c1c6cf;border:1px solid #6c727c;"
                 "border-radius:3px;padding:3px;font-size:10px;")
             neutral.setToolTip("\n".join(explanations))
-            # The complete reasons remain available on hover. The visible
-            # text is elided rather than expanding the QListWidget viewport.
-            neutral.setFixedWidth(160)
-            neutral.setText(neutral.fontMetrics().elidedText(
-                compact, Qt.TextElideMode.ElideRight, 152))
+            # Keep the entire counter/diagnostic readable and wrap inside
+            # the available space instead of cropping the last TF.
+            neutral.setFixedWidth(180)
+            neutral.setWordWrap(True)
             row_layout.addWidget(neutral)
         # Width must not enter QListWidget content-size calculation: that
         # otherwise clips the rightmost badge when selecting a long symbol.
