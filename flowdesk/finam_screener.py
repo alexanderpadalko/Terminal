@@ -144,11 +144,11 @@ def _backfill_higher_history(service, symbol, now, series, *,
                              cancelled=lambda: False, time_sleep=time.sleep):
     """Resume bounded Finam backfill for short D/W/M source histories.
 
-    At most three extra requests per instrument and pass. All successful
+    At most five extra requests per instrument and pass. All successful
     candles go into the existing Finam-only SQLite cache; progress is kept
     in memory so later five-minute passes resume from the prior boundary.
     A 429 is propagated to stop the entire scan, not disguised as no bars.
-    An old individual future is never stitched to another contract.
+    Continue to the documented depth even once the signal minimum is met.\n    An old individual future is never stitched to another contract.
     """
     if not isinstance(getattr(service, "api", None), FinamAPI):
         return {}
@@ -164,8 +164,6 @@ def _backfill_higher_history(service, symbol, now, series, *,
         bars=series.get(tf) or ()
         cutoff=now-timedelta(days=DEPTH_DAYS[tf])
         confirmed=sum(candle_close_time(bar,tf)<=now for bar in bars)
-        if confirmed>=MIN_BARS[tf]:
-            continue
         key=(symbol,tf)
         progress=state.get(key,{})
         if progress.get("exhausted"):
@@ -176,7 +174,7 @@ def _backfill_higher_history(service, symbol, now, series, *,
             cursor=min((bar.time for bar in bars),default=now)
         chunk=timedelta(days=90 if tf=="D1" else 365)
         frame_budget=2 if tf in ("W1","MN1") else 1
-        while budget and frame_budget and cursor>cutoff and confirmed<MIN_BARS[tf]:
+        while budget and frame_budget and cursor>cutoff:
             if cancelled():
                 raise InterruptedError()
             start=max(cutoff,cursor-chunk)
