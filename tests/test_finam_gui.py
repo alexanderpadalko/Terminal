@@ -384,6 +384,27 @@ class TestFinamGui(unittest.TestCase):
         self.assertEqual(tags[-1],"D: ожидает проверки")
         self.assertNotIn("D",tags)
 
+    def test_ru_si_eu_are_scheduled_before_other_scan_instruments(self):
+        from flowdesk.finam_universe import RU_FUTURES, Item
+        from unittest.mock import MagicMock
+        current=self.window.universe[RU_FUTURES]
+        for index in (0,2):
+            old=current[index]
+            current[index]=Item(old.label,old.name,old.group,
+                                old.label+"@RTSX",True,"verified")
+        self.window.catalog_ready=True
+        with patch("flowdesk.finam_gui.read_secret",return_value="local"), \\
+             patch("flowdesk.finam_gui.FinamScreenerWorker") as worker_class:
+            worker=MagicMock()
+            worker_class.return_value=worker
+            self.window._start_screener()
+            instruments=worker_class.call_args.args[1]
+            self.assertEqual([entry.label for entry in instruments[:2]],
+                             ["SIZ2026","EUZ2026"])
+            self.assertIn("SIZ2026@RTSX",self.window.screener_pending)
+            self.assertIn("EUZ2026@RTSX",self.window.screener_pending)
+            self.window.screener_worker=None
+
     def test_no_filter_shows_all_38_instruments_without_any_tf_badges(self):
         from PySide6.QtWidgets import QLabel
         from flowdesk.finam_screener import ScanResult
