@@ -331,19 +331,27 @@ class FinamAPI:
             self._asset_ticks[key] = tick
         return tick
 
-    def bars(self, symbol, timeframe, *, now=None):
+    def bars(self, symbol, timeframe, *, now=None, start=None, end=None):
+        """Fetch a bounded historical interval, within Finam's documented depth.
+
+        start inclusive, end exclusive. Callers can walk earlier windows
+        without silently mixing different futures contracts. The default
+        remains the original single-range request for existing callers.
+        """
         if not SAFE_SYMBOL.fullmatch(symbol) or timeframe not in FRAMES:
             raise ValueError("Некорректный символ или таймфрейм Finam")
-        end = now or self.clock()
-        start = end - timedelta(days=DEPTH_DAYS[timeframe])
+        upper = end or now or self.clock()
+        lower = start or (upper - timedelta(days=DEPTH_DAYS[timeframe]))
+        if lower.tzinfo is None or upper.tzinfo is None or lower >= upper:
+            raise ValueError("Некорректный временной интервал Finam")
         params = urlencode({"timeframe": FRAMES[timeframe],
-                            "interval.start_time": start.isoformat().replace("+00:00", "Z"),
-                            "interval.end_time": end.isoformat().replace("+00:00", "Z")})
+                            "interval.start_time": lower.isoformat().replace("+00:00", "Z"),
+                            "interval.end_time": upper.isoformat().replace("+00:00", "Z")})
         path = "/v1/instruments/" + quote(self.exchange_symbol(symbol), safe="") + "/bars?" + params
         try:
             result = self._json("GET", path, token=self.access_key())
         except FinamAPIError as exc:
-            if "HTTP 401" not in str(exc):
+            if exc.http_status != 401:
                 raise
             result = self._json("GET", path, token=self.access_key(force=True))
         return normalize([finam_bar(row, timeframe) for row in result.get("bars", [])])
