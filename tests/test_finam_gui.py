@@ -181,6 +181,16 @@ class TestFinamGui(unittest.TestCase):
                              "Проверить повторно" in text for text in buttons))
         self.assertFalse(hasattr(self.window,"_show_expiry_report"))
 
+    def test_market_sidebar_orders_russian_futures_before_russian_stocks(self):
+        from flowdesk.finam_universe import (
+            US_FUTURES, RU_FUTURES, RU_STOCKS, GROUP_LABELS)
+        headings=[self.window.examples.item(i).text()
+                  for i in range(self.window.examples.count())
+                  if self.window.examples.item(i).text() in GROUP_LABELS.values()]
+        self.assertEqual(headings[:3],[GROUP_LABELS[US_FUTURES],
+                                       GROUP_LABELS[RU_FUTURES],
+                                       GROUP_LABELS[RU_STOCKS]])
+
     def test_finam_controls_are_absent_and_http_stream_are_on(self):
         from PySide6.QtWidgets import QPushButton, QCheckBox
         self.assertTrue(self.window.app_settings.auto_updates)
