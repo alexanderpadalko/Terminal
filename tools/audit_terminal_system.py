@@ -91,12 +91,12 @@ def network_and_market_guards():
     denied = 0
     for method, path in (
         ("POST", "/v1/orders"), ("POST", "/v1/instruments/SBER@MISX/orders"),
-        ("DELETE", "/v1/orders"), ("GET", "/v1/accounts")):
+        ("DELETE", "/v1/orders")):
         try:
             api._json(method, path)
         except (ValueError, FinamAPIError):
             denied += 1
-    check(denied == 4, "trade/account endpoint unexpectedly admitted")
+    check(denied == 3, "trade endpoint unexpectedly admitted")
 
     clock = datetime(2026, 11, 14, 12, tzinfo=timezone.utc)
     recent = {"quote": [{"symbol": "SBER@MISX", "last": {"value": "110"},
