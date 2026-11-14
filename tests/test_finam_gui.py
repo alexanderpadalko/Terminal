@@ -393,8 +393,8 @@ class TestFinamGui(unittest.TestCase):
             current[index]=Item(old.label,old.name,old.group,
                                 old.label+"@RTSX",True,"verified")
         self.window.catalog_ready=True
-        with patch("flowdesk.finam_gui.read_secret",return_value="local"), \\
-             patch("flowdesk.finam_gui.FinamScreenerWorker") as worker_class:
+        with (patch("flowdesk.finam_gui.read_secret",return_value="local"),
+              patch("flowdesk.finam_gui.FinamScreenerWorker") as worker_class):
             worker=MagicMock()
             worker_class.return_value=worker
             self.window._start_screener()
