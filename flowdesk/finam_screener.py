@@ -148,7 +148,8 @@ def _backfill_higher_history(service, symbol, now, series, *,
     candles go into the existing Finam-only SQLite cache; progress is kept
     in memory so later five-minute passes resume from the prior boundary.
     A 429 is propagated to stop the entire scan, not disguised as no bars.
-    Continue to the documented depth even once the signal minimum is met.\n    An old individual future is never stitched to another contract.
+    Continue to the documented depth even once the signal minimum is met.
+    An old individual future is never stitched to another contract.
     """
     if not isinstance(getattr(service, "api", None), FinamAPI):
         return {}
