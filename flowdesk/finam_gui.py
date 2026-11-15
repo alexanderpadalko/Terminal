@@ -28,7 +28,7 @@ from .exchange_time import exchange_clock
 from .finam_universe import (
     US_FUTURES, RU_STOCKS, RU_FUTURES, CRYPTO, GROUP_LABELS,
     US_CONTRACTS, RU_CONTRACTS,
-    compose_universe, cached_top20, is_in_universe
+    compose_universe, cached_top10, is_in_universe
 )
 from .finam_catalog_worker import FinamCatalogWorker
 from .finam_futures_cache import FuturesListCache
@@ -683,7 +683,7 @@ class FinamWindow(QMainWindow):
                 if matched.upper()!=restored.upper():
                     self.status.setText("Контракт автоматически переключён за день до экспирации: "+matched)
             else:
-                self.status.setText("Сохранённый контракт недоступен. Открыта первая акция из топ-20.")
+                self.status.setText("Сохранённый контракт недоступен. Открыта первая акция из топ-10.")
                 fallback=next((i for i in self.universe[RU_STOCKS] if i.verified),None)
                 if fallback:
                     ticker,mic=fallback.symbol.split("@",1)
