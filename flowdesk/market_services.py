@@ -4,6 +4,8 @@ import threading
 from .finam_market import FinamMarketService
 from .binance_api import BinanceAPI
 from .market_symbols import BINANCE
+from .storage_safety import backup_if_due
+from .diagnostics_log import log_event
 
 
 class MarketServices:
@@ -13,6 +15,36 @@ class MarketServices:
         self.crypto=crypto
         self.directory=Path(directory or Path.home()/".flowdesk")
         self._lock=threading.Lock()
+        self._backup_lock=threading.Lock()
+        self._backup_active=False
+
+    def backup_if_due_async(self):
+        """Take daily verified SQLite snapshots in a daemon background worker."""
+        with self._backup_lock:
+            if self._backup_active:
+                return False
+            self._backup_active=True
+
+        def worker():
+            try:
+                # Crypto is lazy: do not create a new Binance database
+                # merely to take a backup.
+                for service in (self.finam,self.crypto):
+                    if service is None:
+                        continue
+                    try:
+                        backup_if_due(service.path)
+                    except Exception as exc:
+                        # Only event type is logged; never filenames or credentials.
+                        log_event("storage_snapshot_unavailable",
+                                  error=type(exc).__name__)
+            finally:
+                with self._backup_lock:
+                    self._backup_active=False
+
+        threading.Thread(target=worker,daemon=True,
+                         name="FlowDesk-storage-backup").start()
+        return True
 
     def for_market(self,venue):
         if venue!=BINANCE:return self.finam
