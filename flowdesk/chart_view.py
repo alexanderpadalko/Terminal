@@ -83,6 +83,17 @@ class ChartView:
         if length:
             self._set_right(length - start_offset + start_padding - float(bars), length)
 
+    def center_latest(self):
+        """Center the newest *real* candle in the time plot on initial load.
+
+        One candle occupies a slot centered at index + 0.5. For a viewport
+        of 'span' slots, placing the last bar's center at x=0.5 therefore
+        needs (span - 1) / 2 slots of empty space on the right. Never add
+        synthetic OHLCV or change the user's existing zoom.
+        """
+        self.offset = 0.0
+        self.right_padding = (self.span - 1.0) / 2.0
+
     def latest(self):
         self.offset, self.right_padding = 0.0, 16.0
 
