@@ -49,10 +49,19 @@ def check_finam_runtime(output):
         built=build_session_series({'M5':source},calendar,session.end)
         result['session_candles']=bool(built.series.get('H4') and
             built.series['H4'][-1].scheduled_close==session.end)
+        from .provider_candles import native_higher_series
+        from .finam_api import finam_bar
+        observed=datetime(2026,11,15,tzinfo=timezone.utc)
+        months=[finam_bar({'timestamp':f'2026-{month:02d}-01T04:00:00Z',
+            'open':100,'high':102,'low':99,'close':101,'volume':5},'MN1') for month in range(6,12)]
+        native,_=native_higher_series({'MN1':months},observed,
+            {('MN1',b.time):observed for b in months})
+        result['native_dwm']=len(native.get('MN1',()))==6
         result["ok"] = (result.get("executor_callable") and
                         result.get("thread_result") == 17 and result.get("localhost_resolved")
                         and result.get("scheduler_result")==23 and result.get("scanner_rows")==3
-                        and result.get("binance_decoder") and result.get('session_candles'))
+                        and result.get("binance_decoder") and result.get('session_candles')
+                        and result.get('native_dwm'))
     except Exception as exc:
         result["error_type"] = type(exc).__name__
     Path(output).write_text(json.dumps(result, indent=2), encoding="utf-8")

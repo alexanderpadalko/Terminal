@@ -14,6 +14,7 @@ from .finam_auction import exclude_stock_closing_auction
 from .settings import IndicatorSettings
 from . import session_store
 from .trading_calendar import calendar_for
+from .provider_candles import native_higher_enabled, NATIVE_HIGHER
 
 TTL_SECONDS = {"M1":60,"M5":300,"H1":300,"H4":900,"D1":1800,"W1":3600,"MN1":14400}
 STREAM_VERIFY_SECONDS = 900
@@ -152,8 +153,9 @@ class FinamMarketService:
 
     def mark_stream_reconnect(self,symbol):
         with self.lock:
-            self._repair.update((symbol,tf) for tf in FRAMES)
-            for tf in FRAMES:
+            frames=self.api.stream_frames if native_higher_enabled(self.api) else FRAMES
+            self._repair.update((symbol,tf) for tf in frames)
+            for tf in frames:
                 self._stream_updates.pop((symbol,tf),None)
                 self._repair_tried.pop((symbol,tf),None)
 
@@ -194,11 +196,14 @@ class FinamMarketService:
         """Deduplicate refreshes by exact symbol/TF; do not lock the DB across HTTP."""
         policy=bool(getattr(self.api,'session_candles',False))
         if policy:
-            # H4 comes from intraday sources, W/M from session D1. Keep native
-            # D1 only as an auditable candidate, not an assumed session match.
+            # Finam D/W/M are primary provider series; only H4 requires
+            # intraday reconstruction. Binance retains its UTC session policy.
             needed=[]
             for frame in frames:
-                sources=('H1','M5','D1') if frame in ('H4','D1','W1','MN1') else (frame,)
+                if native_higher_enabled(self.api):
+                    sources=('H1','M5') if frame=='H4' else (frame,)
+                else:
+                    sources=('H1','M5','D1') if frame in ('H4',*NATIVE_HIGHER) else (frame,)
                 for item in sources:
                     if item not in needed:needed.append(item)
             frames=needed
@@ -304,8 +309,9 @@ class FinamMarketService:
                 for tf in provenance:
                     provenance[tf].update(session_meta)
                     if tf in ('H1','H4','D1','W1','MN1'):
-                        provenance[tf]['mode']='SESSION_CANDLES'
-                        provenance[tf]['native_higher']=False
+                        native=session_meta.get('origins',{}).get(tf)=='finam_native'
+                        provenance[tf]['mode']='FINAM_NATIVE_CANDLES' if native else 'SESSION_CANDLES'
+                        provenance[tf]['native_higher']=native
             result=analyze_timeframes(series,timeframe,asof=observed,settings=settings,provenance=provenance)
             with self.lock:
                 self.analysis_cache[cache_id]=(key,result)

@@ -162,7 +162,8 @@ def log_event(event, *, symbol="", error=None, stage="", outcome="",elapsed_ms=N
     return _write(fields,path=path)
 
 
-def log_candle_policy(*,symbol='',profile='',issues=None,counts=None,path=None):
+def log_candle_policy(*,symbol='',profile='',issues=None,counts=None,path=None,
+                      policy='session-ohlcv-1',control_issues=None):
     """Fixed calendar/data quality codes only, never raw market data or text."""
     profiles={'CRYPTO_UTC','US_EQUITY_RTH','MOEX_STOCK_FULL','MOEX_FUTURE_FULL',
               'CME_EQUITY','CME_METALS','CME_ENERGY','ICE_BRENT'}
@@ -170,12 +171,16 @@ def log_candle_policy(*,symbol='',profile='',issues=None,counts=None,path=None):
         'weekend_product_admission_unknown','product_holiday_hours_unknown',
         'dst_product_hours_unknown','instrument_calendar_unknown',
         'lower_history_unavailable','incomplete_lower_coverage',
-        'native_daily_session_mismatch','incomplete_daily_coverage'}
+        'native_daily_session_mismatch','incomplete_daily_coverage',
+        'native_period_session_mismatch','native_snapshot_unconfirmed','control_source_invalid'}
     fields=[('event','candle_policy'),('symbol',_safe_symbol(symbol)),
-            ('algorithm','session-ohlcv-1'),('profile',profile if profile in profiles else '-')]
+            ('algorithm',policy if policy in ('session-ohlcv-1','finam-native-dwm-1') else '-'),
+            ('profile',profile if profile in profiles else '-')]
     for tf in ('H4','D1','W1','MN1'):
         issue=(issues or {}).get(tf)
         if issue:fields.append((tf,issue if issue in reasons else 'unknown'))
+        control=(control_issues or {}).get(tf)
+        if control:fields.append((tf+'_control',control if control in reasons else 'unknown'))
         count=(counts or {}).get(tf)
         if type(count) is int and 0<=count<=1_000_000:fields.append((tf+'_count',str(count)))
     return _write(fields,path=path)

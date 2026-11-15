@@ -1,0 +1,68 @@
+{
+  "mode": "live_read_only_isolated_cache_copy",
+  "symbol": "NQZ26@XCME",
+  "orders": false,
+  "tradingview_reference": false,
+  "previous_prepared_months": 1,
+  "requests": {
+    "D1": {
+      "count": 108
+    },
+    "W1": {
+      "count": 22
+    },
+    "MN1": {
+      "count": 6
+    }
+  },
+  "prepared_counts": {
+    "H1": 465,
+    "H4": 121,
+    "D1": 108,
+    "W1": 22,
+    "MN1": 6
+  },
+  "native_equals_raw": {
+    "D1": true,
+    "W1": true,
+    "MN1": true
+  },
+  "month_starts": [
+    "2026-06-01T04:00:00+00:00",
+    "2026-07-01T04:00:00+00:00",
+    "2026-08-01T04:00:00+00:00",
+    "2026-09-01T04:00:00+00:00",
+    "2026-10-01T04:00:00+00:00",
+    "2026-11-01T04:00:00+00:00"
+  ],
+  "chart_months": 6,
+  "closed_months": 5,
+  "primary_mode": "FINAM_NATIVE_CANDLES",
+  "h4_matches_unchanged_session_builder": true,
+  "metadata": {
+    "version": "finam-native-dwm-1",
+    "profile": "CME_EQUITY",
+    "policy": "9fc3d340c76a2cd5de7945a7e199a8b097820af7c5cdd7aea71b4482e759ed5b",
+    "issues": {
+      "H4": "product_holiday_hours_unknown"
+    },
+    "origins": {
+      "H4": "session_lower",
+      "D1": "finam_native",
+      "W1": "finam_native",
+      "MN1": "finam_native"
+    },
+    "calendar_parity": "unverified_tradingview",
+    "control_issues": {
+      "D1": "native_daily_session_mismatch",
+      "W1": "native_period_session_mismatch",
+      "MN1": "product_holiday_hours_unknown"
+    },
+    "control_counts": {
+      "D1": 20,
+      "W1": 4,
+      "MN1": 1
+    }
+  },
+  "checked_at_utc": "2026-11-15T18:22:14.465391+00:00"
+}

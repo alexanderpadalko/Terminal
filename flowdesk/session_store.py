@@ -5,7 +5,9 @@ import hashlib
 import json
 
 from .market_data import Candle, candle_close_time, serialize_candle
-from .session_candles import AGGREGATION_VERSION, build_session_series
+from .session_candles import AGGREGATION_VERSION, SessionSeries, build_session_series
+from .provider_candles import (NATIVE_HIGHER, NATIVE_POLICY_VERSION, native_higher_enabled,
+                               native_higher_series, control_issues)
 from .trading_calendar import CalendarUnavailable, calendar_for
 
 
@@ -94,20 +96,32 @@ def record_response(service,symbol,tf,bars,start,end,observed):
 
 def _candle(row):
     return Candle(datetime.fromisoformat(row['time']),*(row[k] for k in ('open','high','low','close','volume')),
-        scheduled_close=datetime.fromisoformat(row['scheduled_close']))
+        scheduled_close=datetime.fromisoformat(row['scheduled_close']) if row.get('scheduled_close') else None)
 
 
 def prepare(service,symbol,raw,observed):
     if not getattr(service.api,'session_candles',False):return raw
+    primary_native=native_higher_enabled(service.api)
+    state=getattr(raw,'source_state',None)
+    snapshots=state['observations'] if state else []
+    observed_at={(tf,datetime.fromisoformat(ts)):datetime.fromisoformat(stamp) for tf,ts,stamp in snapshots}
+    native,native_issues=native_higher_series(raw,observed,observed_at) if primary_native else ({},{})
     factory=getattr(service,'calendar_factory',calendar_for)
     try:calendar=factory(symbol)
     except CalendarUnavailable:
-        return PreparedSeries({tf:bars for tf,bars in raw.items() if tf not in ('H4','D1','W1','MN1')},
-            {'version':AGGREGATION_VERSION,'profile':'unknown',
-             'issues':{tf:'instrument_calendar_unknown' for tf in ('H4','D1','W1','MN1')}})
-    policy=hashlib.sha256(repr((AGGREGATION_VERSION,calendar.revision)).encode()).hexdigest()
+        result={tf:bars for tf,bars in raw.items() if tf not in ('H4',*NATIVE_HIGHER)}
+        result.update(native)
+        issues={tf:'instrument_calendar_unknown' for tf in ('H4',*NATIVE_HIGHER)}
+        if primary_native:
+            issues={**{'H4':'instrument_calendar_unknown'},**native_issues}
+        return PreparedSeries(result,
+            {'version':NATIVE_POLICY_VERSION if primary_native else AGGREGATION_VERSION,
+             'profile':'unknown','issues':issues,
+             'origins':{tf:'finam_native' for tf in NATIVE_HIGHER} if primary_native else {},
+             'control_issues':{tf:'instrument_calendar_unknown' for tf in NATIVE_HIGHER} if primary_native else {}})
+    policy=hashlib.sha256(repr((AGGREGATION_VERSION,calendar.revision,
+                              NATIVE_POLICY_VERSION if primary_native else None)).encode()).hexdigest()
     with closing(service._connection()) as db:
-        state=getattr(raw,'source_state',None)
         revision=state['revision'] if state else -1
         saved=db.execute('SELECT policy,revision,observed_at,payload FROM session_series_cache WHERE symbol=?',(symbol,)).fetchone()
         if saved and saved[0]==policy and saved[1]==revision:
@@ -124,11 +138,9 @@ def prepare(service,symbol,raw,observed):
                 except (ValueError,TypeError,KeyError):
                     pass  # Damaged derived data is rebuilt from untouched raw bars.
         windows=state['coverage'] if state else []
-        snapshots=state['observations'] if state else []
     coverage={}
     for tf,start,end in windows:
         coverage.setdefault(tf,[]).append((datetime.fromisoformat(start),datetime.fromisoformat(end)))
-    observed_at={(tf,datetime.fromisoformat(ts)):datetime.fromisoformat(stamp) for tf,ts,stamp in snapshots}
     # Legacy raw bars have no delivery/finalization evidence. Do not let a
     # previously saved developing candle become confirmed just because the
     # wall clock advanced. The first bounded HTTP refresh revalidates them.
@@ -136,17 +148,31 @@ def prepare(service,symbol,raw,observed):
         unknown=datetime.min.replace(tzinfo=timezone.utc)
         for tf,bars in raw.items():
             for bar in bars:observed_at.setdefault((tf,bar.time),unknown)
-    built=build_session_series(raw,calendar,observed,coverage=coverage,observed_at=observed_at)
-    metadata={'version':built.version,'profile':calendar.profile,'policy':policy,
+    try:
+        built=build_session_series(raw,calendar,observed,coverage=coverage,observed_at=observed_at)
+    except (ValueError,OverflowError):
+        if not primary_native:raise
+        built=SessionSeries({tf:bars for tf,bars in raw.items() if tf in ('M1','M5')},
+            {tf:'control_source_invalid' for tf in ('H1','H4',*NATIVE_HIGHER)})
+    metadata={'version':NATIVE_POLICY_VERSION if primary_native else built.version,
+              'profile':calendar.profile,'policy':policy,
               'issues':built.issues,'origins':built.origins,'calendar_parity':'unverified_tradingview'}
+    if primary_native:
+        metadata['control_issues']=control_issues(built,native,calendar,observed)
+        metadata['control_counts']={tf:len(built.series.get(tf,())) for tf in NATIVE_HIGHER}
+        metadata['issues']={**{tf:issue for tf,issue in built.issues.items() if tf not in NATIVE_HIGHER},**native_issues}
+        metadata['origins']={**built.origins,**{tf:'finam_native' for tf in NATIVE_HIGHER}}
+        built.series={tf:bars for tf,bars in built.series.items() if tf not in NATIVE_HIGHER}
+        built.series.update(native)
     from .diagnostics_log import log_candle_policy
-    signature=(policy,tuple(sorted(built.issues.items())))
+    signature=(policy,tuple(sorted(metadata['issues'].items())),tuple(sorted(metadata.get('control_issues',{}).items())))
     with service.lock:
         prior=getattr(service,'_last_candle_diagnostics',{})
         should_log=prior.get(symbol)!=signature
         prior[symbol]=signature;service._last_candle_diagnostics=prior
     if should_log:
-        log_candle_policy(symbol=symbol,profile=calendar.profile,issues=built.issues,
+        log_candle_policy(symbol=symbol,profile=calendar.profile,issues=metadata['issues'],
+                          policy=metadata['version'],control_issues=metadata.get('control_issues'),
                           counts={tf:len(built.series.get(tf,[])) for tf in ('H4','D1','W1','MN1')})
     payload=json.dumps({'derived':{tf:[serialize_candle(b) for b in bars]
         for tf,bars in built.series.items() if tf in ('H1','H4','D1','W1','MN1')},'metadata':metadata})
@@ -184,4 +210,4 @@ def backfill(service,symbol,now,*,cancelled=lambda:False):
     record_response(service,symbol,tf,older,start,cursor,now)
     service.save_history_progress(symbol,'SESSION_'+tf,
         {'cursor':start,'exhausted':start<=earliest or not older})
-    return {'H4':'дозагрузка исходной истории сессий','MN1':'дозагрузка исходной истории сессий'}
+    return {'H4':'дозагрузка исходной истории сессий'}

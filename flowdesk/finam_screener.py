@@ -21,6 +21,7 @@ from .finam_auction import exclude_stock_closing_auction
 from .fvg_summary import summary_fvg_side
 from .publication import chart_cutoff, published_state
 from .finam_market import TTL_SECONDS
+from .provider_candles import native_higher_enabled
 from .asyncio_runtime import prepare_asyncio_runtime
 
 TIMEFRAMES = ("H1", "H4", "D1", "W1", "MN1")
@@ -204,7 +205,7 @@ def _backfill_higher_history(service, symbol, now, series, *,
     Continue to the existing depth boundary independently of signal readiness.
     An old individual future is never stitched to another contract.
     """
-    if getattr(service.api,'session_candles',False):
+    if getattr(service.api,'session_candles',False) and not native_higher_enabled(service.api):
         from .session_store import backfill
         return backfill(service,symbol,now,cancelled=cancelled)
     if not isinstance(getattr(service, "api", None), FinamAPI):
@@ -218,7 +219,7 @@ def _backfill_higher_history(service, symbol, now, series, *,
                 state=load() if callable(load) else {}
                 service.scanner_history_progress=state
     problems={}
-    budget=5
+    budget=4 if native_higher_enabled(service.api) else 5
     for tf in ("W1","MN1","D1"):
         if cancelled():
             raise InterruptedError()
@@ -285,6 +286,9 @@ def _backfill_higher_history(service, symbol, now, series, *,
                 else "дозагрузка истории")
         if budget==0:
             break
+    if native_higher_enabled(service.api):
+        from .session_store import backfill
+        problems.update(backfill(service,symbol,now,cancelled=cancelled))
     return problems
 
 def scan_one(service, ticker, mic, settings, *, cancelled=lambda:False,
@@ -316,7 +320,7 @@ def scan_one(service, ticker, mic, settings, *, cancelled=lambda:False,
     if price is None:
         fetch_problems.update(service.refresh_series(symbol,("M1",),priority=10,cancelled=cancelled))
     series=service._series(symbol)
-    if not series.get("H1"):
+    if not series.get("H1") and not native_higher_enabled(service.api):
         return unknown(symbol,"h1_unavailable",
                        reasons=tuple(fetch_problems.get(tf,"H1 недоступен")
                                      for tf in TIMEFRAMES))
@@ -325,18 +329,19 @@ def scan_one(service, ticker, mic, settings, *, cancelled=lambda:False,
     observed=service.clock()-timedelta(minutes=delay or 0)
     prepare=getattr(service,'prepare_series',None)
     if callable(prepare):series=prepare(symbol,service._series(symbol),observed)
-    if not series.get('H1'):
+    analysis_tf=next((tf for tf in TIMEFRAMES if series.get(tf)),None)
+    if (not series.get('H1') and not native_higher_enabled(service.api)) or analysis_tf is None:
         return unknown(symbol,'h1_unavailable')
     if cancelled():
         raise InterruptedError()
     try:
-        main, _ = service.analyze_cached(symbol,"H1",series,settings,observed)
+        main, _ = service.analyze_cached(symbol,analysis_tf,series,settings,observed)
     except (ValueError,IndexError,TypeError,AttributeError):
         return unknown(symbol,"analysis_unavailable")
     if price is None and not quote_problem:
         # Finam-only fallback when the quote endpoint is unavailable. Use
         # the last known M1 close, then H1 close; never invent a bid or trade.
-        recent=series.get("M1") or series["H1"]
+        recent=series.get("M1") or series.get("H1") or ()
         available=[c for c in recent if c.time<=observed]
         if available:
             price=_price(available[-1].close)
