@@ -356,7 +356,9 @@ class FinamWindow(QMainWindow):
             return "unknown"
         if result.matched(selected):
             return "matched"
-        return "unknown" if result.missing(selected) else "excluded"
+        unavailable=any(result.as_map().get(tf) is None and not result.flow_unformed(tf)
+                        for tf in selected)
+        return "unknown" if unavailable else "excluded"
 
     def _add_screen_item(self, entry, group, *, no_data=False):
         pending=(not entry.verified and not self.catalog_ready and
@@ -422,12 +424,12 @@ class FinamWindow(QMainWindow):
                 "font-weight:700;font-size:10px;")
             badge.setToolTip(tf+(" · LONG" if signal==1 else " · SHORT"))
             row_layout.addWidget(badge)
-        if no_data:
+        missing=[tf for tf in selected if result is None or
+                 (signals.get(tf) is None and not result.flow_unformed(tf))]
+        if no_data and missing:
             # Explain *which selected timeframe* cannot be assessed. A W
             # result may be unknown even though a valid H1 signal is shown.
             reasons=result.reason_map() if result is not None else {}
-            missing=[tf for tf in selected
-                     if result is None or signals.get(tf) is None]
             explanations=[]
             short_labels=[]
             for tf in missing:

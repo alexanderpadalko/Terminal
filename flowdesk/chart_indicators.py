@@ -2,6 +2,7 @@
 from .market_data import MOSCOW
 from .exchange_time import ExchangeClock
 from .publication import chart_cutoff,published_state
+from .fvg_display import working_zone
 
 
 def period_key(dt,anchor,*,exchange: ExchangeClock | None=None):
@@ -77,10 +78,10 @@ def summary_rows(analysis):
         if source and source.candles:
             state,_,_=published_state(source,cutoff,live=tf=='H1')
         side=state.side if state is not None else 0
-        guard=state.guard if state is not None else None
-        working=bool(guard and side and not state.guard_broken and state.lo is not None and state.hi is not None
-                     and guard.top>=state.lo and guard.bottom<=state.hi)
-        in_zone=working and price is not None and guard.bottom<=price<=guard.top
-        rows.append({'timeframe':tf,'flow':side,'fvg':side if in_zone else 0,
+        # Use the same confirmed guard, formation cutoff and live episode
+        # bounds as the plotted higher FVG and the screener.
+        zone=working_zone(source,cutoff,cutoff) if source and source.candles else None
+        in_zone=zone is not None and price is not None and zone.bottom<=price<=zone.top
+        rows.append({'timeframe':tf,'flow':side,'fvg':zone.side if in_zone else 0,
                      'available':state is not None})
     return rows

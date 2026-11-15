@@ -101,6 +101,36 @@ class TestPublicationV211(unittest.TestCase):
         chart.summary_sources={'H1':parent}
         self.assertEqual((summary_rows(chart)[0]['flow'],summary_rows(chart)[0]['fvg']),(1,1))
 
+    def test_h4_summary_matches_drawn_working_guard_in_extended_live_range(self):
+        # A developing bar can extend the confirmed episode's bounds, but
+        # never replace its guard/direction with a forming guard.
+        guard=FVG(0,0,0,100,95,-1)
+        confirmed=FlowState(0,-1,105,120,0,guard=guard)
+        developing=replace(confirmed,i=1,lo=90,live_range=True,
+                           guard=FVG(1,1,1,210,200,1))
+        source=frame('H4',[BASE,BASE+timedelta(hours=4)],
+                     [confirmed,developing],BASE+timedelta(hours=6))
+        chart=frame('H1',[BASE+timedelta(hours=5)],[FlowState(0)],source.asof,price=98)
+        chart.summary_sources={'H4':source}
+        zones=[zone for zone in select_fvg_display(chart,{'H4':source}).zones
+               if zone.source_tf=='H4']
+        self.assertEqual([(zone.bottom,zone.top) for zone in zones],[(95,100)])
+        row=next(row for row in summary_rows(chart) if row['timeframe']=='H4')
+        self.assertEqual((row['flow'],row['fvg']),(-1,-1))
+        from flowdesk.finam_screener import select_working_fvg_signals
+        self.assertEqual(select_working_fvg_signals(chart,98).as_map()['H4'],row['fvg'])
+
+    def test_summary_does_not_highlight_a_guard_before_its_formation_close(self):
+        guard=FVG(0,0,1,110,100,1)
+        source=frame('H4',[BASE,BASE+timedelta(hours=4)],
+                     [FlowState(i,1,90,120,0,guard=guard) for i in range(2)],
+                     BASE+timedelta(hours=6))
+        chart=frame('H1',[BASE+timedelta(hours=5)],[FlowState(0)],source.asof,price=105)
+        chart.summary_sources={'H4':source}
+        self.assertFalse(select_fvg_display(chart,{'H4':source}).zones)
+        row=next(row for row in summary_rows(chart) if row['timeframe']=='H4')
+        self.assertEqual((row['flow'],row['fvg']),(1,0))
+
     def test_future_parent_tail_does_not_push_history_window_past_cutoff(self):
         parents=[Candle(BASE+timedelta(hours=i*4),100,110,90,105,100) for i in range(150)]
         cutoff=parents[100].time+timedelta(hours=1)

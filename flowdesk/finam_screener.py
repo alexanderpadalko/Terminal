@@ -53,6 +53,13 @@ class ScanResult:
     def missing(self, selected):
         return any(self.as_map().get(tf) is None for tf in selected)
 
+    def flow_unformed(self, timeframe):
+        # Keep source/access failures visible separately. These two explicit
+        # analytical states are omitted from the filtered watchlist only.
+        reason=self.reason_map().get(timeframe,"").split(";",1)[0]
+        return self.as_map().get(timeframe) is None and reason in (
+            "поток ещё не сформирован","нет подтверждённого состояния")
+
 
 _ERROR_LABELS={
     "missing_history": "история не загружена",

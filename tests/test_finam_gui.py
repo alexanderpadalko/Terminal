@@ -636,6 +636,7 @@ class TestFinamGui(unittest.TestCase):
         self.assertNotIn("нет данных",[self.window.examples.item(i).text()
                           for i in range(self.window.examples.count())])
         self.assertEqual(self.window.examples.objectName(),"instrumentList")
+
         self.assertIn("border:2px solid #687383",self.window.centralWidget().styleSheet())
         self.assertIn("border:1px solid #86baf0",self.window.centralWidget().styleSheet())
         self.window.screen_buttons["W"].setChecked(True)
@@ -654,7 +655,35 @@ class TestFinamGui(unittest.TestCase):
                  if self.window.examples.item(i).text().startswith("SBER ·"))
         self.assertIsNone(self.window.examples.itemWidget(row))
 
-    def test_selected_tf_missing_reason_is_clear_even_with_other_tf_signal(self):
+    def test_unformed_selected_flow_is_excluded_without_unknown_row(self):
+        from flowdesk.finam_screener import ScanResult
+        from flowdesk.finam_universe import RU_STOCKS
+        entry=next(row for row in self.window.universe[RU_STOCKS] if row.label=='SBER')
+        self.window.screen_results[entry.symbol]=ScanResult(entry.symbol,(0,0,-1,0,None),
+            missing_reasons=("","","","","поток ещё не сформирован"))
+        self.window.screen_buttons['M'].setChecked(True)
+        self.assertEqual(self.window._screen_outcome(entry,('M',)),'excluded')
+        self.assertFalse(any(self.window.examples.item(i).text().startswith('SBER ·')
+                             for i in range(self.window.examples.count())))
+        self.window.screen_buttons['D'].setChecked(True)
+        rows=[self.window.examples.item(i) for i in range(self.window.examples.count())
+              if self.window.examples.item(i).text().startswith('SBER ·')]
+        self.assertEqual(len(rows),1)
+        from PySide6.QtWidgets import QLabel
+        labels=self.window.examples.itemWidget(rows[0]).findChildren(QLabel)
+        self.assertIn('D',[label.text() for label in labels])
+        self.assertFalse(any('сформирован' in label.text() for label in labels))
+        self.assertFalse(any(label.objectName()=='screenerMissing' for label in labels))
+
+    def test_missing_source_is_still_distinct_from_an_unformed_flow(self):
+        from flowdesk.finam_screener import ScanResult
+        from flowdesk.finam_universe import RU_STOCKS
+        entry=self.window.universe[RU_STOCKS][0]
+        self.window.screen_results[entry.symbol]=ScanResult(entry.symbol,(0,0,0,0,None),
+            missing_reasons=("","","","","нет свечей; нет доступа Finam (403)"))
+        self.assertEqual(self.window._screen_outcome(entry,('M',)),'unknown')
+
+    def test_unformed_tf_has_no_row_or_explanation_even_with_other_tf_signal(self):
         from PySide6.QtWidgets import QLabel
         from flowdesk.finam_screener import ScanResult
         from flowdesk.finam_universe import US_FUTURES, Item
@@ -667,6 +696,9 @@ class TestFinamGui(unittest.TestCase):
             missing_reasons=("", "", "", "поток ещё не сформирован", "нет подтверждённого состояния"))
         self.window.screen_buttons["W"].setChecked(True)
         self.window.screen_buttons["M"].setChecked(True)
+        self.assertFalse(any(self.window.examples.item(i).text().startswith(entry.label+" ·")
+                             for i in range(self.window.examples.count())))
+        self.window.screen_buttons["H1"].setChecked(True)
         row=next(self.window.examples.item(i) for i in
                  range(self.window.examples.count())
                  if self.window.examples.item(i).text().startswith(entry.label+" ·"))
@@ -675,12 +707,9 @@ class TestFinamGui(unittest.TestCase):
         badge_labels=[label.text() for label in labels]
         self.assertIn("H1",badge_labels)
         self.assertIn("D",badge_labels)
-        missing=next(label for label in labels
-                     if label.objectName()=="screenerMissing")
-        self.assertEqual(missing.text(),"W: поток ещё не сформирован, M: нет подтверждённого состояния")
-        self.assertIn("M: нет подтверждённого состояния",missing.toolTip())
-        self.assertNotIn("/30",missing.toolTip())
-        self.assertNotIn("нет данных",missing.text())
+        self.assertFalse(any(label.objectName()=="screenerMissing" for label in labels))
+        self.assertFalse(any("сформирован" in label.text() or
+                             "нет подтверждённого" in label.text() for label in labels))
 
     def test_known_future_expiry_is_visible_in_compact_sidebar(self):
         from flowdesk.finam_universe import Item, US_FUTURES
