@@ -975,7 +975,18 @@ class FinamWindow(QMainWindow):
         if self.stream is not None and (self.stream.ticker,self.stream.mic)==(ticker,mic):
             return
         self._stop_stream()
-        self.stream= self.stream_factory(ticker,mic)
+        try:
+            self.stream=self.stream_factory(ticker,mic)
+        except sqlite3.DatabaseError:
+            # Binance store is lazily opened here. Never swallow an SQLite
+            # failure as a silent failed WebSocket connection.
+            self.stream=None
+            self.stream_state="Ошибка локальной базы данных"
+            self.status.setText(
+                "SQLite: повреждена база "+("Binance" if mic==BINANCE else "Finam")+
+                ". Исходный файл сохранён; используйте резервную копию.")
+            self._indicator()
+            return
         self.stream.event.connect(self._event)
         self.stream.finished.connect(self._stream_finished)
         self.stream_ready=False
