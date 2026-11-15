@@ -440,7 +440,11 @@ class CandleChart(QWidget):
                               - state.get('end_fraction', 0)) if end else 0
         self.price_range = state['price_range']
         self.include_flow_in_scale = state['flow_scale']
-        self.viewport.right_padding = max(0, min(self.viewport.span - 1, state.get('right_padding', 16)))
+        # Keep exactly the whitespace saved while a request was in flight.
+        # The user may have zoomed meanwhile; a positive historical offset
+        # can legitimately coexist with padding greater than the new span.
+        # Clamping it here shifts the time anchor on reconnect.
+        self.viewport.right_padding = max(0.0, state.get('right_padding', 16))
         self.update()
 
     def center_latest(self):
