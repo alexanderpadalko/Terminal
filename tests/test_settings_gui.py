@@ -239,5 +239,5 @@ class TestSettingsGui(unittest.TestCase):
                           application.show_panel,application.allow_http),
                          (True,60,False,False))
         for field,_ in CHART_COLOR_FIELDS:
-            self.assertEqual(getattr(application,field),CHART_THEME_DEFAULTS['tv'][field])
+            self.assertEqual(getattr(application,field),CHART_THEME_DEFAULTS['user'][field])
         dialog.close()
