@@ -27,6 +27,8 @@ from .finam_universe import (
     compose_universe, cached_top20, is_in_universe
 )
 from .finam_catalog_worker import FinamCatalogWorker
+from .finam_futures_cache import FuturesListCache
+from .watchlist import slot_date
 from .qt_gc import install_gui_gc
 from .diagnostics_log import log_event, log_snapshot
 from .finam_stream import FinamStreamWorker
@@ -148,7 +150,15 @@ class FinamWindow(QMainWindow):
         self.screener_worker = None
         self.screener_rescan_requested = False
         self.screener_pending = set()
+        self.futures_list_cache = FuturesListCache()
+        self._catalog_success_slot = None
+        self._catalog_attempt_at = None
         self.universe, self.ranking_status = compose_universe()
+        cached_futures = self.futures_list_cache.load()
+        for group in (US_FUTURES, RU_FUTURES):
+            self.universe[group] = [
+                cached_futures.get(group+":"+row.label, row)
+                for row in self.universe[group]]
         self._make_ui()
         self.feed_timer = QTimer(self)
         self.feed_timer.setSingleShot(True)
@@ -160,6 +170,10 @@ class FinamWindow(QMainWindow):
         self.screener_timer=QTimer(self)
         self.screener_timer.setInterval(300000)
         self.screener_timer.timeout.connect(self._start_screener)
+        self.daily_catalog_timer = QTimer(self)
+        self.daily_catalog_timer.setInterval(60000)
+        self.daily_catalog_timer.timeout.connect(self._daily_catalog_refresh)
+        self.daily_catalog_timer.start()
         ticker=str(self.ui_prefs.value("ticker","SBER"))
         mic=str(self.ui_prefs.value("mic","MISX"))
         self._pending_restore=ticker.upper()+"@"+mic.upper()
@@ -336,12 +350,14 @@ class FinamWindow(QMainWindow):
         return "unknown" if result.missing(selected) else "excluded"
 
     def _add_screen_item(self, entry, group, *, no_data=False):
-        pending=(not self.catalog_ready and not self.catalog_error and
-                 group!=RU_STOCKS)
+        pending=(not entry.verified and not self.catalog_ready and
+                 not self.catalog_error and group!=RU_STOCKS)
         state=(" · поиск Finam…" if pending else
                " · каталог недоступен" if self.catalog_error and
                group!=RU_STOCKS else
                " · не подтверждён Finam" if not entry.verified else "")
+        if entry.verified and "сохранённый список; сверка Finam" in entry.source:
+            state+=" · кэш"
         if entry.verified and "экспирация не подтверждена" in entry.source:
             state+=" · эксп. ?"
         elif entry.verified and group!=RU_STOCKS:
@@ -572,9 +588,21 @@ class FinamWindow(QMainWindow):
             self.screener_rescan_requested=False
             QTimer.singleShot(0,self._start_screener)
 
-    def _refresh_catalog(self):
+    def _daily_catalog_refresh(self):
+        if self.closing or not read_secret():
+            return
+        now=datetime.now(timezone.utc)
+        if self._catalog_success_slot != slot_date(now):
+            self._refresh_catalog()
+
+    def _refresh_catalog(self, *, force=False):
         if self.closing or not read_secret() or self.catalog_worker is not None:
             return
+        now=datetime.now(timezone.utc)
+        if (not force and self._catalog_attempt_at is not None and
+                (now-self._catalog_attempt_at).total_seconds()<600):
+            return
+        self._catalog_attempt_at=now
         self.catalog_error=""
         self.catalog_worker=FinamCatalogWorker(self.service.api,self)
         self.catalog_worker.loaded.connect(self._catalog_loaded)
@@ -593,11 +621,17 @@ class FinamWindow(QMainWindow):
         if isinstance(payload.get("stocks"),list) and len(payload["stocks"])==20:
             self.universe[RU_STOCKS]=payload["stocks"]
             self.ranking_status=payload.get("ranking_status",self.ranking_status)
+        fallback=self.futures_list_cache.load()
+        fresh=payload.get("futures",{})
         for group in (US_FUTURES,RU_FUTURES):
-            self.universe[group]=[
-                payload.get("futures",{}).get(group+":"+contract.label,contract)
-                for contract in self.universe[group]
-            ]
+            merged=[]
+            for contract in self.universe[group]:
+                key=group+":"+contract.label
+                resolved=fresh.get(key)
+                merged.append(resolved if resolved and resolved.verified
+                              else fallback.get(key,contract))
+            self.universe[group]=merged
+        self._catalog_success_slot=slot_date(datetime.now(timezone.utc))
         self.screen_results.clear()  # Do not reuse stale contract/roll signals.
         self._populate_universe()
         self._request_screener_scan()
@@ -686,7 +720,7 @@ class FinamWindow(QMainWindow):
         self.status.setText("Токен сохранён в Windows Credential Manager; проверка подключения…")
         self._load(refresh=True)
         self._start_stream()
-        self._refresh_catalog()
+        self._refresh_catalog(force=True)
         self._schedule_http()
         self.screen_results.clear()
         self._request_screener_scan()
@@ -696,7 +730,7 @@ class FinamWindow(QMainWindow):
             self.status.setText("Токен Finam не введён. Откройте настройки (⚙).")
             self._indicator()
             return
-        self._refresh_catalog()
+        self._refresh_catalog(force=True)
         self._schedule_http()
         if self._pending_restore:
             self.status.setText("Finam: поиск сохранённого инструмента в каталоге…")
@@ -993,6 +1027,7 @@ class FinamWindow(QMainWindow):
         self.feed_timer.stop()
         self.http_timer.stop()
         self.screener_timer.stop()
+        self.daily_catalog_timer.stop()
         self._stop_stream()
         if self.screener_worker is not None:
             self.screener_worker.requestInterruption()
