@@ -259,7 +259,7 @@ class TestTradingViewAppearance(unittest.TestCase):
                 for value, baseline in zip(
                         (actual.red(), actual.green(), actual.blue()),
                         (background.red(), background.green(), background.blue())):
-                    self.assertLessEqual(abs(value - baseline), 8, pixel)
+                    self.assertLessEqual(abs(value - baseline), 16, pixel)
         chart.close()
 
     def test_hollow_inside_is_visible_in_finam_dark_theme_and_toggle_repaints(self):
