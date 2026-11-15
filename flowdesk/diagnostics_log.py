@@ -24,6 +24,7 @@ _EVENTS = frozenset({
     "stock_ranking_unavailable", "moex_expiry_unavailable",
     "catalog_worker_failed", "chart_load_failed",
     "stream_unavailable", "stream_reconnecting",
+    "storage_snapshot_unavailable",
 })
 _SYMBOL = re.compile(r"^[A-Za-z0-9_.-]{1,24}@(?:[A-Z0-9]{4}|BINANCE)$")
 _LABEL = re.compile(r"^[A-Z0-9.]{2,24}$")
