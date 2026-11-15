@@ -152,6 +152,77 @@ class TestFinamGui(unittest.TestCase):
         self.assertEqual(self.window.analysis.timeframe,"H4")
         self.assertEqual(self.window.displayed_view,("SBER","MISX","H4"))
 
+    def test_same_chart_refresh_preserves_fractional_pan_and_manual_price_scale(self):
+        self.select("SBER");self.settle()
+        chart=self.window.chart
+        chart.viewport.count=63.5
+        chart.viewport.offset=100.25
+        chart.viewport.right_padding=3.75
+        chart.price_range=(9.2,12.7)
+        before=chart.view_state()
+        self.window._load(refresh=True);self.settle()
+        self.assertEqual(chart.view_state(),before)
+
+    def test_reconnect_http_preserves_the_view_chosen_while_loading(self):
+        from types import SimpleNamespace
+        from datetime import datetime,timezone
+        from flowdesk.finam_stream import FinamEvent
+        self.select("SBER");self.settle()
+        chart=self.window.chart
+        self.market.block_symbol="SBER"
+        self.market.release.clear()
+        with patch("flowdesk.finam_gui.read_secret",return_value="mock"), \
+             patch.object(self.window,"stream",SimpleNamespace(ticker="SBER",mic="MISX")):
+            self.window._event(FinamEvent("status","SBER","MISX",2,
+                datetime.now(timezone.utc),state="ready"))
+            self.app.processEvents()
+            self.assertIsNotNone(self.window.loader)
+            chart.viewport.count=48.5
+            chart.viewport.offset=115.75
+            chart.price_range=(8,14)
+            before=chart.view_state()
+            self.market.release.set();self.settle()
+            self.assertEqual(chart.view_state(),before)
+
+    def test_same_monthly_chart_keeps_zoom_with_one_candle(self):
+        from flowdesk.engine import analyze
+        original=self.market.view
+        def short_history(ticker,mic,tf,**kwargs):
+            analysis,parents,info=original(ticker,mic,tf,**kwargs)
+            return analyze(analysis.candles[-1:],tf),parents,info
+        with patch.object(self.market,"view",side_effect=short_history):
+            self.window.tf.setCurrentText("MN1");self.settle()
+            self.select("SBER");self.settle()
+            chart=self.window.chart
+            chart.viewport.count=45.5
+            chart.viewport.right_padding=23.25
+            chart.price_range=(5,20)
+            before=chart.view_state()
+            self.window._load(refresh=True);self.settle()
+            self.assertEqual(chart.view_state(),before)
+
+    def test_updated_history_keeps_the_same_time_anchor(self):
+        from flowdesk.engine import analyze
+        from flowdesk.market_data import Candle
+        from datetime import timedelta
+        self.select("SBER");self.settle()
+        chart=self.window.chart
+        chart.viewport.count=50.5;chart.viewport.offset=100.25
+        chart.viewport.right_padding=0
+        anchor=chart.analysis.candles[chart.window()[1]-1].time
+        bounds=chart.viewport.bounds(len(chart.times))
+        original=self.market.view
+        def added_bars(ticker,mic,tf,**kwargs):
+            a,parents,info=original(ticker,mic,tf,**kwargs)
+            first,last=a.candles[0],a.candles[-1]
+            bars=[Candle(first.time-timedelta(hours=1),10,11,9,10),*a.candles,
+                  Candle(last.time+timedelta(hours=1),10,11,9,10)]
+            return analyze(bars,tf),parents,info
+        with patch.object(self.market,"view",side_effect=added_bars):
+            self.window._load(refresh=True);self.settle()
+        self.assertEqual(chart.analysis.candles[chart.window()[1]-1].time,anchor)
+        self.assertEqual(chart.viewport.bounds(len(chart.times)),(bounds[0]+1,bounds[1]+1))
+
     def test_stale_failure_does_not_replace_newer_selection(self):
         self.market.block_symbol="GAZP"
         self.select("GAZP","MISX")
@@ -163,9 +234,9 @@ class TestFinamGui(unittest.TestCase):
         self.assertNotIn("GAZP",self.window.status.text())
 
 
-    def test_fixed_universe_has_only_three_groups_and_no_old_demo_assets(self):
+    def test_fixed_universe_has_four_groups_including_crypto_without_old_demo_assets(self):
         rows=[self.window.examples.item(i).text() for i in range(self.window.examples.count())]
-        self.assertEqual(len(rows),8+20+10+3)
+        self.assertEqual(len(rows),8+20+10+2+4)
         self.assertFalse(self.window.symbol_edit.isVisible())
         self.assertFalse(self.window.mic.isVisible())
         self.assertFalse(any("AAPL" in s for s in rows))
@@ -208,6 +279,26 @@ class TestFinamGui(unittest.TestCase):
         self.assertEqual(headings[:3],[GROUP_LABELS[US_FUTURES],
                                        GROUP_LABELS[RU_FUTURES],
                                        GROUP_LABELS[RU_STOCKS]])
+        self.assertEqual(headings[3],"КРИПТА")
+
+    def test_crypto_chart_opens_without_a_finam_token_and_uses_utc(self):
+        with patch.object(self.window,"_start_stream") as start, \
+             patch.object(self.window,"_start_screener"):
+            self.select("BTCUSDT","BINANCE");self.settle()
+        start.assert_called_once()
+        self.assertEqual(self.window.displayed_view,("BTCUSDT","BINANCE","H1"))
+        self.assertEqual(self.window.chart.instrument_header,"BTCUSDT.P · Binance")
+        self.assertEqual(self.window.chart.exchange.zone.key,"UTC")
+        self.assertTrue(self.window.http_timer.isActive())
+        self.assertNotIn("ТОКЕН",self.window.channel.text())
+
+    def test_finam_catalog_outage_does_not_disable_crypto_rows(self):
+        self.window.catalog_error="Каталог Finam недоступен"
+        self.window._populate_universe()
+        rows=[self.window.examples.item(i) for i in range(self.window.examples.count())
+              if "BTCUSDT.P" in self.window.examples.item(i).text()]
+        self.assertEqual(len(rows),1)
+        self.assertNotIn("недоступен",rows[0].text())
 
     def test_manual_selection_cancels_deferred_saved_contract(self):
         self.window._pending_restore="TSLA@XNGS"
@@ -404,7 +495,7 @@ class TestFinamGui(unittest.TestCase):
                              self.window.screen_buttons.values()))
         initial=[self.window.examples.item(i) for i in
                  range(self.window.examples.count())]
-        self.assertEqual(len(initial),41)
+        self.assertEqual(len(initial),44)
         self.window.screen_results[sber.symbol]=ScanResult(
             sber.symbol,(1,-1,0,0,0))
         self.window.screen_results[lkoh.symbol]=ScanResult(
@@ -435,7 +526,7 @@ class TestFinamGui(unittest.TestCase):
                             if not row.isHidden()))
         self.window.screen_buttons["H1"].setChecked(False)
         self.window.screen_buttons["W"].setChecked(False)
-        self.assertEqual(self.window.examples.count(),41)
+        self.assertEqual(self.window.examples.count(),44)
         self.assertIs(self.window.chart.analysis,analysis)
 
     def test_scanner_missing_history_stays_neutral_not_short(self):
@@ -514,7 +605,7 @@ class TestFinamGui(unittest.TestCase):
         self.assertIsNone(self.window.screener_worker)
         worker.deleteLater.assert_called_once()
 
-    def test_no_filter_shows_all_38_instruments_without_any_tf_badges(self):
+    def test_no_filter_shows_all_40_instruments_without_any_tf_badges(self):
         from PySide6.QtWidgets import QLabel
         from flowdesk.finam_screener import ScanResult
         from flowdesk.finam_universe import RU_STOCKS
@@ -525,7 +616,7 @@ class TestFinamGui(unittest.TestCase):
         self.window._populate_universe()
         self.assertFalse(any(button.isChecked() for button in
                              self.window.screen_buttons.values()))
-        self.assertEqual(self.window.examples.count(),41)
+        self.assertEqual(self.window.examples.count(),44)
         row=next(self.window.examples.item(i) for i in
                  range(self.window.examples.count())
                  if self.window.examples.item(i).text().startswith("SBER ·"))

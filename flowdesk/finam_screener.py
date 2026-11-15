@@ -1,4 +1,4 @@
-"""Read-only embedded Finam FVG screener for the *existing* 38 instruments.
+"""Read-only FVG screener: 38 Finam instruments and two Binance perpetuals.
 
 Uses the same pinned v2.11 FlowEngine / selected working guard as CandleChart,
 not a separate MOEX feed or reimplementation of flow reversal rules.
@@ -15,7 +15,8 @@ from contextlib import nullcontext
 
 from PySide6.QtCore import QThread, Signal
 
-from .finam_api import decimal_number, symbol_name, DEPTH_DAYS, FinamAPI, parse_instant
+from .finam_api import decimal_number, DEPTH_DAYS, FinamAPI, parse_instant
+from .market_symbols import symbol_name,BINANCE
 from .finam_auction import exclude_stock_closing_auction
 from .fvg_display import working_zone
 from .publication import chart_cutoff, published_state
@@ -70,6 +71,8 @@ _ERROR_LABELS={
 def unknown(symbol, code="missing_history", *, reasons=None):
     if reasons is None:
         reasons=(_ERROR_LABELS.get(code,"проверка данных"),)*len(TIMEFRAMES)
+    if symbol.endswith("@"+BINANCE):
+        reasons=tuple(reason.replace("Finam","Binance") for reason in reasons)
     return ScanResult(symbol,(None,)*len(TIMEFRAMES),
                       error_code=code,missing_reasons=tuple(reasons))
 
@@ -297,7 +300,7 @@ def scan_one(service, ticker, mic, settings, *, cancelled=lambda:False,
         quote_problem=quote_age_problem(last_quote,observed_quote,symbol)
         if not quote_problem:
             price=quote_last(last_quote,symbol)
-        if price is not None:origin="finam_last"
+        if price is not None:origin=getattr(service.api,"provider_name","Finam").lower()+"_last"
     except InterruptedError:raise
     except Exception as exc:
         if getattr(exc,"http_status",None)==429:raise
@@ -325,7 +328,7 @@ def scan_one(service, ticker, mic, settings, *, cancelled=lambda:False,
         available=[c for c in recent if c.time<=observed]
         if available:
             price=_price(available[-1].close)
-            origin="finam_candle_close"
+            origin=getattr(service.api,"provider_name","Finam").lower()+"_candle_close"
     if quote_problem:
         return unknown(symbol,"stale_quote",reasons=(quote_problem,)*len(TIMEFRAMES))
     if price is None:
@@ -362,13 +365,15 @@ class FinamScreenerWorker(QThread):
         def one(entry,extend=False):
             if cancelled():raise InterruptedError()
             if not entry.verified or "@" not in entry.symbol:return unknown(entry.symbol,"unverified")
-            scope=getattr(getattr(self.service,"api",None),"request_scope",None)
+            service=(self.service.for_market(entry.symbol.rsplit("@",1)[1])
+                     if callable(getattr(self.service,"for_market",None)) else self.service)
+            scope=getattr(getattr(service,"api",None),"request_scope",None)
             with scope(priority=20 if extend else 10,cancelled=cancelled) if scope else nullcontext():
                 if extend:
                     symbol=symbol_name(*entry.symbol.split("@",1))
-                    _backfill_higher_history(self.service,symbol,self.service.clock(),
-                        self.service._series(symbol),cancelled=cancelled)
-                return self.evaluate(self.service,*entry.symbol.split("@",1),self.settings,cancelled=cancelled)
+                    _backfill_higher_history(service,symbol,service.clock(),
+                        service._series(symbol),cancelled=cancelled)
+                return self.evaluate(service,*entry.symbol.split("@",1),self.settings,cancelled=cancelled)
         self.progress.emit(0,len(self.instruments))
         pool=concurrent.futures.ThreadPoolExecutor(max_workers=self.max_workers,thread_name_prefix="FinamScan")
         try:
@@ -377,7 +382,8 @@ class FinamScreenerWorker(QThread):
                 if extend and (not self.backfill or not isinstance(getattr(self.service,"api",None),FinamAPI)):
                     break
                 pending={}
-                cursor=iter(enumerate(self.instruments))
+                cursor=iter((index,entry) for index,entry in enumerate(self.instruments)
+                            if not extend or not entry.symbol.endswith("@"+BINANCE))
                 exhausted=False
                 while not cancelled():
                     while len(pending)<self.max_workers and not exhausted:

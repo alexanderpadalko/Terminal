@@ -20,6 +20,7 @@ _US_EQUITY_MICS = frozenset((
     "BATS", "BATY", "EDGA", "EDGX", "XCHI", "IEXG", "MEMX",
 ))
 _EXCHANGE_ZONES = {
+    "BINANCE": "UTC",  # Explicit crypto provider, 24/7 UTC candle/session boundaries.
     "MISX": "Europe/Moscow",
     "MOEX": "Europe/Moscow",
     "XMOE": "Europe/Moscow",

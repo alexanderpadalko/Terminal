@@ -1,0 +1,108 @@
+{
+  "started_at": "2026-11-15T10:34:41.031605+00:00",
+  "provider": "Binance USD-M perpetual",
+  "credentials": "none",
+  "user_profile": "not accessed",
+  "symbols": [
+    {
+      "symbol": "BTCUSDT.P",
+      "seconds": 21.484,
+      "frames": {
+        "M1": 10080,
+        "M5": 8640,
+        "H1": 720,
+        "H4": 180,
+        "D1": 365,
+        "W1": 260,
+        "MN1": 60
+      },
+      "price_tick": 0.1,
+      "quote_origin": "binance_last",
+      "directions": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "error": "",
+      "monthly_last_open": "2026-11-01T00:00:00+00:00",
+      "monthly_last_close": "2026-12-01T00:00:00+00:00",
+      "websocket": {
+        "events": {
+          "status": 3,
+          "candles": 182,
+          "quote": 96
+        },
+        "frames": {
+          "D1": 26,
+          "M5": 26,
+          "M1": 26,
+          "MN1": 26,
+          "H4": 26,
+          "W1": 26,
+          "H1": 26
+        },
+        "states": {
+          "connecting": 1,
+          "resync": 1,
+          "ready": 1
+        },
+        "stopped": true
+      }
+    },
+    {
+      "symbol": "ETHUSDT.P",
+      "seconds": 20.094,
+      "frames": {
+        "M1": 10080,
+        "M5": 8640,
+        "H1": 720,
+        "H4": 180,
+        "D1": 365,
+        "W1": 260,
+        "MN1": 60
+      },
+      "price_tick": 0.01,
+      "quote_origin": "binance_last",
+      "directions": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "error": "",
+      "monthly_last_open": "2026-11-01T00:00:00+00:00",
+      "monthly_last_close": "2026-12-01T00:00:00+00:00",
+      "websocket": {
+        "events": {
+          "status": 3,
+          "quote": 195,
+          "candles": 231
+        },
+        "frames": {
+          "D1": 33,
+          "M1": 33,
+          "MN1": 33,
+          "H4": 33,
+          "W1": 33,
+          "M5": 33,
+          "H1": 33
+        },
+        "states": {
+          "connecting": 1,
+          "resync": 1,
+          "ready": 1
+        },
+        "stopped": true
+      }
+    }
+  ],
+  "requests": {
+    "/fapi/v1/exchangeInfo": 1,
+    "/fapi/v1/klines": 50,
+    "/fapi/v2/ticker/price": 2
+  },
+  "finished_at": "2026-11-15T10:35:58.674794+00:00"
+}

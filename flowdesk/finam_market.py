@@ -1,4 +1,4 @@
-"""Shared Finam-only history, stream reconciliation and calculation cache."""
+"""Native candle storage/reconciliation, instantiated separately per provider."""
 from __future__ import annotations
 from collections import OrderedDict
 from contextlib import closing, nullcontext
@@ -6,7 +6,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import sqlite3
 import threading
-from .finam_api import FinamAPI, FRAMES, DEPTH_DAYS, symbol_name, parse_instant
+from .finam_api import FinamAPI, FRAMES, DEPTH_DAYS, parse_instant
+from .market_symbols import symbol_name
 from .market_data import Candle, normalize, candle_close_time
 from .pipeline import analyze_timeframes
 from .finam_auction import exclude_stock_closing_auction
@@ -17,6 +18,8 @@ STREAM_VERIFY_SECONDS = 900
 FULL_VERIFY_SECONDS = 86400
 
 class FinamMarketService:
+    @property
+    def provider_name(self):return getattr(self.api,"provider_name","Finam")
     def __init__(self, path=None, *, api=None, clock=None):
         self.path = Path(path or Path.home()/".flowdesk"/"finam_candles_v1.sqlite3")
         self.api = api or FinamAPI()
@@ -209,7 +212,7 @@ class FinamMarketService:
                         404:"контракт не найден Finam (404)"}.get(code,"загрузка Finam недоступна")
                     with self.lock:self._failures[key]=(now,errors[tf])
             finally:lock.release()
-        return errors
+        return {tf:reason.replace("Finam",self.provider_name) for tf,reason in errors.items()}
 
     def latest_quote(self,symbol,*,cancelled=lambda:False):
         now=self.clock()
@@ -236,7 +239,7 @@ class FinamMarketService:
             if cached and cached[0]==key and cached[1][0].asof<=observed:return cached[1]
             mic=symbol.rsplit("@",1)[1]
             delay=self.api.market_delay_minutes(mic)
-            provenance={tf:{"mode":"FINAM_NATIVE_CANDLES","symbol":symbol,"market":mic,
+            provenance={tf:{"mode":getattr(self.api,"provenance_mode","FINAM_NATIVE_CANDLES"),"symbol":symbol,"market":mic,
                 "native_higher":tf in ("D1","W1","MN1"),"feed_delay_seconds":delay*60} for tf in series}
             result=analyze_timeframes(series,timeframe,asof=observed,settings=settings,provenance=provenance)
             with self.lock:
@@ -263,14 +266,14 @@ class FinamMarketService:
         progress=progress or (lambda message:None)
         errors={}
         if allow_http:
-            progress("Finam: сверка последних свечей")
+            progress(self.provider_name+": сверка последних свечей")
             errors=self.refresh_series(symbol,(timeframe,),cancelled=cancelled)
             if self._tail(symbol,timeframe,1):
                 errors.update(self.refresh_series(symbol,(tf for tf in FRAMES if tf!=timeframe),cancelled=cancelled))
         series=exclude_stock_closing_auction(self._series(symbol),mic)
         if not series.get(timeframe):
             reason=errors.get(timeframe,"нет сохранённых свечей. Разрешите HTTP для первоначальной загрузки")
-            raise RuntimeError(f"Finam · {symbol} · {timeframe}: {reason}")
+            raise RuntimeError(f"{self.provider_name} · {symbol} · {timeframe}: {reason}")
         delay=self.api.market_delay_minutes(mic)
         observed=self.clock()-timedelta(minutes=delay)
         progress("Finam: расчёт потоков v2.11")
@@ -279,7 +282,7 @@ class FinamMarketService:
             prior=self.latest_stream_at.get(symbol)
             repair=any((symbol,tf) in self._repair for tf in FRAMES)
         return main,parents,{
-            "symbol":ticker,"board":mic,"tf":timeframe,
+            "symbol":ticker,"board":mic,"tf":timeframe,"provider":self.provider_name,
             "tier":"stream" if prior else ("network" if allow_http else "disk"),
             "asof":main.asof.isoformat(),"requested_at":self.clock().isoformat(),
             "stream_received_at":prior.isoformat() if prior else None,"feed_delay_seconds":delay*60,

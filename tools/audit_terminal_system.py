@@ -166,7 +166,9 @@ def gui_geometry():
                 check(headings[:3] == [GROUP_LABELS[US_FUTURES],
                                         GROUP_LABELS[RU_FUTURES],
                                         GROUP_LABELS[RU_STOCKS]],
-                      "wrong market group order")
+                "wrong market group order")
+                check(any(window.examples.item(i).text()=="КРИПТА"
+                          for i in range(window.examples.count())),"missing crypto section")
                 check(window.examples.viewport().width() > 100,
                       "instrument list not visible")
                 observed.append({"width": width, "height": height,

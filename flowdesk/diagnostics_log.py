@@ -25,7 +25,7 @@ _EVENTS = frozenset({
     "catalog_worker_failed", "chart_load_failed",
     "stream_unavailable", "stream_reconnecting",
 })
-_SYMBOL = re.compile(r"^[A-Za-z0-9_.-]{1,24}@[A-Z0-9]{4}$")
+_SYMBOL = re.compile(r"^[A-Za-z0-9_.-]{1,24}@(?:[A-Z0-9]{4}|BINANCE)$")
 _LABEL = re.compile(r"^[A-Z0-9.]{2,24}$")
 _DAY = re.compile(r"(?:действует до |новая дата |экспирация )(\d{4}-\d{2}-\d{2})")
 _HTTP = re.compile(r"\bHTTP\s+([1-5]\d{2})\b", re.IGNORECASE)

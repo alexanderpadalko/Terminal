@@ -16,6 +16,7 @@ from .watchlist import WatchlistService
 US_FUTURES="us"
 RU_STOCKS="stocks"
 RU_FUTURES="ru"
+CRYPTO="crypto"
 
 
 @dataclass(frozen=True)
@@ -67,6 +68,7 @@ RU_CONTRACTS=(
 assert len(US_CONTRACTS)==8 and len(RU_CONTRACTS)==10
 
 GROUP_LABELS={
+    CRYPTO:"КРИПТА",
     US_FUTURES:"ФЬЮЧЕРСЫ США · 8",
     RU_STOCKS:"АКЦИИ РФ · ТОП-20 ПО ОБОРОТУ",
     RU_FUTURES:"ФЬЮЧЕРСЫ РФ · 10",
@@ -143,7 +145,9 @@ def compose_universe(assets=(),*,watchlist=None):
         return rows
     stocks,status=cached_top20(watchlist=watchlist)
     return {US_FUTURES:contracts(US_CONTRACTS),RU_STOCKS:stocks,
-            RU_FUTURES:contracts(RU_CONTRACTS)},status
+            RU_FUTURES:contracts(RU_CONTRACTS),
+            CRYPTO:[Item(ticker+".P",name,CRYPTO,ticker+"@BINANCE",True,"Binance · USDT бессрочный")
+                    for ticker,name in (("BTCUSDT","Bitcoin"),("ETHUSDT","Ethereum"))]},status
 
 
 def is_in_universe(symbol, universe):

@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 
 from flowdesk.finam_universe import (
-    US_CONTRACTS, RU_CONTRACTS, US_FUTURES, RU_FUTURES, RU_STOCKS,
+    US_CONTRACTS, RU_CONTRACTS, US_FUTURES, RU_FUTURES, RU_STOCKS, CRYPTO,
     compose_universe, cached_top20, match_contract, is_in_universe, Item
 )
 
@@ -19,10 +19,11 @@ class FakeWatchlist:
 class TestCuratedFinamUniverse(unittest.TestCase):
     def test_exact_eight_plus_twenty_plus_ten_only(self):
         universe,status=compose_universe()
-        self.assertEqual(tuple(universe),(US_FUTURES,RU_STOCKS,RU_FUTURES))
+        self.assertEqual(tuple(universe),(US_FUTURES,RU_STOCKS,RU_FUTURES,CRYPTO))
         self.assertEqual(len(universe[US_FUTURES]),8)
         self.assertEqual(len(universe[RU_STOCKS]),20)
         self.assertEqual(len(universe[RU_FUTURES]),10)
+        self.assertEqual([row.label for row in universe[CRYPTO]],["BTCUSDT.P","ETHUSDT.P"])
         self.assertEqual(
             [x.label for x in universe[US_FUTURES]],
             ["NQZ2026","ESZ2026","GCZ2026","SIZ2026",

@@ -10,6 +10,8 @@ from types import SimpleNamespace
 from .finam_stream import FinamStreamWorker
 from .finam_requests import RequestCoordinator
 from .finam_screener import FinamScreenerWorker, ScanResult
+from .binance_stream import interpret_packet as binance_packet
+from datetime import datetime,timezone
 
 
 def check_finam_runtime(output):
@@ -34,9 +36,13 @@ def check_finam_runtime(output):
         scanner.row.connect(rows.append)
         scanner.run()
         result["scanner_rows"]=len(rows)
+        crypto=binance_packet({"data":{"e":"aggTrade","s":"BTCUSDT",
+            "p":"100","T":1794736800000}},"BTCUSDT",1,datetime.now(timezone.utc))
+        result["binance_decoder"]=crypto is not None and crypto.board=="BINANCE"
         result["ok"] = (result.get("executor_callable") and
                         result.get("thread_result") == 17 and result.get("localhost_resolved")
-                        and result.get("scheduler_result")==23 and result.get("scanner_rows")==3)
+                        and result.get("scheduler_result")==23 and result.get("scanner_rows")==3
+                        and result.get("binance_decoder"))
     except Exception as exc:
         result["error_type"] = type(exc).__name__
     Path(output).write_text(json.dumps(result, indent=2), encoding="utf-8")
