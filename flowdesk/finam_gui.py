@@ -217,7 +217,6 @@ class FinamWindow(QMainWindow):
         header.addWidget(wordmark)
         header.addSpacing(20)
         self.tf=TimeframeBar()
-        self.tf.set_theme("dark")
         self.tf.currentTextChanged.connect(lambda _:self._load(refresh=False))
         header.addWidget(self.tf)
         header.addStretch()
@@ -236,7 +235,6 @@ class FinamWindow(QMainWindow):
         self.feed.hide()  # Technical observation belongs in diagnostics.log.
         split=QSplitter(Qt.Orientation.Horizontal)
         self.chart=CandleChart()
-        self.chart.set_theme("dark")
         self.chart.set_settings(self.indicator_settings)
         self.chart.set_chart_colors(self.app_settings)
         self.chart.empty_text="Добавьте токен Finam в настройках и выберите инструмент"
