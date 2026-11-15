@@ -5,6 +5,9 @@ import hashlib
 import json
 from pathlib import Path
 import re
+import shutil
+from datetime import datetime, timezone
+from uuid import uuid4
 
 REFERENCE_SHA256='CC2E1422F6D865C7D4814B7FF7CD4EEA82F87EB89642E8EF5F158A47B85D057F'
 SOURCES=('open','high','low','close','hl2','hlc3','ohlc4','volume')
@@ -129,9 +132,11 @@ class SettingsStore:
         self.warning=''
 
     def read(self):
+        self.warning=''
         try:
             data=json.loads(self.path.read_text(encoding='utf-8-sig'))
-            if data.get('schema')!=1:raise ValueError('Unsupported settings schema')
+            if not isinstance(data,dict) or data.get('schema')!=1:
+                raise ValueError('Unsupported settings schema')
             return IndicatorSettings(data['indicator']),ApplicationSettings(**data.get('application',{}))
         except FileNotFoundError:
             pass
@@ -143,9 +148,21 @@ class SettingsStore:
         self.path.parent.mkdir(parents=True,exist_ok=True)
         data={'schema':1,'reference':'v2.11 H1 + H4','reference_sha256':REFERENCE_SHA256,
               'indicator':indicator.as_dict(),'application':vars(application)}
-        temp=self.path.with_suffix('.tmp')
-        temp.write_text(json.dumps(data,ensure_ascii=False,indent=2),encoding='utf-8')
-        temp.replace(self.path)
+        # If reading previously failed, preserve the user's original file
+        # before storing defaults or subsequent edits. No silent data loss.
+        if self.warning and self.path.is_file():
+            stamp=datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')
+            preserved=self.path.with_name(self.path.name+'.invalid-'+stamp+'-'+uuid4().hex[:8])
+            with self.path.open('rb') as source, preserved.open('xb') as backup:
+                shutil.copyfileobj(source,backup)
+        temp=self.path.with_name('.'+self.path.name+'.'+uuid4().hex+'.tmp')
+        try:
+            temp.write_text(json.dumps(data,ensure_ascii=False,indent=2),
+                            encoding='utf-8')
+            temp.replace(self.path)
+            self.warning=''
+        finally:
+            temp.unlink(missing_ok=True)
 
 
 class MemorySettingsStore:
