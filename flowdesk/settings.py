@@ -23,19 +23,11 @@ CHART_COLOR_FIELDS = (
     ('chart_grid', 'Сетка графика'),
     ('chart_axis_text', 'Текст шкалы'),
 )
+# One base appearance for both Finam and legacy UI entrypoints. Users can
+# override every chart color below in the settings dialog; there is no
+# hidden light/dark preset selected by the application entrypoint.
 CHART_THEME_DEFAULTS = {
-    'tv': {
-        'chart_candle_up': '#FFFFFFFF',
-        'chart_candle_down': '#111111FF',
-        'chart_outline_up': '#F8F8F8FF',
-        'chart_outline_down': '#141414FF',
-        'chart_wick_up': '#EDEDEDFF',
-        'chart_wick_down': '#242424FF',
-        'chart_background': '#898989FF',
-        'chart_grid': '#A0A0A02D',
-        'chart_axis_text': '#292B2FFF',
-    },
-    'dark': {
+    "user": {
         'chart_candle_up': '#20C997FF',
         'chart_candle_down': '#F46B82FF',
         'chart_outline_up': '#20C997FF',
@@ -47,7 +39,6 @@ CHART_THEME_DEFAULTS = {
         'chart_axis_text': '#B7C3D5FF',
     },
 }
-
 
 @lru_cache(maxsize=1)
 def specifications():
