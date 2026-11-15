@@ -181,6 +181,24 @@ class TestFinamGui(unittest.TestCase):
                              "Проверить повторно" in text for text in buttons))
         self.assertFalse(hasattr(self.window,"_show_expiry_report"))
 
+    def test_verified_us_ru_futures_update_before_moex_stocks(self):
+        from flowdesk.finam_universe import (
+            US_FUTURES, RU_FUTURES, RU_STOCKS, US_CONTRACTS, RU_CONTRACTS, Item)
+        original_stocks=list(self.window.universe[RU_STOCKS])
+        verified={
+            US_FUTURES+":"+US_CONTRACTS[0].display:
+                Item("NQZ2026","Nasdaq 100",US_FUTURES,"NQZ6@XCME",True,
+                     "действует до 2026-12-18 · Finam GetAsset"),
+            RU_FUTURES+":"+RU_CONTRACTS[0].display:
+                Item("SIZ2026","Доллар/рубль",RU_FUTURES,"SiZ6@RTSX",True,
+                     "действует до 2026-12-17 · Finam GetAsset")
+        }
+        self.window._futures_ready(verified)
+        self.assertEqual(self.window.universe[US_FUTURES][0].symbol,"NQZ6@XCME")
+        self.assertEqual(self.window.universe[RU_FUTURES][0].symbol,"SiZ6@RTSX")
+        self.assertEqual(self.window.universe[RU_STOCKS],original_stocks)
+        self.assertTrue(self.window.daily_catalog_timer.isActive())
+
     def test_market_sidebar_orders_russian_futures_before_russian_stocks(self):
         from flowdesk.finam_universe import (
             US_FUTURES, RU_FUTURES, RU_STOCKS, GROUP_LABELS)
