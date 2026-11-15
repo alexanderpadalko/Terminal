@@ -2,7 +2,7 @@
 from .market_data import MOSCOW
 from .exchange_time import ExchangeClock
 from .publication import chart_cutoff,published_state
-from .fvg_display import working_zone
+from .fvg_summary import summary_fvg_side
 
 
 def period_key(dt,anchor,*,exchange: ExchangeClock | None=None):
@@ -75,13 +75,12 @@ def summary_rows(analysis):
     for tf in ('H1','H4','D1','W1','MN1'):
         source=analysis if tf==analysis.timeframe else sources.get(tf)
         state=None
+        live=tf=='H1' or tf==analysis.timeframe
         if source and source.candles:
-            state,_,_=published_state(source,cutoff,live=tf=='H1')
+            state,_,_=published_state(source,cutoff,live=live)
         side=state.side if state is not None else 0
-        # Use the same confirmed guard, formation cutoff and live episode
-        # bounds as the plotted higher FVG and the screener.
-        zone=working_zone(source,cutoff,cutoff) if source and source.candles else None
-        in_zone=zone is not None and price is not None and zone.bottom<=price<=zone.top
-        rows.append({'timeframe':tf,'flow':side,'fvg':zone.side if in_zone else 0,
+        # v2.13: closed higher LiquidityView; live bounds only for H1/own TF.
+        rows.append({'timeframe':tf,'flow':side,
+                     'fvg':summary_fvg_side(source,cutoff,price,live=live),
                      'available':state is not None})
     return rows

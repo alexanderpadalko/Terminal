@@ -101,7 +101,7 @@ class TestPublicationV211(unittest.TestCase):
         chart.summary_sources={'H1':parent}
         self.assertEqual((summary_rows(chart)[0]['flow'],summary_rows(chart)[0]['fvg']),(1,1))
 
-    def test_h4_summary_matches_drawn_working_guard_in_extended_live_range(self):
+    def test_v213_higher_summary_stays_closed_while_plot_bounds_extend_live(self):
         # A developing bar can extend the confirmed episode's bounds, but
         # never replace its guard/direction with a forming guard.
         guard=FVG(0,0,0,100,95,-1)
@@ -116,9 +116,15 @@ class TestPublicationV211(unittest.TestCase):
                if zone.source_tf=='H4']
         self.assertEqual([(zone.bottom,zone.top) for zone in zones],[(95,100)])
         row=next(row for row in summary_rows(chart) if row['timeframe']=='H4')
-        self.assertEqual((row['flow'],row['fvg']),(-1,-1))
+        # v2.13's higher-column LiquidityView is closed, unlike the plot.
+        self.assertEqual((row['flow'],row['fvg']),(-1,0))
         from flowdesk.finam_screener import select_working_fvg_signals
         self.assertEqual(select_working_fvg_signals(chart,98).as_map()['H4'],row['fvg'])
+        # The own column explicitly uses f_liveFlow in v2.13.
+        source.candles[-1]=replace(source.candles[-1],close=98)
+        own=next(row for row in summary_rows(source) if row['timeframe']=='H4')
+        self.assertEqual((own['flow'],own['fvg']),(-1,-1))
+        self.assertEqual(select_working_fvg_signals(source,98).as_map()['H4'],-1)
 
     def test_summary_does_not_highlight_a_guard_before_its_formation_close(self):
         guard=FVG(0,0,1,110,100,1)

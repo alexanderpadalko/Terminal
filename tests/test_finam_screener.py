@@ -34,17 +34,15 @@ def make_main(count=6):
 class TestSignalLogic(unittest.TestCase):
     def test_badges_use_only_single_confirmed_working_guard_per_tf(self):
         main=make_main()
-        zones={
-            "H1":SimpleNamespace(side=1,bottom=90,top=110),
-            "H4":SimpleNamespace(side=-1,bottom=95,top=105),
-            "D1":None,
-            "W1":SimpleNamespace(side=1,bottom=130,top=140),
-            "MN1":None,
-        }
-        def choose(source,*unused):
-            return zones[source.timeframe]
-        with patch("flowdesk.finam_screener.working_zone",side_effect=choose):
-            result=select_working_fvg_signals(main,100,symbol="SBER@MISX")
+        for tf,side,bottom,top,broken in (
+                ('H4',-1,95,105,False),('D1',1,90,110,True),
+                ('W1',1,130,140,False),('MN1',1,90,110,True)):
+            for state in main.summary_sources[tf].flows:
+                state.side=side
+                state.guard.bottom,state.guard.top=bottom,top
+                state.guard_broken=broken
+                state.lo,state.hi=80,150
+        result=select_working_fvg_signals(main,100,symbol="SBER@MISX")
         self.assertEqual(result.directions,(1,-1,0,0,0))
         self.assertEqual(result.as_map(),{"H1":1,"H4":-1,"D":0,"W":0,"M":0})
         self.assertTrue(result.matched(("H4",)))
@@ -55,23 +53,22 @@ class TestSignalLogic(unittest.TestCase):
 
     def test_zone_boundaries_included_and_broken_zone_no_fallback(self):
         main=make_main()
-        active=SimpleNamespace(side=1,bottom=100,top=110)
-        with patch("flowdesk.finam_screener.working_zone",
-                   side_effect=lambda source,*unused:
-                   active if source.timeframe=="H1" else None):
-            self.assertEqual(select_working_fvg_signals(main,100).directions[0],1)
-            self.assertEqual(select_working_fvg_signals(main,110).directions[0],1)
-            self.assertEqual(select_working_fvg_signals(main,99.99).directions[0],0)
-            self.assertEqual(select_working_fvg_signals(main,110.01).directions[0],0)
-        with patch("flowdesk.finam_screener.working_zone",return_value=None):
-            self.assertEqual(select_working_fvg_signals(main,105).directions,
-                             (0,0,0,0,0))
+        for state in main.flows:
+            state.guard.bottom,state.guard.top=100,110
+        self.assertEqual(select_working_fvg_signals(main,100).directions[0],1)
+        self.assertEqual(select_working_fvg_signals(main,110).directions[0],1)
+        self.assertEqual(select_working_fvg_signals(main,99.99).directions[0],0)
+        self.assertEqual(select_working_fvg_signals(main,110.01).directions[0],0)
+        for source in main.summary_sources.values():
+            for state in source.flows:
+                state.guard_broken=True
+        self.assertEqual(select_working_fvg_signals(main,105).directions,(0,0,0,0,0))
 
     def test_uninitialized_flow_and_absent_history_are_unknown_not_negative_signal(self):
         main=make_main()
         main.summary_sources["W1"].flows=[FlowState(i) for i in range(6)]
         main.summary_sources["MN1"].candles=[]
-        with patch("flowdesk.finam_screener.working_zone",return_value=None):
+        with patch("flowdesk.finam_screener.summary_fvg_side",return_value=0):
             result=select_working_fvg_signals(main,105)
         self.assertEqual(result.directions,(0,0,0,None,None))
         self.assertTrue(result.missing(("W",)))
@@ -115,7 +112,7 @@ class TestSignalLogic(unittest.TestCase):
         main=make_main()
         main.summary_sources["W1"].flows=[FlowState(i) for i in range(6)]
         main.summary_sources["MN1"].flows=[]
-        with patch("flowdesk.finam_screener.working_zone",return_value=None):
+        with patch("flowdesk.finam_screener.summary_fvg_side",return_value=0):
             result=select_working_fvg_signals(
                 main,100,symbol="SIZ26@RTSX",
                 fetch_problems={"W1":"Finam не вернул свечи"})
@@ -131,7 +128,7 @@ class TestSignalLogic(unittest.TestCase):
         main=make_main()
         main.summary_sources.pop("MN1")
         main.summary_sources.pop("W1")
-        with patch("flowdesk.finam_screener.working_zone",return_value=None):
+        with patch("flowdesk.finam_screener.summary_fvg_side",return_value=0):
             result=select_working_fvg_signals(
                 main,100,fetch_problems={
                     "MN1":"нет доступа Finam (403)",

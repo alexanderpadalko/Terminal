@@ -1,0 +1,2 @@
+# Preserve the exact user-supplied bytes used by the v2.13 SHA-256 pin.
+reference/TradingView_v2.13.pine -text

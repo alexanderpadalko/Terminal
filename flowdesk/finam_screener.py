@@ -1,6 +1,6 @@
 """Read-only FVG screener: 38 Finam instruments and two Binance perpetuals.
 
-Uses the same pinned v2.11 FlowEngine / selected working guard as CandleChart,
+Uses the pinned v2.11 FlowEngine with the user's v2.13 summary predicate,
 not a separate MOEX feed or reimplementation of flow reversal rules.
 """
 from __future__ import annotations
@@ -18,7 +18,7 @@ from PySide6.QtCore import QThread, Signal
 from .finam_api import decimal_number, DEPTH_DAYS, FinamAPI, parse_instant
 from .market_symbols import symbol_name,BINANCE
 from .finam_auction import exclude_stock_closing_auction
-from .fvg_display import working_zone
+from .fvg_summary import summary_fvg_side
 from .publication import chart_cutoff, published_state
 from .finam_market import TTL_SECONDS
 from .asyncio_runtime import prepare_asyncio_runtime
@@ -155,7 +155,7 @@ def quote_age_problem(response, observed, symbol, *,
 
 
 def select_working_fvg_signals(main, latest_price, *, symbol="", fetch_problems=None):
-    """One active *selected* FVG for each independently confirmed flow.
+    """v2.13 summary rule for each independently confirmed source flow.
 
     Never fall back to an older FVG if the working guard is broken. Every TF
     has its own most recent closed source state; price is the same latest
@@ -185,10 +185,8 @@ def select_working_fvg_signals(main, latest_price, *, symbol="", fetch_problems=
             error=(fetch_problems or {}).get(tf,"")
             reasons.append(detail+(("; "+error) if error else ""))
             continue
-        zone=working_zone(source,cutoff,cutoff)
-        direction.append(
-            zone.side if zone is not None and
-            zone.bottom<=latest_price<=zone.top else 0)
+        direction.append(summary_fvg_side(source,cutoff,latest_price,
+                         live=tf=='H1' or tf==main.timeframe))
         reasons.append("")
     return ScanResult(symbol,tuple(direction),price=latest_price,
                       missing_reasons=tuple(reasons))

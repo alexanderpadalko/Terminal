@@ -127,9 +127,9 @@ def _flow_view(source, state):
                     state.range_start_at or _at(source, state.start), previous)
 
 
-def working_zone(source, cutoff, right_time):
+def working_zone(source, cutoff, right_time, *, live=True):
     """Exactly one selected guard; never fall back to an older active FVG."""
-    state, index, cutoff = _state(source, cutoff)
+    state, index, cutoff = published_state(source, cutoff, live=live)
     if state is None or not state.side or state.guard_broken or state.guard is None:
         return None
     guard = state.guard
