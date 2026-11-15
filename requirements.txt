@@ -1,7 +1,7 @@
 # Stable Windows x64 dependencies verified on PyPI, 2026-11-10.
 # QtWidgets belongs to Essentials; no unused WebEngine/Addons required.
 PySide6_Essentials==6.12.0
-tzdata==2026.4
+tzdata==2026.6
 websockets==15.0.1
 
 keyring>=25.6,<27
