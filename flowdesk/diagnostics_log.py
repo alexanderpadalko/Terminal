@@ -31,6 +31,7 @@ _EVENTS = frozenset({
     "stream_unavailable", "stream_reconnecting",
     "storage_snapshot_unavailable",
     "futures_snapshot_unavailable", "asset_details_unavailable",
+    "candle_source_unavailable",
 })
 _STAGES=frozenset(("catalog_refresh","catalog","auth","token_details","asset_details",
     "futures_resolution","roll_state_load","roll_state_save","futures_snapshot",
@@ -138,7 +139,7 @@ def _write(fields, *, path=None):
                 handler.close()
 
 
-def log_event(event, *, symbol="", error=None, stage="", outcome="",elapsed_ms=None,path=None):
+def log_event(event, *, symbol="", error=None, stage="", outcome="",elapsed_ms=None,timeframe='',path=None):
     """Record allowlisted failure context; never serialize a raw exception."""
     if event not in _EVENTS:
         return False
@@ -146,6 +147,7 @@ def log_event(event, *, symbol="", error=None, stage="", outcome="",elapsed_ms=N
     if kind=="network" and stage in ("backup","futures_snapshot","roll_state_load","roll_state_save"):
         kind="storage"
     fields=[("event",event),("symbol",_safe_symbol(symbol)),("http",http)]
+    if timeframe in ('M1','M5','H1','H4','D1','W1','MN1'):fields.append(('timeframe',timeframe))
     if error is not None:fields.extend((("kind",kind),("error_type",error_type)))
     if isinstance(stage,str) and stage in _STAGES:fields.append(("stage",stage))
     operation=getattr(error,"diagnostic_operation",stage)
@@ -157,6 +159,25 @@ def log_event(event, *, symbol="", error=None, stage="", outcome="",elapsed_ms=N
     elapsed=_bounded_number(elapsed_ms,3_600_000)
     if elapsed is not None:fields.append(("elapsed_ms",elapsed))
     if isinstance(outcome,str) and outcome in _OUTCOMES:fields.append(("outcome",outcome))
+    return _write(fields,path=path)
+
+
+def log_candle_policy(*,symbol='',profile='',issues=None,counts=None,path=None):
+    """Fixed calendar/data quality codes only, never raw market data or text."""
+    profiles={'CRYPTO_UTC','US_EQUITY_RTH','MOEX_STOCK_FULL','MOEX_FUTURE_FULL',
+              'CME_EQUITY','CME_METALS','CME_ENERGY','ICE_BRENT'}
+    reasons={'calendar_history_unknown','pre_ets_schedule_unknown',
+        'weekend_product_admission_unknown','product_holiday_hours_unknown',
+        'dst_product_hours_unknown','instrument_calendar_unknown',
+        'lower_history_unavailable','incomplete_lower_coverage',
+        'native_daily_session_mismatch','incomplete_daily_coverage'}
+    fields=[('event','candle_policy'),('symbol',_safe_symbol(symbol)),
+            ('algorithm','session-ohlcv-1'),('profile',profile if profile in profiles else '-')]
+    for tf in ('H4','D1','W1','MN1'):
+        issue=(issues or {}).get(tf)
+        if issue:fields.append((tf,issue if issue in reasons else 'unknown'))
+        count=(counts or {}).get(tf)
+        if type(count) is int and 0<=count<=1_000_000:fields.append((tf+'_count',str(count)))
     return _write(fields,path=path)
 
 

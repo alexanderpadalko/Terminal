@@ -73,9 +73,11 @@ class Candle:
     scheduled_close: datetime | None = None
 
     def __post_init__(self):
-        if self.time.tzinfo is None:
+        if self.time.tzinfo is None or self.time.utcoffset() is None:
             raise ValueError("Время свечи должно содержать часовой пояс")
-        if self.scheduled_close is not None and (self.scheduled_close.tzinfo is None or self.scheduled_close <= self.time):
+        if self.scheduled_close is not None and (self.scheduled_close.tzinfo is None or
+                self.scheduled_close.utcoffset() is None or
+                self.scheduled_close.astimezone(UTC) <= self.time.astimezone(UTC)):
             raise ValueError("Неверное время закрытия свечи")
         values = (self.open, self.high, self.low, self.close, self.volume)
         if not all(math.isfinite(v) for v in values):
@@ -86,7 +88,7 @@ class Candle:
 
 def normalize(candles: list[Candle]) -> list[Candle]:
     """Chronological order, last value wins when timestamps repeat."""
-    return sorted({x.time.astimezone(UTC): x for x in candles}.values(), key=lambda x: x.time)
+    return sorted({x.time.astimezone(UTC): x for x in candles}.values(), key=lambda x: x.time.astimezone(UTC))
 
 
 def serialize_candle(c: Candle) -> dict:

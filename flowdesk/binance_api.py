@@ -41,6 +41,9 @@ def kline(row):
 
 
 class BinanceAPI:
+    session_candles=True
+    stream_frames=('M1','M5','H1','H4','D1')
+    candle_depth_days={**DEPTH_DAYS,"D1":5*365}
     provider_name="Binance"
     provenance_mode="BINANCE_USDM_NATIVE_CANDLES"
     permissions_status="public"
@@ -117,7 +120,7 @@ class BinanceAPI:
         if timeframe not in INTERVALS:raise ValueError("Unknown Binance timeframe")
         self._contract(symbol)
         upper=end or now or self.clock()
-        lower=start or upper-timedelta(days=DEPTH_DAYS[timeframe])
+        lower=start or upper-timedelta(days=self.candle_depth_days[timeframe])
         if lower.tzinfo is None or upper.tzinfo is None or lower>=upper:
             raise ValueError("Invalid Binance interval")
         cursor=int(lower.timestamp()*1000);stop=int(upper.timestamp()*1000)

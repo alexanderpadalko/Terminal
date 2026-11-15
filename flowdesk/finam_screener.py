@@ -204,6 +204,9 @@ def _backfill_higher_history(service, symbol, now, series, *,
     Continue to the existing depth boundary independently of signal readiness.
     An old individual future is never stitched to another contract.
     """
+    if getattr(service.api,'session_candles',False):
+        from .session_store import backfill
+        return backfill(service,symbol,now,cancelled=cancelled)
     if not isinstance(getattr(service, "api", None), FinamAPI):
         return {}
     state=getattr(service,"scanner_history_progress",None)
@@ -320,6 +323,10 @@ def scan_one(service, ticker, mic, settings, *, cancelled=lambda:False,
     series=exclude_stock_closing_auction(service._series(symbol),mic)
     delay=service.api.market_delay_minutes(mic)
     observed=service.clock()-timedelta(minutes=delay or 0)
+    prepare=getattr(service,'prepare_series',None)
+    if callable(prepare):series=prepare(symbol,service._series(symbol),observed)
+    if not series.get('H1'):
+        return unknown(symbol,'h1_unavailable')
     if cancelled():
         raise InterruptedError()
     try:

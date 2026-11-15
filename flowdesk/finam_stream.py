@@ -147,7 +147,8 @@ class FinamStreamWorker(QThread):
                                 # Quotes and OHLC only; ORDERS/TRADES/ACCOUNT are never requested.
                                 requests = [{"action":"SUBSCRIBE","type":"QUOTES",
                                              "data":{"symbols":[symbol]},"token":token}]
-                                for tf in FRAMES.values():
+                                for name in getattr(self.api,'stream_frames',FRAMES):
+                                    tf=FRAMES[name]
                                     requests.append({"action":"SUBSCRIBE","type":"BARS",
                                                      "data":{"symbol":symbol,"timeframe":tf},
                                                      "token":token})

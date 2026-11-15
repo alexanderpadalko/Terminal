@@ -214,6 +214,7 @@ class TestSignalLogic(unittest.TestCase):
         now=datetime(2026,11,14,12,tzinfo=timezone.utc)
         boundary=now-timedelta(days=DEPTH_DAYS["MN1"])
         class Archive(FinamAPI):
+            session_candles=False  # Legacy native-monthly archive contract.
             def __init__(self):self.calls=[]
             def bars(self,symbol,tf,*,start=None,end=None):
                 self.calls.append((symbol,tf,start,end))
@@ -265,6 +266,7 @@ class TestSignalLogic(unittest.TestCase):
         now=datetime(2026,11,13,16,tzinfo=timezone.utc)
         symbol="SIZ6@RTSX"
         class HistoryAPI(FinamAPI):
+            session_candles=False  # Legacy native-higher backfill contract.
             def __init__(self):
                 self.calls=[]
             def bars(self,name,tf,*,start=None,end=None,**unused):

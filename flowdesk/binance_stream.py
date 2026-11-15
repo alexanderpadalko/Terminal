@@ -38,7 +38,8 @@ class BinanceStreamWorker(FinamStreamWorker):
         from websockets.asyncio.client import connect
         epoch=failures=0
         ticker=self.ticker.lower()
-        streams=[ticker+"@aggTrade",*(ticker+"@kline_"+code for code in INTERVALS.values())]
+        streams=[ticker+"@aggTrade",*(ticker+"@kline_"+INTERVALS[tf]
+            for tf in self.api.stream_frames)]
         url=WS_URL+"?streams="+"/".join(streams)
         while not self._stopped.is_set():
             epoch+=1;ready=False

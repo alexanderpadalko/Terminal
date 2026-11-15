@@ -12,6 +12,8 @@ from .market_data import Candle, normalize, candle_close_time
 from .pipeline import analyze_timeframes
 from .finam_auction import exclude_stock_closing_auction
 from .settings import IndicatorSettings
+from . import session_store
+from .trading_calendar import calendar_for
 
 TTL_SECONDS = {"M1":60,"M5":300,"H1":300,"H4":900,"D1":1800,"W1":3600,"MN1":14400}
 STREAM_VERIFY_SECONDS = 900
@@ -20,10 +22,11 @@ FULL_VERIFY_SECONDS = 86400
 class FinamMarketService:
     @property
     def provider_name(self):return getattr(self.api,"provider_name","Finam")
-    def __init__(self, path=None, *, api=None, clock=None):
+    def __init__(self, path=None, *, api=None, clock=None,calendar_factory=None):
         self.path = Path(path or Path.home()/".flowdesk"/"finam_candles_v1.sqlite3")
         self.api = api or FinamAPI()
         self.clock = clock or (lambda:datetime.now(timezone.utc))
+        self.calendar_factory=calendar_factory or calendar_for
         self.lock = threading.RLock()
         self.latest_stream_at = {}
         self.last_snapshot = {}
@@ -49,6 +52,7 @@ class FinamMarketService:
             db.execute("""CREATE TABLE IF NOT EXISTS finam_history_progress (
                 symbol TEXT NOT NULL,tf TEXT NOT NULL,cursor TEXT NOT NULL,
                 exhausted INTEGER NOT NULL,PRIMARY KEY(symbol,tf))""")
+            session_store.initialize(db)
 
     def _connection(self):
         return sqlite3.connect(self.path,timeout=30)
@@ -65,9 +69,25 @@ class FinamMarketService:
             lock.release()
             raise InterruptedError()
 
-    def _upsert(self,symbol,timeframe,bars):
+    def _upsert(self,symbol,timeframe,bars,*,source='http'):
         if not bars:return False
         with self.lock,closing(self._connection()) as db,db:
+            if source=='stream' and getattr(self.api,'session_candles',False):
+                observed=self.clock()-timedelta(minutes=self.api.market_delay_minutes(symbol.rsplit('@',1)[1]))
+                accepted=[]
+                for bar in bars:
+                    saved=db.execute('''SELECT c.o,c.h,c.l,c.c,c.v,o.observed_at FROM candles c
+                        JOIN candle_source_observations o USING(symbol,tf,ts)
+                        WHERE c.symbol=? AND c.tf=? AND c.ts=?''',
+                        (symbol,timeframe,bar.time.isoformat())).fetchone()
+                    ending=session_store.source_end(self,symbol,timeframe,bar)
+                    if saved and ending<=observed and datetime.fromisoformat(saved[5])>=ending:
+                        if tuple(saved[:5])!=(bar.open,bar.high,bar.low,bar.close,bar.volume):
+                            self._repair.add((symbol,timeframe));self._repair_tried.pop((symbol,timeframe),None)
+                        continue
+                    accepted.append(bar)
+                bars=accepted
+                if not bars:return False
             db.executemany("""INSERT INTO candles
                 (symbol,tf,ts,o,h,l,c,v,closes_at) VALUES (?,?,?,?,?,?,?,?,?)
                 ON CONFLICT(symbol,tf,ts) DO UPDATE SET
@@ -79,6 +99,9 @@ class FinamMarketService:
                 ((symbol,timeframe,b.time.isoformat(),b.open,b.high,b.low,b.close,
                   b.volume,b.scheduled_close.isoformat() if b.scheduled_close else None) for b in bars))
             changed=bool(db.total_changes)
+            if getattr(self.api,'session_candles',False):
+                observed=self.clock()-timedelta(minutes=self.api.market_delay_minutes(symbol.rsplit('@',1)[1]))
+                session_store.changed(db,symbol,timeframe,bars,observed,replace=changed or source=='http')
             if changed:
                 for key in list(self.analysis_cache):
                     if key[0]==symbol:self.analysis_cache.pop(key,None)
@@ -86,14 +109,28 @@ class FinamMarketService:
 
     def _series(self,symbol):
         with closing(self._connection()) as db:
+            db.execute('BEGIN')
             rows=db.execute("""SELECT tf,ts,o,h,l,c,v,closes_at FROM candles
                 WHERE symbol=? ORDER BY ts""",(symbol,)).fetchall()
+            state=None
+            if getattr(self.api,'session_candles',False):
+                row=db.execute('SELECT revision FROM candle_source_revisions WHERE symbol=?',(symbol,)).fetchone()
+                state={'revision':row[0] if row else 0,
+                    'coverage':db.execute('SELECT tf,start,ending FROM candle_source_coverage WHERE symbol=?',(symbol,)).fetchall(),
+                    'observations':db.execute('SELECT tf,ts,observed_at FROM candle_source_observations WHERE symbol=?',(symbol,)).fetchall()}
         series={tf:[] for tf in FRAMES}
         for tf,ts,o,h,l,c,v,ending in rows:
             if tf in series:
                 series[tf].append(Candle(datetime.fromisoformat(ts),o,h,l,c,v,
                     datetime.fromisoformat(ending) if ending else None))
-        return {tf:normalize(bars) for tf,bars in series.items() if bars}
+        result={tf:normalize(bars) for tf,bars in series.items() if bars}
+        return session_store.SourceSeries(result,state) if state is not None else result
+
+    def prepare_series(self,symbol,raw,observed):
+        cleaned=exclude_stock_closing_auction(raw,symbol.rsplit('@',1)[1])
+        if hasattr(raw,'source_state'):
+            cleaned=session_store.SourceSeries(cleaned,raw.source_state)
+        return session_store.prepare(self,symbol,cleaned,observed)
 
     def invalidate_network_cache(self):
         with self.lock,closing(self._connection()) as db,db:
@@ -142,7 +179,7 @@ class FinamMarketService:
                 with self.lock:
                     self._repair.add((symbol,event.timeframe))
                     self._repair_tried.pop((symbol,event.timeframe),None)
-            self._upsert(symbol,event.timeframe,event.candles)
+            self._upsert(symbol,event.timeframe,event.candles,source='stream')
             with self.lock:
                 self.latest_stream_at[symbol]=max(self.latest_stream_at.get(symbol,event.received_at),event.received_at)
                 self._stream_updates[(symbol,event.timeframe)]=event.received_at
@@ -155,6 +192,16 @@ class FinamMarketService:
 
     def refresh_series(self,symbol,frames,*,priority=0,cancelled=lambda:False):
         """Deduplicate refreshes by exact symbol/TF; do not lock the DB across HTTP."""
+        policy=bool(getattr(self.api,'session_candles',False))
+        if policy:
+            # H4 comes from intraday sources, W/M from session D1. Keep native
+            # D1 only as an auditable candidate, not an assumed session match.
+            needed=[]
+            for frame in frames:
+                sources=('H1','M5','D1') if frame in ('H4','D1','W1','MN1') else (frame,)
+                for item in sources:
+                    if item not in needed:needed.append(item)
+            frames=needed
         errors={}
         for tf in frames:
             if cancelled():raise InterruptedError()
@@ -175,20 +222,25 @@ class FinamMarketService:
                     generation=self._generation
                     failure=self._failures.get(key)
                     tried=self._repair_tried.get(key)
+                with closing(self._connection()) as db:
+                    covered=db.execute('SELECT 1 FROM candle_source_coverage WHERE symbol=? AND tf=? LIMIT 1',key).fetchone()
                 if failure and 0<=(now-failure[0]).total_seconds()<60:
                     errors[tf]=failure[1]
                     continue
                 if repair and tried and 0<=(now-tried).total_seconds()<30:continue
-                if pulled and not repair and 0<=(now-pulled).total_seconds()<ttl:
+                if pulled and not repair and not (policy and not covered) and 0<=(now-pulled).total_seconds()<ttl:
                     if not bars:errors[tf]="Finam не вернул свечи"
                     continue
-                full=not bars or now>=full_due
+                full=not bars or now>=full_due or (policy and not covered)
                 kwargs={}
                 if bars and not full:
                     kwargs={"start":max(now-timedelta(days=DEPTH_DAYS[tf]),bars[-min(3,len(bars))].time),"end":now}
                     if kwargs["start"]>=now:
                         errors[tf]="Finam: некорректное время свечи"
                         continue
+                if policy and not kwargs:
+                    depth=getattr(self.api,'candle_depth_days',DEPTH_DAYS)[tf]
+                    kwargs={'start':now-timedelta(days=depth),'end':now}
                 scope=getattr(self.api,"request_scope",None)
                 try:
                     with scope(priority=priority,cancelled=cancelled) if scope else nullcontext():
@@ -200,12 +252,18 @@ class FinamMarketService:
                         self._failures.pop(key,None)
                         if fetched:self._upsert(symbol,tf,fetched)
                         elif not bars:errors[tf]="Finam не вернул свечи"
+                        if policy:
+                            observed=now-timedelta(minutes=self.api.market_delay_minutes(symbol.rsplit('@',1)[1]))
+                            session_store.record_response(self,symbol,tf,fetched,kwargs['start'],kwargs['end'],observed)
                         due=now+timedelta(seconds=FULL_VERIFY_SECONDS) if full else full_due
                         with closing(self._connection()) as db,db:
                             db.execute("INSERT OR REPLACE INTO finam_pulls VALUES(?,?,?,?)",(*key,now.isoformat(),due.isoformat()))
                         if fetched:self._repair.discard(key)
                 except InterruptedError:raise
                 except Exception as exc:
+                    from .diagnostics_log import log_event
+                    log_event('candle_source_unavailable',symbol=symbol,timeframe=tf,
+                              error=exc,stage='candles',outcome='failed')
                     code=getattr(exc,"http_status",None)
                     if code==429:raise
                     errors[tf]={401:"ошибка авторизации Finam (401)",403:"нет доступа Finam (403)",
@@ -233,7 +291,8 @@ class FinamMarketService:
             fingerprint=tuple((tf,tuple(bars),sum(b.time<=observed for b in bars),
                                sum(candle_close_time(b,tf)<=observed for b in bars))
                               for tf,bars in sorted(series.items()))
-            key=(settings.calculation_key(),fingerprint)
+            session_meta=getattr(series,'session_metadata',{})
+            key=(settings.calculation_key(),fingerprint,repr(session_meta))
             cache_id=(symbol,timeframe)
             with self.lock:cached=self.analysis_cache.get(cache_id)
             if cached and cached[0]==key and cached[1][0].asof<=observed:return cached[1]
@@ -241,6 +300,12 @@ class FinamMarketService:
             delay=self.api.market_delay_minutes(mic)
             provenance={tf:{"mode":getattr(self.api,"provenance_mode","FINAM_NATIVE_CANDLES"),"symbol":symbol,"market":mic,
                 "native_higher":tf in ("D1","W1","MN1"),"feed_delay_seconds":delay*60} for tf in series}
+            if session_meta:
+                for tf in provenance:
+                    provenance[tf].update(session_meta)
+                    if tf in ('H1','H4','D1','W1','MN1'):
+                        provenance[tf]['mode']='SESSION_CANDLES'
+                        provenance[tf]['native_higher']=False
             result=analyze_timeframes(series,timeframe,asof=observed,settings=settings,provenance=provenance)
             with self.lock:
                 self.analysis_cache[cache_id]=(key,result)
@@ -268,14 +333,16 @@ class FinamMarketService:
         if allow_http:
             progress(self.provider_name+": сверка последних свечей")
             errors=self.refresh_series(symbol,(timeframe,),cancelled=cancelled)
-            if self._tail(symbol,timeframe,1):
+            if self._tail(symbol,timeframe,1) or self._tail(symbol,'M5',1):
                 errors.update(self.refresh_series(symbol,(tf for tf in FRAMES if tf!=timeframe),cancelled=cancelled))
-        series=exclude_stock_closing_auction(self._series(symbol),mic)
-        if not series.get(timeframe):
-            reason=errors.get(timeframe,"нет сохранённых свечей. Разрешите HTTP для первоначальной загрузки")
-            raise RuntimeError(f"{self.provider_name} · {symbol} · {timeframe}: {reason}")
         delay=self.api.market_delay_minutes(mic)
         observed=self.clock()-timedelta(minutes=delay)
+        series=self.prepare_series(symbol,self._series(symbol),observed)
+        if not series.get(timeframe):
+            issue=getattr(series,'session_metadata',{}).get('issues',{}).get(timeframe)
+            reason=("нет полных исходных свечей или подтверждённого календаря сессии" if issue
+                    else errors.get(timeframe,"нет сохранённых свечей. Разрешите HTTP для первоначальной загрузки"))
+            raise RuntimeError(f"{self.provider_name} · {symbol} · {timeframe}: {reason}")
         progress("Finam: расчёт потоков v2.11")
         main,parents=self.analyze_cached(symbol,timeframe,series,settings,observed)
         with self.lock:

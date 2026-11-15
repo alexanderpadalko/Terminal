@@ -11,7 +11,7 @@ from .finam_stream import FinamStreamWorker
 from .finam_requests import RequestCoordinator
 from .finam_screener import FinamScreenerWorker, ScanResult
 from .binance_stream import interpret_packet as binance_packet
-from datetime import datetime,timezone
+from datetime import date,datetime,timedelta,timezone
 
 
 def check_finam_runtime(output):
@@ -39,10 +39,20 @@ def check_finam_runtime(output):
         crypto=binance_packet({"data":{"e":"aggTrade","s":"BTCUSDT",
             "p":"100","T":1794736800000}},"BTCUSDT",1,datetime.now(timezone.utc))
         result["binance_decoder"]=crypto is not None and crypto.board=="BINANCE"
+        from .trading_calendar import calendar_for
+        from .market_data import Candle
+        from .session_candles import build_session_series
+        calendar=calendar_for('SBER@MISX');session=calendar.session(date(2026,11,12))
+        beginning=list(session.buckets(240))[-1][0][0]
+        source=[Candle(beginning+timedelta(minutes=5*i),100,102,99,101,5,
+                       scheduled_close=beginning+timedelta(minutes=5*(i+1))) for i in range(10)]
+        built=build_session_series({'M5':source},calendar,session.end)
+        result['session_candles']=bool(built.series.get('H4') and
+            built.series['H4'][-1].scheduled_close==session.end)
         result["ok"] = (result.get("executor_callable") and
                         result.get("thread_result") == 17 and result.get("localhost_resolved")
                         and result.get("scheduler_result")==23 and result.get("scanner_rows")==3
-                        and result.get("binance_decoder"))
+                        and result.get("binance_decoder") and result.get('session_candles'))
     except Exception as exc:
         result["error_type"] = type(exc).__name__
     Path(output).write_text(json.dumps(result, indent=2), encoding="utf-8")

@@ -86,6 +86,7 @@ def symbol_name(ticker, mic):
 
 
 def parse_instant(value):
+    if isinstance(value,bool):raise ValueError('Invalid Finam timestamp')
     if isinstance(value, dict):
         return datetime.fromtimestamp(int(value["seconds"]) + int(value.get("nanos", 0)) / 1e9,
                                       tz=timezone.utc)
@@ -108,6 +109,7 @@ def decimal_number(value):
 
 
 def finam_bar(row, timeframe):
+    if timeframe not in FRAMES:raise ValueError('Unknown Finam timeframe')
     ts = parse_instant(row["timestamp"])
     # Use exchange provided open; do not anchor US bars to MOEX calendars.
     if timeframe in ("M1", "M5", "H1", "H4"):
@@ -120,12 +122,15 @@ def finam_bar(row, timeframe):
         month = ts.month + 1
         year = ts.year + (month > 12)
         close = ts.replace(year=year, month=1 if month > 12 else month, day=1)
-    return Candle(ts, *(decimal_number(row[name]) for name in
-                        ("open", "high", "low", "close", "volume")), scheduled_close=close)
+    values=tuple(decimal_number(row[name]) for name in ('open','high','low','close','volume'))
+    if values[-1]<0:raise ValueError('Negative Finam volume')
+    return Candle(ts,*values,scheduled_close=close)
 
 
 class FinamAPI:
     """Thread-safe finite-life JWT obtained from local secret; never printed."""
+    session_candles = True
+    stream_frames=('M1','M5','H1','D1')
     def __init__(self, *, opener=None, secret_reader=None, clock=None, coordinator=None):
         self.opener = opener or urlopen
         self.secret_reader = secret_reader or read_secret
@@ -441,4 +446,20 @@ class FinamAPI:
             if exc.http_status != 401:
                 raise
             result = self._json("GET", path, token=self.access_key(force=True))
-        return normalize([finam_bar(row, timeframe) for row in result.get("bars", [])])
+        if not isinstance(result,dict) or not isinstance(result.get('bars'),list):
+            raise ValueError('Invalid Finam bars response')
+        if any(result.get(k) not in (None,'',0,'0',False) for k in ('next_cursor','next_token','has_more')):
+            raise ValueError('Incomplete Finam bars response')
+        bars=[]
+        for row in result['bars']:
+            if not isinstance(row,dict):raise ValueError('Invalid Finam bar')
+            if row.get('symbol') and str(row['symbol']).upper()!=symbol.upper():
+                raise ValueError('Wrong Finam candle symbol')
+            if row.get('timeframe') and row['timeframe']!=FRAMES[timeframe]:
+                raise ValueError('Wrong Finam candle timeframe')
+            bar=finam_bar(row,timeframe)
+            # Some native daily responses include an adjacent date despite
+            # the documented half-open request. Exclude the whole outside
+            # candle; never relabel it or leak its prices into the interval.
+            if lower<=bar.time<upper:bars.append(bar)
+        return normalize(bars)
