@@ -16,6 +16,7 @@ from .finam_rotation import RollState, resolve_futures
 from .diagnostics_log import log_event, log_contract
 from .moex_reference import refresh_top20
 from .watchlist import WatchlistService
+from .finam_futures_cache import FuturesListCache
 
 
 class FinamCatalogWorker(QThread):
@@ -23,11 +24,13 @@ class FinamCatalogWorker(QThread):
     failed=Signal(str)
     progress=Signal(str)
 
-    def __init__(self,api,parent=None,*,watchlist=None,roll_state=None,clock=None):
+    def __init__(self,api,parent=None,*,watchlist=None,roll_state=None,clock=None,
+                 futures_cache=None):
         super().__init__(parent)
         self.api=api
         self.watchlist=watchlist or WatchlistService()
         self.roll_state=roll_state or RollState()
+        self.futures_cache=futures_cache or FuturesListCache()
         self.clock=clock or (lambda:datetime.now(timezone.utc))
 
     def run(self):
@@ -50,18 +53,8 @@ class FinamCatalogWorker(QThread):
                 finam_error="Finam: каталог недоступен; фьючерсы не переключаются"
             if self.isInterruptionRequested():
                 return
-            self.progress.emit("MOEX: обновление топ-20 по обороту за 20 сессий…")
-            try:
-                stocks,ranking_status=refresh_top20(
-                    watchlist=self.watchlist,cancelled=self.isInterruptionRequested)
-            except InterruptedError:
-                raise
-            except Exception as exc:
-                log_event("stock_ranking_unavailable",error=type(exc).__name__)
-                stocks,ranking_status=cached_top20(watchlist=self.watchlist)
-                ranking_status+=" · ошибка MOEX, сохранён прошлый рейтинг"
-            if self.isInterruptionRequested():
-                return
+            # Resolve futures before downloading the independent MOEX stock
+            # ranking: slow MOEX must not hold the US/RU contract checks.
             previous=self.roll_state.load()
             # GetAsset may have cached a stale no-expiry response; recheck
             # must hit Finam again without exposing credentials.
@@ -84,6 +77,26 @@ class FinamCatalogWorker(QThread):
             # A transient catalog/metadata outage must not forget an earlier
             # confirmed rollover or silently revert to the original series.
             self.roll_state.save({**previous,**selections})
+            # Each market receives its own atomic daily snapshot. A failed
+            # metadata check cannot overwrite a previously verified entry.
+            try:
+                self.futures_cache.save(futures,now=self.clock())
+            except OSError:
+                log_event("futures_snapshot_unavailable",error="OSError")
+            if self.isInterruptionRequested():
+                return
+            self.progress.emit("MOEX: обновление топ-20 по обороту за 20 сессий…")
+            try:
+                stocks,ranking_status=refresh_top20(
+                    watchlist=self.watchlist,cancelled=self.isInterruptionRequested)
+            except InterruptedError:
+                raise
+            except Exception as exc:
+                log_event("stock_ranking_unavailable",error=type(exc).__name__)
+                stocks,ranking_status=cached_top20(watchlist=self.watchlist)
+                ranking_status+=" · ошибка MOEX, сохранён прошлый рейтинг"
+            if self.isInterruptionRequested():
+                return
             # Remap any saved ticker from the prior active tenor to the new
             # one. Also remap initial screenshot aliases (e.g. NQZ6@XCME).
             roll_map={}
