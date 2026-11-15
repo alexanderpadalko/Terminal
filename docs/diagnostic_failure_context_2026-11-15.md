@@ -33,4 +33,7 @@
 
 ## Windows-сборка
 
-CI/ZIP записать после фактического завершения проверок.
+- Проверенный код: [7bfc5a1cde80911f24a4042f48344fdb1517d2d5](https://github.com/alexanderpadalko/Terminal/commit/7bfc5a1cde80911f24a4042f48344fdb1517d2d5).
+- [Windows CI 43715435405](https://github.com/alexanderpadalko/Terminal/actions/runs/43715435405) — **success**, **558 тестов без пропусков**, 93.411 с. Базовый/расширенный аудит, compileall/pip check, проверки DPI, запуск окна, упаковка, закрытие EXE и frozen executor/DNS/очередь/скринер/Binance decoder успешны.
+- [ZIP 0.2.26 Windows x64 UNSIGNED](https://github.com/alexanderpadalko/Terminal/actions/runs/43715435405/artifacts/14162596984) — **49 375 441 байт**; опубликованный GitHub SHA-256 `f2baeb09d9caf7ffbbbb3d55579c167c683dc12e831e457d53f157eb7d283fb7`. [JSON evidence](https://github.com/alexanderpadalko/Terminal/actions/runs/43715435405/artifacts/14162781448).
+- Последующая запись результатов меняет только документацию; код проверенной сборки остаётся 7bfc5a1. Новые поля журнала появятся после запуска этой версии EXE.
