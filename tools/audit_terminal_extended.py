@@ -225,7 +225,7 @@ def main():
     tracemalloc.start()
     report={"audit_schema":1,"mode":"offline_synthetic",
             "external_requests":False,"secrets_used":False,
-            "coverage":"40 instruments / 7 frames; 38 Finam in baseline audit, 2 crypto here"}
+            "coverage":"30 instruments / 7 frames; 28 Finam in baseline audit, 2 crypto here"}
     try:
         with tempfile.TemporaryDirectory(prefix="flowdesk-extended-audit-") as folder:
             root=Path(folder)
