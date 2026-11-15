@@ -179,10 +179,23 @@ def corrupt_state_behavior(root):
             isinstance(application,ApplicationSettings) and
             bool(settings.warning),"invalid settings not safely downgraded")
 
-    # Corrupt SQLite is NOT silently discarded. The application currently
-    # lacks automatic repair/backup; report that limitation explicitly.
+    # A malformed preferences file must survive the next user save.
+    original=path.read_bytes()
+    settings.write(indicator,application)
+    old=list(root.glob(path.name+".invalid-*"))
+    require(len(old)==1 and old[0].read_bytes()==original,
+            "corrupted preference bytes were lost on save")
+
+    # A valid WAL snapshot is verified and the damaged original is preserved.
+    from flowdesk.storage_safety import create_backup, recover_to_new_file, verify_database
+    from flowdesk.market_data import Candle
     db=root/"corrupt-candles.sqlite3"
-    db.write_bytes(b"invalid SQLite database; no user files here")
+    service=FinamMarketService(db)
+    service._upsert("SBER@MISX","H1",[
+        Candle(datetime(2026,11,14,tzinfo=timezone.utc),100,101,99,100,10)])
+    good=Path(create_backup(db)["path"])
+    original_bad=b"invalid SQLite database; do not overwrite"
+    db.write_bytes(original_bad)
     try:
         FinamMarketService(db)
     except sqlite3.DatabaseError:
@@ -191,9 +204,17 @@ def corrupt_state_behavior(root):
         recovery="unexpectedly_accepted"
     require(recovery=="manual_recovery_required",
             "corrupt market database accepted without warning")
+    output=root/"recovered-new.sqlite3"
+    restored=recover_to_new_file(good,output)
+    require(restored["candles"]==1 and verify_database(output)==1,
+            "non-destructive restoration did not preserve candle")
+    require(db.read_bytes()==original_bad,
+            "recovery overwrote damaged original")
     return {"status":"PASS","invalid_preferences":"defaults_with_warning",
-            "corrupt_sqlite":"unavailable_without_manual_recovery",
-            "finding":"P2: add non-destructive SQLite repair/backup workflow"}
+            "invalid_preferences_original_preserved":True,
+            "corrupt_sqlite":"detected_without_deletion",
+            "verified_backup_restored_to_new_file":True,
+            "recovery_requires_manual_selection":True}
 
 
 def main():
