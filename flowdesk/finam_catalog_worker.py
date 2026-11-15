@@ -1,4 +1,4 @@
-"""Nonblocking startup: Finam catalog + MOEX top-20 + date-based roll.
+"""Nonblocking startup: Finam catalog + MOEX top-10 + date-based roll.
 
 The next expiry is selected on the calendar day before confirmed expiration.
 No turnover/volume API calls for the roll decision. MOEX ISS is used solely
@@ -11,11 +11,11 @@ from time import monotonic
 from PySide6.QtCore import QThread, Signal
 
 from .finam_universe import (
-    cached_top20, US_CONTRACTS, RU_CONTRACTS,
+    cached_top10, US_CONTRACTS, RU_CONTRACTS,
 )
 from .finam_rotation import RollState, resolve_futures
 from .diagnostics_log import log_event, log_contract
-from .moex_reference import refresh_top20
+from .moex_reference import refresh_top10
 from .watchlist import WatchlistService
 from .finam_futures_cache import FuturesListCache
 
@@ -96,20 +96,20 @@ class FinamCatalogWorker(QThread):
             if self.isInterruptionRequested():
                 return
             # Let US/RU lists update independently of a potentially slow
-            # MOEX top-20 query, without enabling unverified symbols.
+            # MOEX top-10 query (20 completed sessions), without enabling unverified symbols.
             self.futures_ready.emit(futures)
             stage="stock_ranking"
             phase_started=monotonic()
-            self.progress.emit("MOEX: обновление топ-20 по обороту за 20 сессий…")
+            self.progress.emit("MOEX: обновление топ-10 по обороту за 20 сессий…")
             try:
-                stocks,ranking_status=refresh_top20(
+                stocks,ranking_status=refresh_top10(
                     watchlist=self.watchlist,cancelled=self.isInterruptionRequested)
             except InterruptedError:
                 raise
             except Exception as exc:
                 log_event("stock_ranking_unavailable",error=exc,stage=stage,
                           elapsed_ms=(monotonic()-phase_started)*1000)
-                stocks,ranking_status=cached_top20(watchlist=self.watchlist)
+                stocks,ranking_status=cached_top10(watchlist=self.watchlist)
                 ranking_status+=" · ошибка MOEX, сохранён прошлый рейтинг"
             if self.isInterruptionRequested():
                 return
