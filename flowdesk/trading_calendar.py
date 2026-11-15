@@ -13,7 +13,7 @@ from zoneinfo import ZoneInfo
 from .moex_calendar import CLOSED, EXTRA, stock_session_kind
 
 UTC=timezone.utc
-CALENDAR_VERSION='sessions-2026-11-15.1'
+CALENDAR_VERSION='sessions-2026-11-15.2'
 
 
 class CalendarUnavailable(ValueError):
@@ -153,6 +153,49 @@ class TradingCalendar:
         cursor=start
         while cursor<=end:
             session=self.session(cursor)
+            if session is not None:yield session
+            cursor+=timedelta(days=1)
+
+    def trading_date(self,physical_day):
+        """MOEX additional sessions belong to the next REGULAR trading day.
+
+        Keep physical sessions separate for H1/H4; this mapping is for D/W/M.
+        It is independent of the post-ETS evening/current-day rule.
+        """
+        if self.profile not in ('MOEX_STOCK_FULL','MOEX_FUTURE_FULL'):
+            return physical_day
+        if physical_day.year!=2026:raise CalendarUnavailable('calendar_history_unknown')
+        if stock_session_kind(physical_day)!=EXTRA:return physical_day
+        candidate=physical_day+timedelta(days=1)
+        while candidate.year==2026:
+            if stock_session_kind(candidate) not in (EXTRA,CLOSED):return candidate
+            candidate+=timedelta(days=1)
+        raise CalendarUnavailable('calendar_history_unknown')
+
+    @lru_cache(maxsize=16384)
+    def daily_session(self,day):
+        if day in dict(self.overrides):return self.session(day)
+        if self.profile not in ('MOEX_STOCK_FULL','MOEX_FUTURE_FULL'):
+            return self.session(day)
+        if day.year!=2026:raise CalendarUnavailable('calendar_history_unknown')
+        if stock_session_kind(day) in (EXTRA,CLOSED):return None
+        regular=self.session(day)
+        if regular is None:return None
+        pieces=list(regular.segments)
+        prior=day-timedelta(days=1)
+        while prior.year==2026 and stock_session_kind(prior) in (EXTRA,CLOSED):
+            if stock_session_kind(prior)==EXTRA:
+                extra=self.session(prior)
+                if extra is not None:pieces[0:0]=extra.segments
+            prior-=timedelta(days=1)
+        # A year-boundary session needs the preceding year's verified dates.
+        if prior.year!=2026:raise CalendarUnavailable('calendar_history_unknown')
+        return TradingSession(day,tuple(pieces))
+
+    def daily_sessions(self,start,end):
+        cursor=start
+        while cursor<=end:
+            session=self.daily_session(cursor)
             if session is not None:yield session
             cursor+=timedelta(days=1)
 

@@ -1,0 +1,49 @@
+{
+  "provider": "Binance USD-M perpetual",
+  "tradingview_reference": false,
+  "markets": [
+    {
+      "symbol": "BTCUSDT@BINANCE",
+      "sources": {
+        "D1": 74,
+        "H4": 18
+      },
+      "derived_counts": {
+        "H4": 18,
+        "D1": 74,
+        "W1": 10,
+        "MN1": 3
+      },
+      "issues": {
+        "W1": "incomplete_daily_coverage"
+      },
+      "last_month": {
+        "time": "2026-11-01T00:00:00+00:00",
+        "scheduled_close": "2026-12-01T00:00:00+00:00"
+      },
+      "final_calendar_replay_counts_match": true
+    },
+    {
+      "symbol": "ETHUSDT@BINANCE",
+      "sources": {
+        "D1": 74,
+        "H4": 18
+      },
+      "derived_counts": {
+        "H4": 18,
+        "D1": 74,
+        "W1": 10,
+        "MN1": 3
+      },
+      "issues": {
+        "W1": "incomplete_daily_coverage"
+      },
+      "last_month": {
+        "time": "2026-11-01T00:00:00+00:00",
+        "scheduled_close": "2026-12-01T00:00:00+00:00"
+      },
+      "final_calendar_replay_counts_match": true
+    }
+  ],
+  "final_calendar_replay": "sessions-2026-11-15.2; original provider acquisition, no new HTTP"
+}

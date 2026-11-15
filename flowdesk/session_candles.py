@@ -54,7 +54,7 @@ class _LowerSource:
         self.observed=observed
         self.calendar=calendar
 
-    def bucket(self,pieces,session_end):
+    def bucket(self,pieces,session_end,*,verified_closes=()):
         """Use one complete source TF; never cut an already aggregated price."""
         start,end=pieces[0][0],pieces[-1][1]
         if start>=self.observed:return None,None
@@ -85,7 +85,7 @@ class _LowerSource:
                     # A final hourly source can end nominally after a verified
                     # exchange close. It contains no later session's trades.
                     if ending>right:
-                        if right==session_end:
+                        if right==session_end or right in verified_closes:
                             ending=right
                         elif right==self.observed and self.observed<end:
                             known=self.observed_at.get((tf,bar.time))
@@ -98,7 +98,7 @@ class _LowerSource:
                         valid=False;break
                     known=self.observed_at.get((tf,bar.time))
                     closed=(candle_close_time(bar,tf)<=self.observed or
-                            (right==session_end and right<=self.observed))
+                            ((right==session_end or right in verified_closes) and right<=self.observed))
                     if closed and known is not None and known<ending:
                         valid=False;break
                     selected.append(bar);tiles.append((bar.time,ending))
@@ -171,6 +171,7 @@ def build_session_series(raw,calendar,observed,*,coverage=None,observed_at=None)
                 for tf in HIGHER:issues.setdefault(tf,str(exc))
                 h4.clear();hourly.clear();days.clear();empty_days.clear()
             cursor+=timedelta(days=1);continue
+        physical_day=cursor
         cursor+=timedelta(days=1)
         if session is None or session.start>=observed:continue
         if session.end>intraday_start:
@@ -191,26 +192,34 @@ def build_session_series(raw,calendar,observed,*,coverage=None,observed_at=None)
             else:
                 issues.setdefault('H4','incomplete_lower_coverage')
                 if pieces[-1][1]<=observed:h4.clear()
-        day=native_bar('D1',session.start,session.end) if crypto else None
+        try:
+            daily=calendar.daily_session(calendar.trading_date(physical_day))
+        except CalendarUnavailable as exc:
+            issues.setdefault('D1',str(exc));days.clear();empty_days.clear();continue
+        if daily is None:continue
+        day=native_bar('D1',daily.start,daily.end) if crypto else None
         origin='provider_native_verified' if day is not None else 'session_lower'
         lower_origin=None
-        if day is None:day,lower_origin=lower.bucket(session.segments,session.end)
         if day is None:
-            if lower_origin=='no_trades':empty_days.add(session.trading_date);continue
+            closes=tuple(end for _,end in daily.segments) if calendar.profile in ('MOEX_STOCK_FULL','MOEX_FUTURE_FULL') else ()
+            day,lower_origin=lower.bucket(daily.segments,daily.end,verified_closes=closes)
+        if day is None:
+            if lower_origin=='no_trades':empty_days.add(daily.trading_date);continue
             issues.setdefault('D1','incomplete_lower_coverage')
-            if session.end<=observed:days.clear();empty_days.clear()
+            if daily.end<=observed:days.clear();empty_days.clear()
             continue
-        official=native_daily.get(session.trading_date)
+        official=native_daily.get(daily.trading_date)
         # Native provider labels are date labels, not an instruction to anchor
         # the next exchange session at that timestamp. Only reuse its prices
         # after same-session equality, including comparable volume, is proven.
-        if not crypto and official is not None and session.end<=observed:
+        if not crypto and official is not None and daily.end<=observed:
             if _same_prices(official,day):
-                day=Candle(session.start,official.open,official.high,official.low,
-                           official.close,official.volume,scheduled_close=session.end)
+                day=Candle(daily.start,official.open,official.high,official.low,
+                           official.close,official.volume,scheduled_close=daily.end)
                 origin='provider_native_verified'
             else:issues['D1']='native_daily_session_mismatch'
-        days[session.trading_date]=day
+        days[daily.trading_date]=day
+        empty_days.discard(daily.trading_date)
         origins['D1']=origin if origins['D1']==origin else 'session_lower_or_verified_daily'
     output['H1']=normalize(hourly);output['H4']=normalize(h4);output['D1']=normalize(list(days.values()))
     for tf in ('W1','MN1'):
@@ -223,11 +232,12 @@ def build_session_series(raw,calendar,observed,*,coverage=None,observed_at=None)
                 # They must be known before their own trades can be included.
                 left=begin;right=finish;first_session=last_session=None
                 while left<=finish and first_session is None:
-                    first_session=calendar.session(left);left+=timedelta(days=1)
+                    first_session=calendar.daily_session(left);left+=timedelta(days=1)
                 while right>=begin and last_session is None:
-                    last_session=calendar.session(right);right-=timedelta(days=1)
-                through=min(finish,observed.astimezone(calendar.zone).date()+timedelta(days=1))
-                sessions=list(calendar.sessions(begin,through))
+                    last_session=calendar.daily_session(right);right-=timedelta(days=1)
+                local_day=observed.astimezone(calendar.zone).date()
+                through=min(finish,max(local_day+timedelta(days=1),calendar.trading_date(local_day)))
+                sessions=list(calendar.daily_sessions(begin,through))
             except CalendarUnavailable as exc:
                 issues.setdefault(tf,str(exc));continue
             needed=[s for s in sessions if s.start<observed and s.trading_date not in empty_days]

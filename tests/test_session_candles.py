@@ -38,6 +38,49 @@ def prices(bars):
 
 
 class TestTradingSessions(unittest.TestCase):
+    def test_moex_weekend_daily_belongs_to_monday_but_h4_resets_each_session(self):
+        for symbol in ('SBER@MISX','SIZ6@RTSX'):
+            cal=calendar_for(symbol);monday=date(2026,11,16)
+            physical=[cal.session(date(2026,11,d)) for d in (14,15,16)]
+            rows=[bar for session in physical for bar in lower(session)]
+            daily=cal.daily_session(monday)
+            self.assertEqual(cal.trading_date(date(2026,11,14)),monday)
+            self.assertEqual(daily.start,physical[0].start)
+            self.assertIsNone(cal.daily_session(date(2026,11,14)))
+            built=build_session_series({'M5':rows},cal,physical[-1].end)
+            self.assertEqual(len(built.series['D1']),1)
+            self.assertEqual(prices([built.series['D1'][0]]),prices(rows))
+            self.assertEqual(len(built.series['H4']),11)
+            for bar in built.series['H4']:
+                self.assertEqual(bar.time.astimezone(cal.zone).date(),
+                    (bar.scheduled_close-timedelta(seconds=1)).astimezone(cal.zone).date())
+
+    def test_moex_month_and_week_start_on_prior_month_weekend_trades(self):
+        cal=calendar_for('SIZ6@RTSX')
+        sessions=[cal.session(date(2026,10,31)),cal.session(date(2026,11,1)),cal.session(date(2026,11,2))]
+        rows=[b for s in sessions for b in lower(s)]
+        # Future Sunday/Monday prices cannot enter the Saturday snapshot.
+        saturday=build_session_series({'M5':rows},cal,sessions[0].end)
+        day=saturday.series['D1'][0]
+        self.assertEqual(day.time,sessions[0].start)
+        self.assertEqual(day.scheduled_close,sessions[-1].end)
+        self.assertEqual(prices([day]),prices(lower(sessions[0])))
+        self.assertEqual(saturday.series['W1'][0].time,sessions[0].start)
+        self.assertEqual(saturday.series['MN1'][0].time,sessions[0].start)
+        full=build_session_series({'M5':rows},cal,sessions[-1].end)
+        self.assertEqual(full.series['MN1'][0].scheduled_close,cal.daily_session(date(2026,11,30)).end)
+        self.assertEqual(full.series['D1'][0].volume,sum(b.volume for b in rows))
+
+    def test_moex_daily_can_clip_each_verified_extra_session_close(self):
+        cal=calendar_for('MXZ6@RTSX')
+        physical=[cal.session(date(2026,5,d)) for d in (1,2,3,4)]
+        rows=[replace(b,scheduled_close=b.time+timedelta(hours=1))
+              for session in physical for b in lower(session,60)]
+        built=build_session_series({'H1':rows},cal,physical[-1].end)
+        self.assertEqual(len(built.series['D1']),1)
+        self.assertEqual(built.series['D1'][0].time,physical[0].start)
+        self.assertEqual(built.series['D1'][0].volume,sum(b.volume for b in rows))
+
     def test_us_rth_four_hours_and_short_final_bucket(self):
         cal=calendar_for('AAPL@XNGS');day=date(2026,11,12);s=cal.session(day)
         slots=list(s.buckets(240));local=lambda d:d.astimezone(cal.zone).strftime('%H:%M')

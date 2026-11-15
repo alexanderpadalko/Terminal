@@ -30,7 +30,7 @@
       "metadata": {
         "version": "session-ohlcv-1",
         "profile": "MOEX_STOCK_FULL",
-        "policy": "ad43dcb6c9dd82c2cc0b8faf0308e79fd8a48192210c0ce6245725a68d23587d",
+        "policy": "5c8a1400c17ae5bef946ee1007b83850733fdac57784359bd300b17519894c0d",
         "issues": {
           "D1": "native_daily_session_mismatch",
           "W1": "incomplete_daily_coverage",
@@ -114,7 +114,8 @@
             415877.0
           ]
         }
-      ]
+      ],
+      "final_calendar_replay_counts_match": true
     },
     {
       "symbol": "SIZ6@RTSX",
@@ -144,7 +145,7 @@
       "metadata": {
         "version": "session-ohlcv-1",
         "profile": "MOEX_FUTURE_FULL",
-        "policy": "9290b7d29dcbc710beaa2d4bb1c56bb150427e11af4b3546b73448badddd68cf",
+        "policy": "2469288b92a7affe05691cbbc71cc5ad6fbbd31c2d782646db22b930dc83c8af",
         "issues": {
           "W1": "incomplete_daily_coverage",
           "MN1": "incomplete_daily_coverage"
@@ -227,7 +228,8 @@
             8697.0
           ]
         }
-      ]
+      ],
+      "final_calendar_replay_counts_match": true
     },
     {
       "symbol": "AAPL@XNGS",
@@ -257,7 +259,7 @@
       "metadata": {
         "version": "session-ohlcv-1",
         "profile": "US_EQUITY_RTH",
-        "policy": "321d5f7088316c775574320631c910f9f8dd99f5a5aa451413470d057fdc9432",
+        "policy": "6c6403b3070b87dd4dc2af2b772b4ab81f11a205a605a58db1b602135a302ae2",
         "issues": {
           "D1": "native_daily_session_mismatch",
           "W1": "incomplete_daily_coverage",
@@ -308,7 +310,8 @@
             5691730.0
           ]
         }
-      ]
+      ],
+      "final_calendar_replay_counts_match": true
     },
     {
       "symbol": "NQZ26@XCME",
@@ -338,12 +341,12 @@
       "metadata": {
         "version": "session-ohlcv-1",
         "profile": "CME_EQUITY",
-        "policy": "63c323af3274caad92078fa61935f48a195e432937dae39742205cd7c1db7807",
+        "policy": "fbb28ede60243f1f9113e759c1d8e508d031feb9f3c27ca8c681db91a784a373",
         "issues": {
           "D1": "native_daily_session_mismatch",
           "H4": "incomplete_lower_coverage",
           "W1": "incomplete_daily_coverage",
-          "MN1": "product_holiday_hours_unknown"
+          "MN1": "incomplete_daily_coverage"
         },
         "origins": {
           "H4": "session_lower",
@@ -434,7 +437,8 @@
             110030.0
           ]
         }
-      ]
+      ],
+      "final_calendar_replay_counts_match": true
     },
     {
       "symbol": "BRNF27@IFEU",
@@ -464,7 +468,7 @@
       "metadata": {
         "version": "session-ohlcv-1",
         "profile": "ICE_BRENT",
-        "policy": "7d9f43b4229f6d26399975521687d05f59857d1c8f1401fd540c716544193b51",
+        "policy": "51e2e6f6fca8f8939005fc7dcc18d3b32e4cddbd0350350c7993fb3773e65bd5",
         "issues": {
           "D1": "native_daily_session_mismatch",
           "W1": "incomplete_daily_coverage",
@@ -559,7 +563,9 @@
             2775.0
           ]
         }
-      ]
+      ],
+      "final_calendar_replay_counts_match": true
     }
-  ]
+  ],
+  "final_calendar_replay": "sessions-2026-11-15.2; original provider acquisition, no new HTTP"
 }
