@@ -83,10 +83,6 @@ def patch_program(data):
     # v2.14 adds the independently selected guard's status to the flow
     # diagnostics. It does not alter direction, guard bounds or prices.
     replace_once(
-        " if exportNow:\n     current = f_mtfCopy(",
-        " if exportNow:\n     current = f_mtfCopy("
-    ) if False else None  # Only the verified, real indented anchor is used.
-    replace_once(
         "current = None\nif exportNow:\n    current = f_mtfCopy(",
         "current = None\nif exportNow:\n"
         "    workingZoneAudit = '' if not flowDiagnosticEnabled else '\\nРабочий FVG: не выбран' if na(guardTop) else '\\nРабочий FVG: [' + str.tostring(guardBottom, format.mintick) + '; ' + str.tostring(guardTop, format.mintick) + ']' + (' | пробит ' + str.format_time(firstBrokenAt, 'yyyy-MM-dd HH:mm', 'Europe/Moscow') if firstBroken else ' | действует')\n"

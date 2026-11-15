@@ -157,7 +157,8 @@ class TestV211Calculations(unittest.TestCase):
         after=analyze(data,'H1',asof=BASE+timedelta(hours=3))
         self.assertEqual((before.flows[-1].side,before.flows[-1].rule),(1,0))
         self.assertEqual((after.flows[-1].side,after.flows[-1].rule),(-1,2))
-        self.assertEqual(after.reference_version,'2.11')
+        # Structure/replay base remains v2.11; working FVG follows v2.14.
+        self.assertEqual(after.reference_version,'2.14')
 
     def test_bounded_source_fvg_archive_does_not_bound_structural_history(self):
         data=bars(500)
