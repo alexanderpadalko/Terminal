@@ -111,6 +111,30 @@ class TestChartView(unittest.TestCase):
         self.assertAlmostEqual(view.bounds(1000)[0], before[0])
         self.assertAlmostEqual(view.bounds(1000)[1], before[1])
 
+    def test_center_latest_puts_last_real_candle_at_exact_plot_midpoint(self):
+        # Includes short histories, zoomed charts and fractional bar spacing.
+        for count, length in ((125, 1000), (45.5, 300), (5, 5), (1, 1)):
+            with self.subTest(count=count, length=length):
+                view = ChartView(count=count, offset=20, right_padding=3)
+                initial_count = view.count
+                view.center_latest()
+                left, right = view.bounds(length)
+                last_bar_fraction = (length - 1 - left + .5) / view.span
+                self.assertAlmostEqual(last_bar_fraction, .5, places=10)
+                self.assertAlmostEqual(
+                    view.right_padding, (view.span - 1) / 2, places=10)
+                self.assertEqual(view.window(length)[1], length)
+                self.assertEqual(view.offset, 0)
+                self.assertEqual(view.count, initial_count)
+
+    def test_manual_latest_command_keeps_original_right_margin(self):
+        view = ChartView(count=84.25)
+        view.center_latest()
+        self.assertNotEqual(view.right_padding, 16)
+        view.latest()
+        self.assertEqual(view.right_padding, 16)
+        self.assertEqual(view.offset, 0)
+
     def test_return_to_latest_preserves_zoom(self):
         view = ChartView(200, 300)
         view.latest()
