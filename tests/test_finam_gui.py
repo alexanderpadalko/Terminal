@@ -88,6 +88,18 @@ class TestFinamGui(unittest.TestCase):
                 entries.append(entry)
         return entries
 
+    def test_corrupt_binance_store_reports_safe_error_not_qt_slot_exception(self):
+        import sqlite3
+        self.window.symbol_edit.setText("BTCUSDT")
+        self.window.mic.setCurrentText("BINANCE")
+        with patch.object(self.window,"stream_factory",
+                          side_effect=sqlite3.DatabaseError("corrupt local store")):
+            self.window._start_stream()
+        self.assertIsNone(self.window.stream)
+        self.assertIn("SQLite",self.window.status.text())
+        self.assertIn("Binance",self.window.status.text())
+        self.assertNotIn("corrupt local store",self.window.status.text())
+
     def test_failed_new_symbol_clears_previous_chart_and_labels_requested_symbol(self):
         self.select("SBER")
         self.settle()
