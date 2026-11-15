@@ -14,7 +14,7 @@ from flowdesk import diagnostics_log as diag
 from flowdesk.finam_api import FinamAPI,FinamAPIError
 from flowdesk.finam_requests import RequestCoordinator
 from flowdesk.finam_catalog_worker import FinamCatalogWorker
-from flowdesk.moex_reference import refresh_top20
+from flowdesk.moex_reference import refresh_top10
 
 
 class Response:
@@ -86,7 +86,7 @@ class TestCatalogDiagnostics(unittest.TestCase):
         error.diagnostic_page=7;error.diagnostic_operation="catalog"
         worker=self.worker(SimpleNamespace(active_assets=Mock(side_effect=error)))
         with patch("flowdesk.finam_catalog_worker.resolve_futures",return_value=({}, {}, [])), \
-             patch("flowdesk.finam_catalog_worker.refresh_top20",return_value=([],"MOEX healthy")):
+             patch("flowdesk.finam_catalog_worker.refresh_top10",return_value=([],"MOEX healthy")):
             worker.run()
         lines=self.read().splitlines()
         failed=next(line for line in lines if "event=catalog_unavailable" in line)
@@ -111,8 +111,8 @@ class TestCatalogDiagnostics(unittest.TestCase):
     def test_swallowed_moex_ranking_error_still_records_its_cause(self):
         source=SimpleNamespace(cached=lambda:{},due=lambda value:True,
             refresh=Mock(side_effect=TimeoutError("private network detail")))
-        with patch("flowdesk.moex_reference.cached_top20",return_value=([],"cached")):
-            rows,status=refresh_top20(watchlist=source)
+        with patch("flowdesk.moex_reference.cached_top10",return_value=([],"cached")):
+            rows,status=refresh_top10(watchlist=source)
         self.assertIn("MOEX недоступна",status)
         text=self.read()
         self.assertIn("event=stock_ranking_unavailable",text)
