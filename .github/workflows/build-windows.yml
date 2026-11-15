@@ -40,6 +40,16 @@ jobs:
           $env:QT_QPA_PLATFORM='offscreen'
           $env:FINAM_TRADE_API_SECRET=''
           python -u -m tools.audit_terminal_system --output terminal-system-audit.json
+      - name: Extended diagnostics for dual providers, user theme and fault injection
+        shell: pwsh
+        run: |
+          $env:QT_QPA_PLATFORM='offscreen'
+          $env:FINAM_TRADE_API_SECRET=''
+          python -u -m tools.audit_terminal_extended --output terminal-extended-audit.json
+      - name: Verify dependency constraints and compile all Python modules
+        run: |
+          python -m pip check
+          python -m compileall -q flowdesk tools
       - name: Smoke test Finam-only Qt window with no token
         shell: pwsh
         run: |
@@ -167,4 +177,5 @@ jobs:
             shutdown-exe-result.json
             finam-runtime-exe-result.json
             terminal-system-audit.json
+            terminal-extended-audit.json
           retention-days: 30
