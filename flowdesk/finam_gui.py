@@ -177,6 +177,13 @@ class FinamWindow(QMainWindow):
         self.daily_catalog_timer.setInterval(60000)
         self.daily_catalog_timer.timeout.connect(self._daily_catalog_refresh)
         self.daily_catalog_timer.start()
+        # Hourly no-token checks trigger at most one backup per UTC day,
+        # without blocking Qt rendering or network worker priorities.
+        self.storage_backup_timer=QTimer(self)
+        self.storage_backup_timer.setInterval(3600000)
+        self.storage_backup_timer.timeout.connect(self._backup_stores)
+        self.storage_backup_timer.start()
+        QTimer.singleShot(1500,self._backup_stores)
         ticker=str(self.ui_prefs.value("ticker","SBER"))
         mic=str(self.ui_prefs.value("mic","MISX"))
         self._pending_restore=ticker.upper()+"@"+mic.upper()
@@ -763,6 +770,12 @@ class FinamWindow(QMainWindow):
         self.screen_results.clear()
         self._request_screener_scan()
 
+    def _backup_stores(self):
+        if not self.closing:
+            schedule=getattr(self.service,"backup_if_due_async",None)
+            if callable(schedule):
+                schedule()
+
     def _startup(self):
         if not read_secret():
             if self.mic.currentText()==BINANCE:
@@ -898,6 +911,10 @@ class FinamWindow(QMainWindow):
                           self._exchange_time(info["asof"],info["board"]) +
                           " · "+delay_label+str(delay)+" мин · только чтение")
         self._indicator()
+        # New Binance storage is created lazily. An additional delayed check
+        # snapshots it after the first successful data download.
+        if info["board"]==BINANCE:
+            QTimer.singleShot(5000,self._backup_stores)
 
     def _current_load_signal(self):
         worker=self.sender()
@@ -1100,6 +1117,7 @@ class FinamWindow(QMainWindow):
         self.http_timer.stop()
         self.screener_timer.stop()
         self.daily_catalog_timer.stop()
+        self.storage_backup_timer.stop()
         self._stop_stream()
         if self.screener_worker is not None:
             self.screener_worker.requestInterruption()
