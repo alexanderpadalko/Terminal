@@ -1,4 +1,4 @@
-"""Bridge pinned v2.11 numeric state to the existing chart data model."""
+"""Bridge pinned Pine replay with the v2.14 working-FVG rule to chart data."""
 from bisect import bisect_left,bisect_right
 from copy import deepcopy
 from datetime import datetime
@@ -39,7 +39,7 @@ class PinnedFlowEngine:
         chosen=state.get('chosenRuleOne')
         selected=state.get('selectedZone') if rule==1 else chosen.zone if chosen else None
         evidence={'outcome':'APPLIED_RULE_1' if rule==1 else 'PINNED_V211','applied':rule==1,
-                  'eligible':rule==1,'source':'v2.11','higher_capture':serialize_capture(capture),
+                  'eligible':rule==1,'source':'v2.14','higher_capture':serialize_capture(capture),
                   'first_fvg':({'bottom':old_guard[0],'top':old_guard[1]} if old_guard[0] is not None else None),
                   'opposite_fvg':({'bottom':selected.bottom,'top':selected.top,
                                    'formed_at':stamp(chosen.formedAt).isoformat() if chosen else None,

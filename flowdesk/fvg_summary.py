@@ -1,8 +1,8 @@
-"""Working-FVG summary rule from the user's pinned v2.13 indicator.
+"""Working-FVG summary predicate shared by Pine v2.13 and v2.14.
 
 Higher columns use confirmed LiquidityView; H1 and the own column may extend
 the confirmed episode's bounds. Neither path searches the drawn zone list.
-FlowEngine and its selected guard remain unchanged.
+The selected guard now comes from the v2.14 replay (not fallback zones).
 """
 from .fvg_display import working_zone
 

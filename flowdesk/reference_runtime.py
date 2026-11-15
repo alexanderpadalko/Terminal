@@ -1,4 +1,4 @@
-"""Pinned numeric v2.11 functions with per-source persistent state.
+"""Pinned numeric v2.11 functions with v2.14 working-FVG selection.
 
 Generated blocks are shipped application code. No user expressions are run.
 OHLCV transport and source confirmation remain explicit in the Python bridge.
@@ -12,6 +12,7 @@ import json
 import math as pymath
 import operator
 from pathlib import Path
+from .v214_working_fvg import patch_program
 from types import SimpleNamespace as NS
 
 from .market_data import MOSCOW, candle_close_time
@@ -63,6 +64,7 @@ def program():
     path=Path(__file__).parent/'data/reference_v211.json'
     data=json.loads(path.read_text(encoding='utf-8'))
     assert data['sha256']=='CC2E1422F6D865C7D4814B7FF7CD4EEA82F87EB89642E8EF5F158A47B85D057F'
+    data=patch_program(data)
     functions={}
     for name,item in data['functions'].items():
         tree=ast.parse(item['code'])
