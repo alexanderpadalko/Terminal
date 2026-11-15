@@ -164,6 +164,44 @@ class TestFinamGui(unittest.TestCase):
         self.assertEqual(self.window.analysis.timeframe,"H4")
         self.assertEqual(self.window.displayed_view,("SBER","MISX","H4"))
 
+    def test_new_chart_centers_last_candle_on_initial_display_and_tf_change(self):
+        chart=self.window.chart
+        def assert_last_centered():
+            n=len(chart.analysis.candles)
+            self.assertGreater(n, 0)
+            left,_=chart.viewport.bounds(n)
+            midpoint=(n-.5-left)/chart.viewport.span
+            self.assertAlmostEqual(midpoint,.5,places=9)
+            self.assertAlmostEqual(
+                chart.viewport.right_padding,(chart.viewport.span-1)/2,places=9)
+            self.assertEqual(chart.window()[1],n)
+            self.assertEqual(chart.offset,0)
+        self.select("SBER");self.settle()
+        assert_last_centered()
+        chart.viewport.count=47.5
+        chart.viewport.offset=90.25
+        chart.viewport.right_padding=5
+        self.window.tf.setCurrentText("H4");self.settle()
+        assert_last_centered()
+        self.assertAlmostEqual(chart.viewport.count,47.5)
+        chart.viewport.offset=50
+        self.select("LKOH");self.settle()
+        assert_last_centered()
+        self.assertEqual(chart.viewport.count,125)
+
+    def test_initial_latest_center_is_not_forced_on_same_chart_refresh(self):
+        self.select("SBER");self.settle()
+        chart=self.window.chart
+        self.assertAlmostEqual(
+            chart.viewport.right_padding,(chart.viewport.span-1)/2)
+        chart.viewport.count=53.25
+        chart.viewport.offset=67.5
+        chart.viewport.right_padding=2.75
+        chart.price_range=(9.2,13.7)
+        manual=chart.view_state()
+        self.window._load(refresh=True);self.settle()
+        self.assertEqual(chart.view_state(),manual)
+
     def test_same_chart_refresh_preserves_fractional_pan_and_manual_price_scale(self):
         self.select("SBER");self.settle()
         chart=self.window.chart
