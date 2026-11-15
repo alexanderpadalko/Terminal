@@ -1,0 +1,10 @@
+{
+  "code_sha": "8092a4b7290dd4ab0851467e76d0ac3830a3406d",
+  "aggregation_version": "session-ohlcv-1",
+  "calendar_version": "sessions-2026-11-15.2",
+  "local": {"tests": 601, "skipped": 1, "failures": 0, "errors": 0, "seconds": 36.348, "isolated_profile": true, "system_audit": "PASS"},
+  "windows_ci": {"run_id": 43730270654, "job_id": 132860962403, "conclusion": "success", "tests": 601, "skipped": 0, "seconds": 60.913, "system_audit": "PASS", "extended_audit": "PASS", "dpi": [1, 1.25, 1.5, 2], "frozen_session_candles": true, "packaged_exit_seconds": [0.103, 0.106, 0.098], "packaged_exit_codes": [0, 0, 0]},
+  "artifact": {"id": 14168720306, "signature": "UNSIGNED", "size_bytes": 49407790, "sha256": "c1725ebc539f5d1122cb01ef1ccd3f15e3d527257120f779bec29989947c50c2", "evidence_artifact": 14168003871},
+  "provider_reads": {"finam_five_markets": 20, "binance_two_perpetuals": 4, "moex_month_boundary_finam": 6, "isolated_databases": true, "trading_orders": false},
+  "tradingview_numeric_parity": "unverified; exact same-contract/provider/session CSV reference required"
+}
