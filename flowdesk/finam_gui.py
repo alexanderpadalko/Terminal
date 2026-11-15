@@ -6,6 +6,7 @@ from dataclasses import replace
 from functools import partial
 from contextlib import nullcontext
 from pathlib import Path
+import sqlite3
 import re
 import sys
 
@@ -1138,6 +1139,23 @@ def run():
     app=QApplication.instance() or QApplication(sys.argv)
     app.setApplicationName("FlowDesk")
     app.setWindowIcon(application_icon())
-    window=FinamWindow()
+    try:
+        window=FinamWindow()
+    except sqlite3.DatabaseError:
+        # Never silently delete/recreate a corrupt candle database. The
+        # original remains untouched; the owner can recover a verified copy
+        # to a separate file using the storage maintenance command.
+        from .storage_safety import snapshots
+        path=Path.home()/".flowdesk"/"finam_candles_v1.sqlite3"
+        count=len(snapshots(path))
+        QMessageBox.critical(
+            None,"FlowDesk · ошибка базы данных",
+            "Не удалось открыть локальную базу свечей SQLite.\n"
+            "Файл не удалён и не перезаписан.\n"
+            "Доступных резервных копий: "+str(count)+".\n"
+            "Закройте приложение и проверьте копии в папке "
+            ".flowdesk/backups/finam_candles_v1.\n"
+            "Восстанавливайте данные только в новый файл, сохраняя исходный.")
+        return 2
     window.show()
     return app.exec()
