@@ -2,7 +2,7 @@
 
 Do not guess a MIC or silently substitute a nearby futures contract.
 The read-only Finam assets catalog is authoritative for actionable rows.
-Russia top-20 uses the last locally stored 20-session ranking, with stale
+Russia top-10 uses the first ten rows of the last stored 20-session ranking, with stale
 source dates displayed. This code makes no MOEX network request.
 """
 from __future__ import annotations
@@ -17,6 +17,7 @@ US_FUTURES="us"
 RU_STOCKS="stocks"
 RU_FUTURES="ru"
 CRYPTO="crypto"
+STOCK_DISPLAY_LIMIT=10  # Ranked by turnover over 20 completed sessions.
 
 
 @dataclass(frozen=True)
@@ -70,7 +71,7 @@ assert len(US_CONTRACTS)==8 and len(RU_CONTRACTS)==10
 GROUP_LABELS={
     CRYPTO:"КРИПТА",
     US_FUTURES:"ФЬЮЧЕРСЫ США · 8",
-    RU_STOCKS:"АКЦИИ РФ · ТОП-20 ПО ОБОРОТУ",
+    RU_STOCKS:"АКЦИИ РФ · ТОП-10 ПО ОБОРОТУ",
     RU_FUTURES:"ФЬЮЧЕРСЫ РФ · 10",
 }
 
@@ -115,8 +116,8 @@ def match_contract(contract, assets):
     return next(iter(results))
 
 
-def cached_top20(*, watchlist=None):
-    """Exact legacy 20-session turnover ranking, NEVER HTTP or approximated.
+def cached_top10(*, watchlist=None):
+    """Top ten from exact 20-session turnover ranking; never HTTP/guesses.
 
     Returns a visible fallback with its source date when the archive is old.
     """
@@ -124,7 +125,7 @@ def cached_top20(*, watchlist=None):
     value=service.cached()
     if not value:
         return [],"нет сохранённого рейтинга"
-    stocks=[row for row in value["instruments"] if row.get("kind")=="stock"][:20]
+    stocks=[row for row in value["instruments"] if row.get("kind")=="stock"][:STOCK_DISPLAY_LIMIT]
     source=str(value.get("window",[])[-1] if value.get("window") else value.get("slot") or "неизвестно")
     suffix=" · сохранённый рейтинг"
     if not value.get("window"):
@@ -136,14 +137,14 @@ def cached_top20(*, watchlist=None):
 
 
 def compose_universe(assets=(),*,watchlist=None):
-    """Exactly 8 US futures, up to 20 ranked shares, 10 Russian futures."""
+    """Exactly 8 US futures, up to 10 ranked shares, 10 Russian futures."""
     def contracts(items):
         rows=[]
         for c in items:
             resolved=match_contract(c,assets)
             rows.append(Item(c.display,c.name,c.group,resolved,bool(resolved)))
         return rows
-    stocks,status=cached_top20(watchlist=watchlist)
+    stocks,status=cached_top10(watchlist=watchlist)
     return {US_FUTURES:contracts(US_CONTRACTS),RU_STOCKS:stocks,
             RU_FUTURES:contracts(RU_CONTRACTS),
             CRYPTO:[Item(ticker+".P",name,CRYPTO,ticker+"@BINANCE",True,"Binance · USDT бессрочный")
