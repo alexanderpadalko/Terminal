@@ -19,7 +19,7 @@ from flowdesk.trading_calendar import CalendarUnavailable
 from flowdesk.diagnostics_log import log_candle_policy
 
 UTC=timezone.utc
-SYMBOL='NQZ26@XCME'
+SYMBOL='ESZ26@XCME'  # Generic native policy; NQ Last-price pilot is tested separately.
 NOW=datetime(2026,11,15,16,tzinfo=UTC)
 
 
@@ -63,7 +63,7 @@ class TestNativeHigher(unittest.TestCase):
         self.assertEqual(built.session_metadata['version'],NATIVE_POLICY_VERSION)
         self.assertNotIn('MN1',built.session_metadata['issues'])
         self.assertIn('MN1',built.session_metadata['control_issues'])
-        main,_,_=self.market.view('NQZ26','XCME','MN1')
+        main,_,_=self.market.view('ESZ26','XCME','MN1')
         self.assertEqual(main.candles,rows)
         self.assertEqual(main.confirmed_bars,5)
         self.assertEqual(main.session_info['mode'],'FINAM_NATIVE_CANDLES')
@@ -162,13 +162,13 @@ class TestNativeHigher(unittest.TestCase):
     def test_screener_can_analyze_native_higher_when_canonical_h1_is_unavailable(self):
         self.market._upsert(SYMBOL,'MN1',months())
         self.market.refresh_series=lambda *a,**kw:{}
-        result=scan_one(self.market,'NQZ26','XCME',IndicatorSettings())
+        result=scan_one(self.market,'ESZ26','XCME',IndicatorSettings())
         self.assertEqual(result.error_code,'')
         self.assertIsNotNone(result.directions[-1])
         self.assertEqual(result.price_origin,'finam_last')
         self.market.latest_quote=lambda *a,**kw:{}
         self.market._quotes.clear()
-        self.assertEqual(scan_one(self.market,'NQZ26','XCME',IndicatorSettings()).error_code,'price_unavailable')
+        self.assertEqual(scan_one(self.market,'ESZ26','XCME',IndicatorSettings()).error_code,'price_unavailable')
 
     def test_native_archive_and_session_h4_backfill_share_bounded_background_budget(self):
         class Archive(FinamAPI):

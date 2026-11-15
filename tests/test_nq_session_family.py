@@ -39,29 +39,30 @@ def source(day=date(2026,11,13)):
 
 
 class TestNQFamily(unittest.TestCase):
-    def test_nov13_matches_user_tv_and_cme_reference_including_settlement(self):
+    def test_nov13_uses_session_last_consistently_across_family(self):
         raw,obs,coverage,now=source()
         built,status,_=build_family(raw,CAL,now,coverage=coverage,observations=obs)
         self.assertEqual(status,'ready')
         bar=built['D1'][0]
-        self.assertEqual((bar.open,bar.high,bar.low,bar.close),(28399.25,28607.75,27695.25,28034.75))
+        self.assertEqual((bar.open,bar.high,bar.low,bar.close),(28399.25,28607.75,27695.25,27927.25))
         self.assertEqual((bar.time,bar.scheduled_close),(raw['H1'][0].time,raw['H1'][-1].scheduled_close))
         self.assertEqual(bar.volume,23)
-        self.assertTrue(bar.settlement_close)
+        self.assertFalse(bar.settlement_close)
         self.assertEqual(built['W1'][0].close,bar.close)
         self.assertEqual(built['MN1'][0].close,bar.close)
 
-    def test_settlement_outside_traded_range_does_not_invent_high_low(self):
+    def test_native_daily_close_outside_session_range_is_never_used(self):
         raw,obs,coverage,now=source()
         raw['D1']=[replace(raw['D1'][0],low=25000,close=25001)]
         family,status,_=build_family(raw,CAL,now,coverage=coverage,observations=obs)
         self.assertEqual(status,'ready')
         for tf in NATIVE_HIGHER:
             bar=family[tf][0]
-            self.assertEqual((bar.low,bar.close),(27695.25,25001))
+            self.assertEqual((bar.low,bar.close),(27695.25,27927.25))
+            self.assertFalse(bar.settlement_close)
             self.assertEqual(_candle(serialize_candle(bar)),bar)
         self.assertEqual(aggregate(family['D1'],'MN1')[0].low,27695.25)
-        with self.assertRaises(ValueError):replace(family['D1'][0],settlement_close=False)
+        with self.assertRaises(ValueError):replace(family['D1'][0],close=25001)
 
     def test_holidays_merge_to_following_business_date_with_verified_short_segment(self):
         for holiday,trade_date in ((date(2026,6,19),date(2026,6,22)),
@@ -76,7 +77,7 @@ class TestNQFamily(unittest.TestCase):
         self.assertEqual(thanksgiving.end.astimezone(CAL.zone).strftime('%H:%M'),'12:15')
         self.assertEqual(len(list(CAL.session(date(2026,11,27)).buckets(240))),5)
 
-    def test_holiday_family_uses_final_business_date_settlement(self):
+    def test_holiday_family_uses_last_trade_of_final_segment(self):
         raw,obs,coverage,now=source(date(2026,9,8))
         now=CAL.daily_session(date(2026,9,8)).end+timedelta(minutes=1)
         obs={key:now for key in obs}
@@ -84,25 +85,25 @@ class TestNQFamily(unittest.TestCase):
         self.assertEqual(status,'ready')
         self.assertEqual(len(built['D1']),1)
         self.assertEqual(built['D1'][0].time,CAL.session(date(2026,9,7)).start)
-        self.assertEqual(built['D1'][0].close,raw['D1'][0].close)
+        self.assertEqual(built['D1'][0].close,raw['H1'][-1].close)
 
     def test_sparse_no_trade_hours_need_bounded_response_not_inferred_oldest_bar(self):
         raw,obs,coverage,now=source();del raw['H1'][9]
         self.assertIsNone(build_family(raw,CAL,now,coverage={},observations=obs)[0])
         self.assertEqual(build_family(raw,CAL,now,coverage=coverage,observations=obs)[1],'ready')
 
-    def test_stale_and_future_snapshots_cannot_be_promoted_as_final(self):
+    def test_only_hourly_finalization_is_required_native_daily_stamps_are_irrelevant(self):
         raw,obs,coverage,now=source()
         for stamp in (raw['D1'][0].time,now+timedelta(days=1)):
             altered={**obs,('D1',raw['D1'][0].time):stamp}
             family,status,_=build_family(raw,CAL,now,coverage=coverage,observations=altered)
-            self.assertIsNone(family);self.assertEqual(status,'settlement_snapshot_unconfirmed')
+            self.assertEqual(status,'ready');self.assertEqual(family['D1'][0].close,27927.25)
         old={**obs,('H1',raw['H1'][-1].time):raw['H1'][-1].time}
         self.assertIsNone(build_family(raw,CAL,now,coverage=coverage,observations=old)[0])
         future={**obs,('H1',raw['H1'][-1].time):now+timedelta(days=1)}
         self.assertIsNone(build_family(raw,CAL,now,coverage=coverage,observations=future)[0])
 
-    def test_forming_session_uses_live_last_until_post_close_settlement(self):
+    def test_forming_session_keeps_same_last_trade_rule(self):
         raw,obs,coverage,now=source()
         now=raw['H1'][5].time+timedelta(minutes=30)
         raw['H1']=raw['H1'][:6]
@@ -149,7 +150,7 @@ class TestNQFamily(unittest.TestCase):
         self.assertEqual(status,'ready')
         self.assertEqual(detail['provisional_period_closes'],['MN1'])
         self.assertGreater(family['MN1'][0].scheduled_close,now)
-        self.assertEqual(family['MN1'][0].close,raw['D1'][0].close)
+        self.assertEqual(family['MN1'][0].close,raw['H1'][-1].close)
 
     def test_backfill_revalidates_middle_legacy_archive_and_resumes_after_restart(self):
         raw,obs,coverage,now=source()
@@ -184,14 +185,15 @@ class TestNQFamily(unittest.TestCase):
             self.assertEqual(first.session_metadata['version'],POLICY)
             second=market.prepare_series(SYMBOL,market._series(SYMBOL),now)
             self.assertEqual(first,second)
-            self.assertTrue(second['MN1'][0].settlement_close)
+            self.assertFalse(second['MN1'][0].settlement_close)
             self.assertEqual(market._series(SYMBOL),before)
-            # Incomplete candidate keeps the entire native family intact.
+            # An incomplete Last-price candidate cannot fall back to native
+            # midnight D/W/M, which caused the original error.
             with patch('flowdesk.session_store.nq.build_family',return_value=(None,'incomplete_lower_coverage',{})):
                 with closing(market._connection()) as db,db:db.execute('DELETE FROM session_series_cache')
                 pending=market.prepare_series(SYMBOL,before,now)
-            self.assertEqual(pending['D1'],before['D1'])
-            self.assertEqual(pending.session_metadata['version'],NATIVE_POLICY_VERSION)
+            self.assertTrue(all(not pending.get(tf) for tf in NATIVE_HIGHER))
+            self.assertEqual(pending.session_metadata['version'],POLICY)
 
     def test_promoted_snapshot_survives_failure_without_confirming_old_draft(self):
         raw,obs,coverage,now=source()

@@ -1,0 +1,97 @@
+{
+  "symbol": "NQZ26@XCME",
+  "policy": "nq-session-last-trade-1",
+  "mode": "previously_fetched_live_finam_archive_isolated_copy",
+  "network_requests": 0,
+  "production_changed": false,
+  "checked_at_utc": "2026-11-15T20:13:26.494642+00:00",
+  "metadata": {
+    "version": "nq-session-last-trade-1",
+    "profile": "CME_EQUITY",
+    "policy": "7d6e0224c4630ee0ae5e413acf0f8602709b05bbdddea1fe7f1896b189210650",
+    "issues": {
+      "H4": "incomplete_lower_coverage"
+    },
+    "origins": {
+      "H4": "session_lower",
+      "D1": "nq_session_last_trade",
+      "W1": "nq_session_last_trade",
+      "MN1": "nq_session_last_trade"
+    },
+    "calendar_parity": "unverified_tradingview",
+    "control_issues": {},
+    "control_counts": {
+      "D1": 103,
+      "W1": 21,
+      "MN1": 5
+    },
+    "nq_staging": {
+      "policy": "nq-session-last-trade-1",
+      "close_rule": "session_last_trade",
+      "volume_rule": "finam_h1_sum",
+      "left_partial": true,
+      "available_from": "2026-06-18T04:00:00+00:00",
+      "daily_count": 104,
+      "status": "ready"
+    },
+    "nq_snapshot_at": "2026-11-15T20:13:26.494642+00:00"
+  },
+  "counts": {
+    "D1": 104,
+    "W1": 22,
+    "MN1": 6
+  },
+  "archive_months_preserved": true,
+  "daily_checked_against_own_session_h1": 104,
+  "higher_checked_against_same_daily_family": {
+    "W1": 22,
+    "MN1": 6
+  },
+  "oct28": {
+    "trading_date": "2026-10-28",
+    "start": "2026-10-27T22:00:00+00:00",
+    "end": "2026-10-28T21:00:00+00:00",
+    "ohlcv": [
+      29814.25,
+      30178.0,
+      29674.25,
+      29756.25,
+      599841.0
+    ]
+  },
+  "latest_daily": {
+    "trading_date": "2026-11-13",
+    "start": "2026-11-12T23:00:00+00:00",
+    "end": "2026-11-13T22:00:00+00:00",
+    "ohlcv": [
+      28399.25,
+      28607.75,
+      27695.25,
+      27927.25,
+      800785.0
+    ]
+  },
+  "native_close_was_not_injected": true,
+  "daily_closes_changed_from_old_policy": 85,
+  "monthly_consumer": {
+    "count": 6,
+    "confirmed": 5,
+    "mode": "SESSION_CANDLES",
+    "policy": "nq-session-last-trade-1"
+  },
+  "screener_consumer": {
+    "error": "",
+    "price": 27927.25,
+    "directions": [
+      -1,
+      0,
+      0,
+      0,
+      0
+    ],
+    "quote": "stub at known last-session price; not a live-quote check"
+  },
+  "raw_sha256_before": "15392ae05764fed1ac9c92825028387534a8126904f324a277c1357e66bc739d",
+  "raw_sha256_after": "15392ae05764fed1ac9c92825028387534a8126904f324a277c1357e66bc739d",
+  "raw_unchanged": true
+}

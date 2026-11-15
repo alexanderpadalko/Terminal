@@ -69,12 +69,15 @@ def check_finam_runtime(output):
         family,status,_=build_family({'H1':hours,'D1':[daily]},nq_calendar,observed,
             coverage={'H1':[(nq_session.start,nq_session.end)]},observations=observations)
         result['nq_session_family']=bool(status=='ready' and family and
-            family['D1'][0].close==100.5 and family['MN1'][0].settlement_close)
+            family['D1'][0].close==101 and not family['MN1'][0].settlement_close)
+        result['nq_session_last_trade']=bool(result['nq_session_family'] and
+            family['W1'][0].close==101 and family['MN1'][0].close==101)
         result["ok"] = (result.get("executor_callable") and
                         result.get("thread_result") == 17 and result.get("localhost_resolved")
                         and result.get("scheduler_result")==23 and result.get("scanner_rows")==3
                         and result.get("binance_decoder") and result.get('session_candles')
-                        and result.get('native_dwm') and result.get('nq_session_family'))
+                        and result.get('native_dwm') and result.get('nq_session_family')
+                        and result.get('nq_session_last_trade'))
     except Exception as exc:
         result["error_type"] = type(exc).__name__
     Path(output).write_text(json.dumps(result, indent=2), encoding="utf-8")

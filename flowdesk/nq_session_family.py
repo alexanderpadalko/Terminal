@@ -1,10 +1,10 @@
-"""NQZ26 pilot: exchange-session OHL, Finam daily settlement C, coherent D/W/M.
+"""NQZ26 pilot: complete Finam H1 session OHLCV, coherent Last-price D/W/M.
 
 Raw provider archives are never modified. A candidate must cover every observed
 session in the available archive before the whole higher family can replace
 native D/W/M. The initial, truncated source session is explicitly identified.
 """
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta, timezone
 
 from .market_data import candle_close_time, normalize
@@ -12,7 +12,7 @@ from .session_candles import _LowerSource, _combine, _period
 from .trading_calendar import TradingCalendar, TradingSession, CalendarUnavailable
 
 UTC=timezone.utc
-POLICY='nq-session-settlement-1'
+POLICY='nq-session-last-trade-1'
 SYMBOL='NQZ26@XCME'
 # Official NQ Globex product calendar, read 2026-11-15. Holiday matching
 # stops at noon CT; its trades clear on the following business trading date.
@@ -59,27 +59,28 @@ def build_family(raw,calendar,observed,*,coverage,observations):
 
     H1 is used for the entire archive so volume units are not mixed with M5.
     Source gaps require bounded HTTP evidence; a stale draft cannot be sealed
-    by the wall clock. Settlement is supplied by the matching Finam D1 date,
-    independently of its midnight OHL. No external price feed is used.
+    by the wall clock. Close is the last H1 price INSIDE the same session.
+    Native D/W/M supply archive boundaries only, never prices or settlement.
+    No external price feed is used.
     """
     rows=normalize(raw.get('H1',()))
     native=normalize(raw.get('D1',()))
-    detail={'policy':POLICY,'close_rule':'finam_daily_settlement',
+    detail={'policy':POLICY,'close_rule':'session_last_trade',
             'volume_rule':'finam_h1_sum','left_partial':False}
     if not rows or not native:return None,'lower_history_unavailable',detail
-    if any(b.volume<0 for b in rows):return None,'control_source_invalid',detail
+    if any(b.volume<0 or b.settlement_close for b in rows):
+        return None,'control_source_invalid',detail
     # Native labels may be several hours in the future while the exchange's
-    # evening session is already trading. Labels anchor dates only; their
-    # prices are used below solely with a post-session observation.
-    by_day={b.time.astimezone(UTC).date():b for b in native}
-    if not by_day:return None,'lower_history_unavailable',detail
+    # evening session is already trading. Labels anchor the archive only;
+    # their OHLC and observation stamps never determine the session Close.
+    archive_days={b.time.astimezone(UTC).date() for b in native}
     if any(observations.get(('H1',b.time),observed)>observed for b in rows if b.time<observed):
         return None,'incomplete_lower_coverage',detail
     first=rows[0].time
     # Do not silently discard an older native month while rebuilding a short
     # recent suffix. Daily date labels can precede the first actual H1 by one
     # calendar day; only that left boundary may be partial.
-    first_day=min(by_day)
+    first_day=min(archive_days)
     if first.astimezone(calendar.zone).date()>first_day+timedelta(days=1):
         return None,'incomplete_lower_coverage',detail
     source=_LowerSource({'H1':rows},coverage,observations,observed,calendar)
@@ -101,16 +102,9 @@ def build_family(raw,calendar,observed,*,coverage,observations):
                 if origin=='no_trades':continue
                 detail['blocked_date']=session.trading_date.isoformat()
                 return None,'incomplete_lower_coverage',detail
-            if session.end<=observed:
-                settlement=by_day.get(session.trading_date)
-                stamp=observations.get(('D1',settlement.time)) if settlement else None
-                if settlement is None or stamp is None or not session.end<=stamp<=observed:
-                    detail['blocked_date']=session.trading_date.isoformat()
-                    return None,'settlement_snapshot_unconfirmed',detail
-                # Settlement is a separate exchange reference price. Preserve
-                # actual traded OHL even when a deferred contract's settlement
-                # lies outside them; never fabricate an extra high/low trade.
-                bar=replace(bar,close=settlement.close,settlement_close=True)
+            # _LowerSource already requires a post-close H1 snapshot and
+            # excludes later-session bars. Do not replace its C with native
+            # D1: historical native C can contain the NEXT evening's trades.
             days[session.trading_date]=bar
         if not days:return None,'lower_history_unavailable',detail
         family={'D1':list(days.values())}

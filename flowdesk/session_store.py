@@ -104,22 +104,26 @@ def _candle(row):
 def prepare(service,symbol,raw,observed):
     if not getattr(service.api,'session_candles',False):return raw
     primary_native=native_higher_enabled(service.api)
+    pilot_requested=primary_native and symbol.upper()==nq.SYMBOL
     state=getattr(raw,'source_state',None)
     snapshots=state['observations'] if state else []
     observed_at={(tf,datetime.fromisoformat(ts)):datetime.fromisoformat(stamp) for tf,ts,stamp in snapshots}
     native,native_issues=native_higher_series(raw,observed,observed_at) if primary_native else ({},{})
     factory=getattr(service,'calendar_factory',calendar_for)
-    try:calendar=factory(symbol)
+    try:
+        calendar=factory(symbol)
+        if pilot_requested and not nq.enabled(symbol,calendar):
+            raise CalendarUnavailable('instrument_calendar_unknown')
     except CalendarUnavailable:
         result={tf:bars for tf,bars in raw.items() if tf not in ('H4',*NATIVE_HIGHER)}
-        result.update(native)
+        if not pilot_requested:result.update(native)
         issues={tf:'instrument_calendar_unknown' for tf in ('H4',*NATIVE_HIGHER)}
-        if primary_native:
+        if primary_native and not pilot_requested:
             issues={**{'H4':'instrument_calendar_unknown'},**native_issues}
         return PreparedSeries(result,
-            {'version':NATIVE_POLICY_VERSION if primary_native else AGGREGATION_VERSION,
+            {'version':nq.POLICY if pilot_requested else NATIVE_POLICY_VERSION if primary_native else AGGREGATION_VERSION,
              'profile':'unknown','issues':issues,
-             'origins':{tf:'finam_native' for tf in NATIVE_HIGHER} if primary_native else {},
+             'origins':{tf:'finam_native' for tf in NATIVE_HIGHER} if primary_native and not pilot_requested else {},
              'control_issues':{tf:'instrument_calendar_unknown' for tf in NATIVE_HIGHER} if primary_native else {}})
     pilot=primary_native and nq.enabled(symbol,calendar)
     if pilot:calendar=nq.calendar_for_pilot(calendar)
@@ -170,6 +174,13 @@ def prepare(service,symbol,raw,observed):
         built.series={tf:bars for tf,bars in built.series.items() if tf not in NATIVE_HIGHER}
         built.series.update(native)
         if pilot:
+            # NQ Last-price policy never falls back to differently bounded
+            # native D/W/M while its session history is pending or unavailable.
+            for tf in NATIVE_HIGHER:built.series.pop(tf,None)
+            metadata['version']=nq.POLICY
+            metadata['issues']={tf:value for tf,value in metadata['issues'].items() if tf not in NATIVE_HIGHER}
+            metadata['origins']={tf:value for tf,value in metadata['origins'].items() if tf not in NATIVE_HIGHER}
+            metadata['control_issues']={}
             try:
                 candidate,status,detail=nq.build_family(raw,calendar,observed,
                     coverage=coverage,observations=observed_at)
@@ -182,11 +193,11 @@ def prepare(service,symbol,raw,observed):
                 built.series.update(candidate)
                 metadata['version']=nq.POLICY
                 metadata['origins']={**metadata['origins'],
-                    **{tf:'nq_session_settlement' for tf in NATIVE_HIGHER}}
+                    **{tf:'nq_session_last_trade' for tf in NATIVE_HIGHER}}
                 metadata['control_issues']={}
                 metadata['nq_snapshot_at']=observed.isoformat()
             else:
-                metadata['control_issues']={**metadata['control_issues'],'D1':status}
+                metadata['issues'].update({tf:status for tf in NATIVE_HIGHER})
                 # Once promoted, a transient missing source must not switch
                 # the chart back to a differently defined native family.
                 # Keep the last coherent snapshot, never sealing its old
@@ -203,7 +214,7 @@ def prepare(service,symbol,raw,observed):
                         metadata['version']=nq.POLICY
                         metadata['nq_snapshot_at']=stamp.isoformat()
                         metadata['origins']={**metadata['origins'],
-                            **{tf:'nq_session_settlement' for tf in NATIVE_HIGHER}}
+                            **{tf:'nq_session_last_trade' for tf in NATIVE_HIGHER}}
                         metadata['issues']={**metadata['issues'],**{tf:status for tf in NATIVE_HIGHER}}
                 except (ValueError,KeyError,TypeError,AttributeError):pass
     from .diagnostics_log import log_candle_policy
