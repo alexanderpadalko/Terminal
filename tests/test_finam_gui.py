@@ -320,16 +320,31 @@ class TestFinamGui(unittest.TestCase):
         self.assertEqual(self.window.universe[RU_STOCKS],original_stocks)
         self.assertTrue(self.window.daily_catalog_timer.isActive())
 
-    def test_market_sidebar_orders_russian_futures_before_russian_stocks(self):
+    def test_sidebar_starts_with_crypto_then_futures_then_top_ten_stocks(self):
         from flowdesk.finam_universe import (
-            US_FUTURES, RU_FUTURES, RU_STOCKS, GROUP_LABELS)
+            CRYPTO, US_FUTURES, RU_FUTURES, RU_STOCKS, GROUP_LABELS)
         headings=[self.window.examples.item(i).text()
                   for i in range(self.window.examples.count())
                   if self.window.examples.item(i).text() in GROUP_LABELS.values()]
-        self.assertEqual(headings[:3],[GROUP_LABELS[US_FUTURES],
-                                       GROUP_LABELS[RU_FUTURES],
-                                       GROUP_LABELS[RU_STOCKS]])
-        self.assertEqual(headings[3],"КРИПТА")
+        self.assertEqual(headings,[GROUP_LABELS[group] for group in (
+            CRYPTO, US_FUTURES, RU_FUTURES, RU_STOCKS)])
+        self.assertEqual(self.window.examples.item(1).text().split(" · ")[0],
+                         "BTCUSDT.P")
+        self.assertEqual(self.window.examples.item(2).text().split(" · ")[0],
+                         "ETHUSDT.P")
+
+    def test_sidebar_has_no_text_search_but_keeps_tf_signal_filters(self):
+        from PySide6.QtWidgets import QLineEdit
+        self.assertFalse(hasattr(self.window,"search"))
+        self.assertFalse(hasattr(self.window,"_filter_universe"))
+        self.assertFalse(any("Поиск в выбранном списке" in field.placeholderText()
+                             for field in self.window.findChildren(QLineEdit)))
+        self.assertEqual(set(self.window.screen_buttons), {"H1","H4","D","W","M"})
+        self.assertEqual(self.window.examples.count(),34)
+        self.window.screen_buttons["H1"].setChecked(True)
+        self.assertLessEqual(self.window.examples.count(),35)
+        self.window.screen_buttons["H1"].setChecked(False)
+        self.assertEqual(self.window.examples.count(),34)
 
     def test_crypto_chart_opens_without_a_finam_token_and_uses_utc(self):
         with patch.object(self.window,"_start_stream") as start, \
@@ -482,7 +497,7 @@ class TestFinamGui(unittest.TestCase):
                  if self.window.examples.item(i).text().startswith("SBER ·"))
         custom=self.window.examples.itemWidget(row)
         self.assertIsNotNone(custom)
-        # The item keeps its real label for search and keyboard selection,
+        # The item keeps its real label for keyboard selection and accessibility,
         # but Qt must not paint that text underneath the custom badge row.
         self.assertEqual(row.foreground().color().alpha(),0)
         self.assertIn("SBER",row.text())
@@ -504,11 +519,9 @@ class TestFinamGui(unittest.TestCase):
         self.assertEqual(self.window.examples.horizontalScrollBarPolicy(),
                          Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.assertLessEqual(custom.width(),self.window.examples.viewport().width())
-        self.window.search.setText("Сбербанк")
+        # Search has been removed; the marked FVG row remains visible.
+        self.assertFalse(hasattr(self.window,"search"))
         self.assertFalse(row.isHidden())
-        self.window.search.setText("Несуществующий")
-        self.assertTrue(row.isHidden())
-        self.window.search.clear()
         self.window.screen_buttons["H1"].setChecked(True)
         row=next(self.window.examples.item(i) for i in
                  range(self.window.examples.count())

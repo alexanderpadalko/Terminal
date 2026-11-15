@@ -289,10 +289,6 @@ class FinamWindow(QMainWindow):
         self.open_button=QPushButton("Открыть инструмент",side)
         self.open_button.clicked.connect(self._select)
         self.open_button.hide()
-        self.search=QLineEdit(side)
-        self.search.setPlaceholderText("Поиск в выбранном списке…")
-        self.search.textChanged.connect(self._filter_universe)
-        right.addWidget(self.search)
         self.examples=QListWidget(side)
         self.examples.setObjectName("instrumentList")
         # Custom signal widgets must fit the viewport, not the intrinsic
@@ -459,16 +455,15 @@ class FinamWindow(QMainWindow):
         # otherwise clips the rightmost badge when selecting a long symbol.
         row.setSizeHint(QSize(0, max(27, widget.sizeHint().height())))
         # QListWidget normally paints item.text() UNDER the custom row
-        # widget. Keep item.text() intact for search, accessibility and
-        # existing tests, but hide native glyphs; only the QLabel paints
+        # widget. Keep item.text() intact for keyboard navigation,
+        # accessibility and existing tests, but hide native glyphs; only the QLabel paints
         # the instrument name (once), alongside the colored TF badges.
         row.setForeground(Qt.GlobalColor.transparent)
         row.setData(Qt.ItemDataRole.UserRole + 2, True)
         self.examples.setItemWidget(row,widget)
 
     def _populate_universe(self):
-        """40 fixed universe entries; filter by active working FVG only."""
-        current=self.search.text().strip().lower() if hasattr(self,"search") else ""
+        """30 fixed instruments; filter by selected working FVG only."""
         selected=self._selected_screen_timeframes()
         current_item=self.examples.currentItem()
         selected_symbol=(current_item.data(Qt.ItemDataRole.UserRole)
@@ -479,7 +474,7 @@ class FinamWindow(QMainWindow):
         self.examples.clear()
         self._sections=[]
         no_data=[]
-        for group in (US_FUTURES,RU_FUTURES,RU_STOCKS,CRYPTO):
+        for group in (CRYPTO,US_FUTURES,RU_FUTURES,RU_STOCKS):
             header=QListWidgetItem(GROUP_LABELS[group])
             header.setFlags(Qt.ItemFlag.NoItemFlags)
             header.setForeground(Qt.GlobalColor.gray)
@@ -501,7 +496,7 @@ class FinamWindow(QMainWindow):
             self._sections.append(header)
             for entry,group in no_data:
                 self._add_screen_item(entry,group,no_data=True)
-        self._filter_universe(current)
+        self._hide_empty_sections()
         if selected_label:
             for index in range(self.examples.count()):
                 item=self.examples.item(index)
@@ -513,21 +508,19 @@ class FinamWindow(QMainWindow):
         self.examples.verticalScrollBar().setValue(scroll)
         self.examples.setUpdatesEnabled(True)
 
-    def _filter_universe(self,text):
-        term=text.strip().lower()
+    def _hide_empty_sections(self):
+        """Hide section headings without instruments under an active TF filter."""
         visible_count=0
         pending_header=None
         for i in range(self.examples.count()):
             item=self.examples.item(i)
-            if item in getattr(self,"_sections",()):
+            if item in self._sections:
                 if pending_header is not None:
                     pending_header.setHidden(visible_count==0)
                 pending_header=item
                 visible_count=0
-                continue
-            matched=not term or term in item.text().lower()
-            item.setHidden(not matched)
-            visible_count+=int(matched)
+            else:
+                visible_count+=1
         if pending_header is not None:
             pending_header.setHidden(visible_count==0)
 
