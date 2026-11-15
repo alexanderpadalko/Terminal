@@ -35,9 +35,9 @@ class MarketServices:
                     try:
                         backup_if_due(service.path)
                     except Exception as exc:
-                        # Only event type is logged; never filenames or credentials.
+                        # Only safe type/category/status, never paths or messages.
                         log_event("storage_snapshot_unavailable",
-                                  error=type(exc).__name__)
+                                  error=exc,stage="backup")
             finally:
                 with self._backup_lock:
                     self._backup_active=False

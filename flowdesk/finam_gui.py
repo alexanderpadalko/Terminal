@@ -710,7 +710,8 @@ class FinamWindow(QMainWindow):
 
     def _catalog_failed(self,error):
         if self.closing:return
-        log_event("catalog_worker_failed",error=error)
+        # The worker already recorded structured failure context before
+        # reducing the signal to a safe display string; don't overwrite it.
         self.catalog_error=error
         self._populate_universe()
         self.status.setText("Finam: "+error)

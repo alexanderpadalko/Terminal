@@ -1,6 +1,7 @@
 """MOEX ISS is used solely for the exact 20-session stock-turnover ranking."""
 from .watchlist import WatchlistService
 from .finam_universe import cached_top20
+from .diagnostics_log import log_event
 
 
 def refresh_top20(*,watchlist=None,cancelled=lambda:False):
@@ -11,7 +12,8 @@ def refresh_top20(*,watchlist=None,cancelled=lambda:False):
             service.refresh(cancelled=cancelled,stocks_only=True)
         except InterruptedError:
             raise
-        except Exception:
+        except Exception as exc:
+            log_event("stock_ranking_unavailable",error=exc,stage="stock_ranking")
             rows,status=cached_top20(watchlist=service)
             return rows,status+" · MOEX недоступна; сохранён прежний состав"
     rows,status=cached_top20(watchlist=service)

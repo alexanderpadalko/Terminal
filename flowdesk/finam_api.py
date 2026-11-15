@@ -169,7 +169,18 @@ class FinamAPI:
         if method == "POST" and path not in ("/v1/sessions", "/v1/sessions/details"):
             raise ValueError("Trade API writes are disabled")
         key = (method, path, token) if method == "GET" else None
-        return self.coordinator.run(key, lambda: self._send_json(method, path, payload, token))
+        try:
+            return self.coordinator.run(key, lambda: self._send_json(method, path, payload, token))
+        except Exception as exc:
+            # Preserve only a fixed operation code, never the path/query.
+            if not getattr(exc,"diagnostic_operation",None):
+                exc.diagnostic_operation=("auth" if path=="/v1/sessions" else
+                    "token_details" if path=="/v1/sessions/details" else
+                    "catalog" if path.startswith("/v1/assets/all?") else
+                    "asset_details" if path.startswith("/v1/assets/") else
+                    "candles" if "/bars?" in path else
+                    "quotes" if "/quotes/latest" in path else "")
+            raise
 
     def _send_json(self, method, path, payload=None, token=None):
         body = json.dumps(payload).encode("utf-8") if payload is not None else None
@@ -264,6 +275,28 @@ class FinamAPI:
                             "delay_minutes":max(0,min(delay,1440))})
         return {"status":self.permissions_status,"permissions":summary}
 
+    @staticmethod
+    def _catalog_problem(message,page):
+        error=FinamAPIError(message)
+        error.diagnostic_kind="invalid_response"
+        error.diagnostic_operation="catalog"
+        error.diagnostic_page=page
+        return error
+
+    def _catalog_page(self,path,page):
+        try:
+            try:
+                payload=self._json("GET",path,token=self.access_key())
+            except FinamAPIError as exc:
+                if exc.http_status!=401:raise
+                payload=self._json("GET",path,token=self.access_key(force=True))
+            if not isinstance(payload,dict) or not isinstance(payload.get("assets",[]),list):
+                raise self._catalog_problem("Finam: некорректный справочник инструментов",page)
+            return payload
+        except Exception as exc:
+            exc.diagnostic_page=page
+            raise
+
     def active_assets(self, *, cancelled=lambda: False):
         """Read-only Finam instrument directory. No MOEX requests or trade API.
 
@@ -280,15 +313,8 @@ class FinamAPI:
                 raise InterruptedError("Finam: получение справочника остановлено")
             params=urlencode({"only_active":"true",**({"cursor":cursor} if cursor else {})})
             path="/v1/assets/all?"+params
-            try:
-                payload=self._json("GET",path,token=self.access_key())
-            except FinamAPIError as exc:
-                if exc.http_status!=401:
-                    raise
-                payload=self._json("GET",path,token=self.access_key(force=True))
+            payload=self._catalog_page(path,page+1)
             rows=payload.get("assets",[])
-            if not isinstance(rows,list):
-                raise FinamAPIError("Finam: некорректный справочник инструментов")
             for row in rows:
                 if not isinstance(row,dict) or row.get("is_archived"):
                     continue
@@ -308,10 +334,10 @@ class FinamAPI:
                     self._exact_symbols=exact
                 return result
             if str(next_cursor) in visited:
-                raise FinamAPIError("Finam: справочник повторяет страницу, список не подтверждён")
+                raise self._catalog_problem("Finam: справочник повторяет страницу, список не подтверждён",page+1)
             visited.add(str(next_cursor))
             cursor=str(next_cursor)
-        raise FinamAPIError("Finam: справочник не завершён, лимит 150 страниц")
+        raise self._catalog_problem("Finam: справочник не завершён, лимит 150 страниц",150)
 
     def _readonly_asset_get(self, path):
         try:

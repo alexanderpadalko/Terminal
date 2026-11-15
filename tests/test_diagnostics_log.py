@@ -6,6 +6,11 @@ import os
 import tempfile
 import unittest
 from unittest.mock import patch
+import json
+import socket
+import ssl
+from urllib.error import URLError
+from flowdesk.finam_api import FinamAPIError
 
 from flowdesk import diagnostics_log as diag
 
@@ -81,6 +86,66 @@ class TestPrivateDiagnostics(unittest.TestCase):
                             for f in files))
         if os.name != "nt":
             self.assertEqual(self.log.stat().st_mode & 0o077,0)
+
+    def test_structured_http_catalog_failure_retains_only_safe_context(self):
+        error=FinamAPIError("Bearer secret_token https://private.example?account_id=private_account",
+                            http_status=429,retry_after=60)
+        error.diagnostic_operation="catalog"
+        error.diagnostic_page=17
+        diag.log_event("catalog_unavailable",error=error,stage="catalog",elapsed_ms=1234,path=self.log)
+        text=self.read()
+        for field in ("http=http_429","kind=http","error_type=FinamAPIError",
+                      "stage=catalog","operation=catalog","page=17","retry_after_s=60","elapsed_ms=1234"):
+            self.assertIn(field,text)
+        for private in ("secret_token","private.example","private_account","Bearer","account_id"):
+            self.assertNotIn(private,text)
+
+    def test_wrapped_network_causes_are_preserved_without_exception_messages(self):
+        cases=((TimeoutError("private"),"timeout","TimeoutError"),
+               (socket.gaierror(-2,"private"),"dns","gaierror"),
+               (ssl.SSLError("private"),"tls","SSLError"),
+               (ConnectionResetError("private"),"connection","ConnectionResetError"))
+        for cause,kind,name in cases:
+            with self.subTest(kind=kind):
+                try:
+                    try:raise URLError(cause)
+                    except URLError:raise FinamAPIError("private wrapper") from None
+                except FinamAPIError as error:
+                    diag.log_event("catalog_unavailable",error=error,path=self.log)
+                line=self.read().splitlines()[-1]
+                self.assertIn("kind="+kind,line)
+                self.assertIn("error_type="+name,line)
+                self.assertIn("http=none",line)
+                self.assertNotIn("private",line)
+
+    def test_untrusted_error_names_context_and_string_conversion_are_not_logged(self):
+        class PrivateExceptionName(Exception):
+            def __str__(self):raise AssertionError("Do not stringify exceptions")
+        error=PrivateExceptionName()
+        error.diagnostic_operation="private_operation"
+        error.diagnostic_page="private_page"
+        error.retry_after=float("inf")
+        error.__cause__=error
+        diag.log_event("catalog_unavailable",error=error,stage="private_stage",
+                       elapsed_ms=float("nan"),path=self.log)
+        text=self.read()
+        self.assertIn("kind=unknown",text)
+        self.assertIn("error_type=other",text)
+        self.assertNotIn("private",text.lower())
+        self.assertNotIn("PrivateExceptionName",text)
+        self.assertNotIn("nan",text)
+        self.assertNotIn("inf",text.lower().replace("info",""))
+
+    def test_json_errors_and_fallback_outcomes_do_not_copy_payloads(self):
+        error=json.JSONDecodeError("private_message","private_payload",0)
+        diag.log_event("catalog_unavailable",error=error,stage="catalog",path=self.log)
+        diag.log_event("catalog_complete",stage="catalog_refresh",outcome="fallback",
+                       elapsed_ms=15000,path=self.log)
+        text=self.read()
+        self.assertIn("kind=invalid_response",text)
+        self.assertIn("error_type=JSONDecodeError",text)
+        self.assertIn("outcome=fallback",text)
+        self.assertNotIn("private",text)
 
 
 if __name__=="__main__":

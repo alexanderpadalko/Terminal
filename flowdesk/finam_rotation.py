@@ -18,6 +18,7 @@ from pathlib import Path
 import re
 
 from .exchange_time import exchange_clock
+from .diagnostics_log import log_event
 from .finam_universe import (
     US_CONTRACTS, RU_CONTRACTS, Contract, Item, match_contract,
 )
@@ -299,6 +300,7 @@ def resolve_contract(contract, assets, api, *, today, now, saved="", cancelled=l
             except InterruptedError:
                 raise
             except Exception as exc:
+                log_event("asset_details_unavailable",symbol=symbol,error=exc,stage="asset_details")
                 code=getattr(exc,"http_status",None)
                 errors[symbol.upper()]=(
                     "Finam GetAsset: HTTP "+str(code)

@@ -14,6 +14,11 @@ import os
 import re
 import threading
 import time
+import json
+import math
+import socket
+import ssl
+from urllib.error import HTTPError, URLError
 
 LOG_PATH = Path.home() / ".flowdesk" / "logs" / "diagnostics.log"
 _MAX_BYTES = 1_000_000
@@ -25,7 +30,20 @@ _EVENTS = frozenset({
     "catalog_worker_failed", "chart_load_failed",
     "stream_unavailable", "stream_reconnecting",
     "storage_snapshot_unavailable",
+    "futures_snapshot_unavailable", "asset_details_unavailable",
 })
+_STAGES=frozenset(("catalog_refresh","catalog","auth","token_details","asset_details",
+    "futures_resolution","roll_state_load","roll_state_save","futures_snapshot",
+    "stock_ranking","catalog_publish","chart_load","websocket","backup","candles","quotes"))
+_KINDS=frozenset(("http","timeout","dns","tls","connection","network",
+                  "invalid_response","cancelled","storage","internal","unknown"))
+_TYPES=frozenset(("FinamAPIError","BinanceAPIError","HTTPError","URLError","TimeoutError",
+    "gaierror","SSLError","SSLCertVerificationError","ConnectionError","ConnectionResetError",
+    "ConnectionRefusedError","ConnectionAbortedError","BrokenPipeError","JSONDecodeError",
+    "UnicodeDecodeError","ValueError","TypeError","AttributeError","KeyError","RuntimeError",
+    "OSError","PermissionError","FileNotFoundError","NotADirectoryError","IsADirectoryError",
+    "DatabaseError","OperationalError","IntegrityError","InterruptedError"))
+_OUTCOMES=frozenset(("ok","partial","fallback","failed","cancelled"))
 _SYMBOL = re.compile(r"^[A-Za-z0-9_.-]{1,24}@(?:[A-Z0-9]{4}|BINANCE)$")
 _LABEL = re.compile(r"^[A-Z0-9.]{2,24}$")
 _DAY = re.compile(r"(?:действует до |новая дата |экспирация )(\d{4}-\d{2}-\d{2})")
@@ -38,8 +56,57 @@ def _safe_symbol(value):
 
 
 def _http_code(value):
-    match = _HTTP.search(str(value or ""))
+    code=getattr(value,"http_status",None)
+    if code is None and isinstance(value,HTTPError):code=value.code
+    if type(code) is int and 100<=code<=599:return "http_"+str(code)
+    # Legacy callers may supply text, but exception objects are NEVER
+    # stringified: even __str__ can contain credentials or fail itself.
+    match = _HTTP.search(value) if isinstance(value,str) else None
     return "http_" + match.group(1) if match else "none"
+
+
+def _error_details(error):
+    """Classify only known types/attributes and a bounded causal chain."""
+    if error is None:return "none","none","none"
+    node=error;seen=set();fallback=("unknown","other","none")
+    for _ in range(8):
+        if id(node) in seen:break
+        seen.add(id(node))
+        name=type(node).__name__
+        name=name if name in _TYPES else "other"
+        if isinstance(node,str):name=node if node in _TYPES else "other"
+        http=_http_code(node)
+        if http!="none":return "http",name,http
+        explicit=getattr(node,"diagnostic_kind",None)
+        if isinstance(explicit,str) and explicit in _KINDS:return explicit,name,http
+        if isinstance(node,TimeoutError):return "timeout",name,http
+        if isinstance(node,socket.gaierror):return "dns",name,http
+        if isinstance(node,ssl.SSLError):return "tls",name,http
+        if isinstance(node,ConnectionError):return "connection",name,http
+        if isinstance(node,(json.JSONDecodeError,UnicodeDecodeError)):
+            return "invalid_response",name,http
+        if isinstance(node,InterruptedError):return "cancelled",name,http
+        if isinstance(node,(PermissionError,FileNotFoundError,NotADirectoryError,IsADirectoryError)):
+            return "storage",name,http
+        if name in ("DatabaseError","OperationalError","IntegrityError"):return "storage",name,http
+        if isinstance(node,URLError):
+            fallback=("network",name,http)
+            reason=node.reason
+            if isinstance(reason,BaseException):
+                node=reason;continue
+            return fallback
+        if isinstance(node,OSError):return "network",name,http
+        fallback=(fallback[0],name if name!="other" else fallback[1],http)
+        cause=getattr(node,"__cause__",None) or getattr(node,"__context__",None)
+        if not isinstance(cause,BaseException):break
+        node=cause
+    return fallback
+
+
+def _bounded_number(value,maximum):
+    if type(value) in (int,float) and 0<=value<=maximum and math.isfinite(value):
+        return str(round(value))
+    return None
 
 
 def _write(fields, *, path=None):
@@ -71,13 +138,26 @@ def _write(fields, *, path=None):
                 handler.close()
 
 
-def log_event(event, *, symbol="", error=None, path=None):
-    """Record only a known event and an optional HTTP status."""
+def log_event(event, *, symbol="", error=None, stage="", outcome="",elapsed_ms=None,path=None):
+    """Record allowlisted failure context; never serialize a raw exception."""
     if event not in _EVENTS:
         return False
-    return _write((("event", event),
-                   ("symbol", _safe_symbol(symbol)),
-                   ("http", _http_code(error))), path=path)
+    kind,error_type,http=_error_details(error)
+    if kind=="network" and stage in ("backup","futures_snapshot","roll_state_load","roll_state_save"):
+        kind="storage"
+    fields=[("event",event),("symbol",_safe_symbol(symbol)),("http",http)]
+    if error is not None:fields.extend((("kind",kind),("error_type",error_type)))
+    if isinstance(stage,str) and stage in _STAGES:fields.append(("stage",stage))
+    operation=getattr(error,"diagnostic_operation",stage)
+    if isinstance(operation,str) and operation in _STAGES:fields.append(("operation",operation))
+    page=getattr(error,"diagnostic_page",None)
+    if type(page) is int and 1<=page<=150:fields.append(("page",str(page)))
+    retry=_bounded_number(getattr(error,"retry_after",None),86400)
+    if retry is not None:fields.append(("retry_after_s",retry))
+    elapsed=_bounded_number(elapsed_ms,3_600_000)
+    if elapsed is not None:fields.append(("elapsed_ms",elapsed))
+    if isinstance(outcome,str) and outcome in _OUTCOMES:fields.append(("outcome",outcome))
+    return _write(fields,path=path)
 
 
 def log_contract(contract, item, *, path=None):
