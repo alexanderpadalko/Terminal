@@ -119,9 +119,9 @@ def recover_to_new_file(backup_file, destination):
              closing(sqlite3.connect(partial,timeout=30)) as restored:
             source.backup(restored,pages=256,sleep=0.05)
         candles=verify_database(partial)
-        if target.exists():
-            raise FileExistsError("Destination appeared; refusing overwrite")
-        os.replace(partial,target)
+        # Atomic exclusive creation: an unexpected competing file may not
+        # be overwritten even if it appears after our first exists() check.
+        os.link(partial,target)
         return {"path":str(target),"candles":candles}
     finally:
         try:partial.unlink(missing_ok=True)
