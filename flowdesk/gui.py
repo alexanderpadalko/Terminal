@@ -443,6 +443,11 @@ class CandleChart(QWidget):
         self.viewport.right_padding = max(0, min(self.viewport.span - 1, state.get('right_padding', 16)))
         self.update()
 
+    def center_latest(self):
+        """Place the last candle in the middle of the time pane on first load."""
+        self.viewport.center_latest()
+        self.update()
+
     def latest(self):
         self.viewport.latest()
         self.update()
