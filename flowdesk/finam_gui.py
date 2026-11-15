@@ -900,7 +900,13 @@ class FinamWindow(QMainWindow):
         self.chart.set_price_tick(info.get("price_tick_size"))
         self.chart.set_analysis(main,parents)
         if saved_view is not None:
+            # Same symbol/TF: keep the user's current pan, fractional zoom,
+            # right whitespace and manual price scale on every refresh.
             self.chart.restore_view(saved_view)
+        else:
+            # First successful display of a symbol/TF (including startup):
+            # show the last real candle at the center of the time plot.
+            self.chart.center_latest()
         self.chart.empty_text=""
         self.status.setText(provider+" · "+info["tf"]+" · "+str(len(main.candles))+
             " свечей · "+info["warning"])
