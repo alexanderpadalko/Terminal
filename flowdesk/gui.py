@@ -1253,7 +1253,6 @@ class MainWindow(StreamController, WatchlistController, QMainWindow):
             QCheckBox { spacing: 9px; padding: 3px; }
             QSplitter::handle { background: #313131; width: 3px; }
         """)
-        self.tf.set_theme("dark")
 
     def _update_channel_indicator(self):
         """Show actual load/connection state, separately from the trading flow."""
