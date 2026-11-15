@@ -20,6 +20,7 @@ from .finam_futures_cache import FuturesListCache
 
 
 class FinamCatalogWorker(QThread):
+    futures_ready=Signal(object)
     loaded=Signal(object)
     failed=Signal(str)
     progress=Signal(str)
@@ -85,6 +86,9 @@ class FinamCatalogWorker(QThread):
                 log_event("futures_snapshot_unavailable",error="OSError")
             if self.isInterruptionRequested():
                 return
+            # Let US/RU lists update independently of a potentially slow
+            # MOEX top-20 query, without enabling unverified symbols.
+            self.futures_ready.emit(futures)
             self.progress.emit("MOEX: обновление топ-20 по обороту за 20 сессий…")
             try:
                 stocks,ranking_status=refresh_top20(
