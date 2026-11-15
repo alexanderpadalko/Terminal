@@ -163,6 +163,43 @@ class TestSettingsGui(unittest.TestCase):
             finally:
                 dlg.close()
 
+    def test_single_user_theme_fvg_colors_persist_in_finam_settings(self):
+        with tempfile.TemporaryDirectory() as folder:
+            store = SettingsStore(Path(folder)/"finam-user-theme.json")
+            dialog = SettingsDialog(IndicatorSettings(), ApplicationSettings(),
+                                    finam_only=True)
+            try:
+                chosen = {"fvgBullColor": "#1246AB99",
+                          "fvgBearColor": "#ED289577",
+                          "fvgFilledColor": "#EEB20055"}
+                for name, rgba in chosen.items():
+                    dialog.controls[name].set_value(rgba)
+                dialog.chart_controls["chart_background"].set_value("#102030FF")
+                indicator, appearance = dialog.values()
+                store.write(indicator, appearance)
+                reloaded, loaded_app = SettingsStore(store.path).read()
+                for name, rgba in chosen.items():
+                    self.assertEqual(getattr(reloaded, name), rgba)
+                self.assertEqual(loaded_app.chart_background, "#102030FF")
+                chart = CandleChart()
+                chart.set_theme("dark")  # Old alias must not change the theme.
+                chart.set_settings(reloaded)
+                chart.set_chart_colors(loaded_app)
+                self.assertEqual(chart.visual_theme, "user")
+                for side, broken, expected in ((1, False, "#1246ab"),
+                                               (-1, False, "#ed2895"),
+                                               (1, True, "#eeb200")):
+                    image = QImage(320, 140, QImage.Format.Format_ARGB32_Premultiplied)
+                    image.fill(QColor("#102030"))
+                    painter = QPainter(image)
+                    chart._draw_zone(painter, 10, 295, 20, 95,
+                                     side, broken, "H1", 12)
+                    self.assertEqual(painter.pen().color().name(), expected)
+                    painter.end()
+                chart.close()
+            finally:
+                dialog.close()
+
     def test_old_settings_without_chart_colors_are_backwards_compatible(self):
         with tempfile.TemporaryDirectory() as folder:
             store=SettingsStore(Path(folder)/'old.json')
