@@ -30,11 +30,13 @@ def check(condition, label):
 
 
 def storage_stress(folder):
-    """Write 38 isolated symbols, seven native frames, and verify SQLite WAL."""
+    """Write the configured Finam symbol count across seven frames and verify WAL."""
     path = folder / "stress.sqlite3"
     service = FinamMarketService(path)
     base = datetime(2026, 11, 14, 12, tzinfo=timezone.utc)
-    symbols = [f"T{i:02d}@RTSX" for i in range(38)]
+    from flowdesk.finam_universe import US_CONTRACTS, RU_CONTRACTS, STOCK_DISPLAY_LIMIT
+    instrument_count=len(US_CONTRACTS)+len(RU_CONTRACTS)+STOCK_DISPLAY_LIMIT
+    symbols = [f"T{i:02d}@RTSX" for i in range(instrument_count)]
     frames = ("M1", "M5", "H1", "H4", "D1", "W1", "MN1")
     candles = 40
     start = time.perf_counter()
@@ -57,7 +59,7 @@ def storage_stress(folder):
 
     with ThreadPoolExecutor(max_workers=3) as pool:
         completed = list(pool.map(write, symbols))
-    check(len(completed) == 38, "missing instruments")
+    check(len(completed) == instrument_count, "missing instruments")
     with closing(sqlite3.connect(path)) as db:
         check(db.execute("PRAGMA journal_mode").fetchone()[0].lower() == "wal",
               "SQLite WAL not enabled")
@@ -67,11 +69,11 @@ def storage_stress(folder):
         distinct = db.execute(
             "SELECT COUNT(*) FROM (SELECT DISTINCT symbol,tf,ts FROM candles)"
         ).fetchone()[0]
-        check(total == 38 * len(frames) * candles == distinct,
+        check(total == instrument_count * len(frames) * candles == distinct,
               "duplicates or missing candles")
         corrected = db.execute(
             "SELECT COUNT(*) FROM candles WHERE h-o=4").fetchone()[0]
-        check(corrected == 38 * len(frames), "corrections not persisted")
+        check(corrected == instrument_count * len(frames), "corrections not persisted")
     # Restart and exercise every symbol/TF to catch cache/database pollution.
     second = FinamMarketService(path)
     for symbol in symbols:
@@ -79,7 +81,7 @@ def storage_stress(folder):
         check(set(series) == set(frames), "cross-frame loss")
         check(all(len(series[tf]) == candles for tf in frames),
               "cross-instrument loss")
-    return {"instruments": 38, "timeframes": len(frames), "candles": total,
+    return {"instruments": instrument_count, "timeframes": len(frames), "candles": total,
             "overlap_corrections": corrected,
             "elapsed_seconds": round(time.perf_counter()-start, 3),
             "sqlite_integrity": "ok", "sqlite_journal": "wal"}
