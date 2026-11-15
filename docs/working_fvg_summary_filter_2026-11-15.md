@@ -27,4 +27,7 @@
 
 Точечные проверки: **11 publication-тестов**, **36 GUI-тестов**, OK. Полный локальный набор: **562 теста, OK (1 предусмотренный skip)**, **36.311 с**; генерация pinned v2.11/**74 настройки** успешна. Все проверки отдельно от рабочих настроек и ключа. Физический монитор, полный рыночный день и точный TradingView parity здесь не проверялись.
 
-Итоговый Windows CI/ZIP записать после фактического завершения.
+- Проверенный код: [7b3f289acfeacaf4244e877ce48fc2e67c863d42](https://github.com/alexanderpadalko/Terminal/commit/7b3f289acfeacaf4244e877ce48fc2e67c863d42).
+- [Windows CI 43718085989](https://github.com/alexanderpadalko/Terminal/actions/runs/43718085989) — **success**, **562 теста без пропусков**, 72.414 с. Базовый/расширенный аудит, DPI, compileall/pip check, окно/упаковка/закрытие EXE/frozen runtime успешны. Три закрытия: 0.076–0.088 с, exit code 0.
+- [ZIP 0.2.26 Windows x64 UNSIGNED](https://github.com/alexanderpadalko/Terminal/actions/runs/43718085989/artifacts/14163342439) — **49 376 439 байт**; опубликованный SHA-256 `785018f2d8663035476fd324c7b3e715dfd456fbfb8d68864d2c7ea0458c6e7d`. [JSON evidence](https://github.com/alexanderpadalko/Terminal/actions/runs/43718085989/artifacts/14163596681).
+- Последующая запись результатов меняет только документацию; код проверенной сборки остаётся 7b3f289.
