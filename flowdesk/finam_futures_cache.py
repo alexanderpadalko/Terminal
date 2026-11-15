@@ -17,6 +17,7 @@ from .finam_universe import (
     US_FUTURES, RU_FUTURES, US_CONTRACTS, RU_CONTRACTS, Item,
 )
 from .watchlist import slot_date
+from .exchange_time import exchange_clock
 
 GROUP_CONTRACTS = {US_FUTURES: US_CONTRACTS, RU_FUTURES: RU_CONTRACTS}
 DATE = re.compile(r"(?:действует до |новая дата )(\d{4}-\d{2}-\d{2})")
@@ -69,7 +70,6 @@ class FuturesListCache:
 
     def load(self, *, now=None):
         now = now or datetime.now(timezone.utc)
-        today = slot_date(now)
         result = {}
         for group, contracts in GROUP_CONTRACTS.items():
             try:
@@ -81,7 +81,8 @@ class FuturesListCache:
                     continue
                 for contract in contracts:
                     key = group + ":" + contract.display
-                    item = self._safe_item(contract, stored.get(key), today)
+                    exchange_today = now.astimezone(exchange_clock(contract.mics[0]).zone).date()
+                    item = self._safe_item(contract, stored.get(key), exchange_today)
                     if item is not None:
                         result[key] = item
             except (OSError, ValueError, TypeError):
@@ -107,7 +108,8 @@ class FuturesListCache:
                 item = futures.get(key)
                 if isinstance(item, Item) and item.verified:
                     candidate = asdict(item)
-                    if self._safe_item(contract, candidate, slot_date(now)):
+                    exchange_today = now.astimezone(exchange_clock(contract.mics[0]).zone).date()
+                    if self._safe_item(contract, candidate, exchange_today):
                         records[key] = candidate
             document = {"schema": 1, "slot": slot_date(now).isoformat(),
                         "updated_at": now.isoformat(), "contracts": records}
