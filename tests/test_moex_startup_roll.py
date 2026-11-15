@@ -1,4 +1,4 @@
-"""Startup refresh: MOEX exact top-20 turnover and date-based futures roll."""
+"""Startup refresh: MOEX top-10 over 20 sessions and date-based futures roll."""
 import os
 os.environ.setdefault("QT_QPA_PLATFORM","offscreen")
 from datetime import datetime, timezone, date, timedelta
@@ -12,7 +12,7 @@ from flowdesk.finam_universe import US_CONTRACTS, RU_CONTRACTS
 from flowdesk.finam_rotation import (
     RollState, dominates, resolve_contract, resolve_futures, expiry_date,
 )
-from flowdesk.moex_reference import refresh_top20
+from flowdesk.moex_reference import refresh_top10
 from flowdesk.finam_catalog_worker import FinamCatalogWorker
 
 
@@ -168,7 +168,7 @@ class TestRollover(unittest.TestCase):
 class TestMoexTurnover(unittest.TestCase):
 
 
-    def test_exact_moex_top20_refreshes_at_launch(self):
+    def test_exact_moex_top10_refreshes_at_launch(self):
         from flowdesk.watchlist import WatchlistService
         cache=WatchlistService().cached()
         self.assertIsNotNone(cache)
@@ -185,8 +185,8 @@ class TestMoexTurnover(unittest.TestCase):
                      window=["2026-11-10","2026-11-11","2026-11-12"])
                 return self.value
         mock=Watchlist()
-        stocks,status=refresh_top20(watchlist=mock)
-        self.assertEqual(len(stocks),20)
+        stocks,status=refresh_top10(watchlist=mock)
+        self.assertEqual(len(stocks),10)
         self.assertEqual(mock.calls,1)
         self.assertTrue(mock.stocks_only)
         self.assertIn("MOEX",status)
@@ -227,7 +227,7 @@ class TestCatalogStartup(unittest.TestCase):
             self.assertTrue(source.stocks_only)
             self.assertEqual(len(messages),1)
             payload=messages[0]
-            self.assertEqual(len(payload["stocks"]),20)
+            self.assertEqual(len(payload["stocks"]),10)
             self.assertTrue(payload["ranking_status"].startswith("2026"))
             self.assertEqual(payload["futures"]["us:NQZ2026"].symbol,"NQH7@XCME")
             self.assertEqual(payload["futures"]["ru:SIZ2026"].symbol,"SiH7@RTSX")
