@@ -60,31 +60,11 @@ UP = QColor("#20c997")
 DOWN = QColor("#f46b82")
 ACCENT = QColor("#66a8ff")
 
-# TV mode is the default; the previous dark palette remains available.
-# Only paint/UI colors are defined here. Market data and indicator calculations
-# must not depend on the selected visual theme.
+# One user-configurable chart appearance. There is no second visual theme:
+# application chart colors override this base, while FVG / flow / structure
+# colors are supplied by the same IndicatorSettings in both entry points.
 CHART_PALETTES = {
-    "tv": {
-        "background": QColor("#898989"),
-        "grid": QColor(160, 160, 160, 45),
-        "text": QColor("#292b2f"),
-        "structure_up": QColor("#008476"),
-        "structure_down": QColor("#b21f34"),
-        "candle_up": QColor("#ffffff"),
-        "candle_down": QColor("#111111"),
-        "candle_up_outline": QColor("#f8f8f8"),
-        "candle_down_outline": QColor("#141414"),
-        "wick": QColor("#353535"),
-        "flow_lines": (QColor("#205b28"), QColor("#205b28"),
-                       QColor("#666666"), QColor("#c32238"), QColor("#c32238")),
-        "previous": QColor(62, 62, 62, 105),
-        "crosshair": QColor("#434343"),
-        "tooltip_bg": QColor("#343434"),
-        "tooltip_text": QColor("#ffffff"),
-        "price_marker": QColor("#161616"),
-        "price_marker_text": QColor("#ffffff"),
-    },
-    "dark": {
+    "user": {
         "background": BACKGROUND,
         "grid": GRID,
         "text": TEXT,
@@ -105,7 +85,6 @@ CHART_PALETTES = {
         "price_marker_text": QColor("#09151d"),
     },
 }
-
 
 def _relative_luminance(color):
     """WCAG sRGB luminance for readable marker text and price-line contrast."""
@@ -199,34 +178,24 @@ class TimeframeBar(QWidget):
             self.buttons[tf] = button
             layout.addWidget(button)
         self.buttons[self._current].setChecked(True)
-        self.set_theme("tv")
+        self.set_theme("user")
 
     def set_theme(self, theme: str):
-        if theme == "tv":
-            self.setStyleSheet("""
-                QWidget#timeframeBar { background: #dedede; border-radius: 6px; }
-                QWidget#timeframeBar QToolButton {
-                    background: transparent; color: #393939; border: none;
-                    border-radius: 6px; padding: 0; font-size: 16px;
-                }
-                QWidget#timeframeBar QToolButton:hover { background: #cccccc; }
-                QWidget#timeframeBar QToolButton:checked {
-                    background: #ffffff; color: #111111; font-weight: 700;
-                    border: 1px solid #bcbcbc;
-                }
-                QWidget#timeframeBar QToolButton:disabled { color: #aaaaaa; }
-            """)
-        else:
-            self.setStyleSheet("""
-                QWidget#timeframeBar { background: #101010; border-radius: 8px; }
-                QWidget#timeframeBar QToolButton {
-                    background: transparent; color: #dfdfdf; border: none;
-                    border-radius: 10px; padding: 0; font-size: 18px;
-                }
-                QWidget#timeframeBar QToolButton:hover { background: #262626; }
-                QWidget#timeframeBar QToolButton:checked { background: #303030; color: #ffffff; }
-                QWidget#timeframeBar QToolButton:disabled { color: #6c6c6c; }
-            """)
+        """One fixed chrome theme; legacy tv/dark calls are equivalent."""
+        if theme not in ("tv", "dark", "user"):
+            raise ValueError(f"Неизвестная тема панели ТФ: {theme}")
+        self.setStyleSheet("""
+            QWidget#timeframeBar { background: #101010; border-radius: 8px; }
+            QWidget#timeframeBar QToolButton {
+                background: transparent; color: #dfdfdf; border: none;
+                border-radius: 10px; padding: 0; font-size: 18px;
+            }
+            QWidget#timeframeBar QToolButton:hover { background: #262626; }
+            QWidget#timeframeBar QToolButton:checked {
+                background: #303030; color: #ffffff;
+            }
+            QWidget#timeframeBar QToolButton:disabled { color: #6c6c6c; }
+        """)
 
     def currentText(self):
         return self._current
@@ -299,7 +268,7 @@ class CandleChart(QWidget):
         self.show_fvg = True
         self.show_flow = True
         self.show_previous = True
-        self.visual_theme = "tv"
+        self.visual_theme = "user"
         self.instrument_header = "DEMO · SYNTHETIC"
         self.exchange = LEGACY_MOSCOW_CLOCK
         self.display_price_tick = None  # Finam GetAsset metadata; view-only precision
@@ -337,9 +306,15 @@ class CandleChart(QWidget):
         self.bottom = 80
 
     def set_theme(self, theme: str):
-        if theme not in CHART_PALETTES:
+        """Legacy caller compatibility; chart appearance has one user theme.
+
+        Existing entry points may still call set_theme('tv'/'dark'), but
+        neither alias may override user-selected presentation colors.
+        """
+        if theme not in ("tv", "dark", "user"):
             raise ValueError(f"Неизвестная тема графика: {theme}")
-        self.visual_theme = theme
+        self.visual_theme = "user"
+        self._surface_key = None
         self.update()
 
     def set_exchange(self, mic: str, symbol: str | None = None):
@@ -659,7 +634,7 @@ class CandleChart(QWidget):
         finally:p.end()
 
     def _render_surface(self,p):
-        colors = dict(CHART_PALETTES[self.visual_theme])
+        colors = dict(CHART_PALETTES["user"])
         cfg=self.indicator_settings
         colors.update(structure_up=qcolor(cfg.upColor),structure_down=qcolor(cfg.downColor),
             flow_lines=tuple(qcolor(getattr(cfg,key)) for key in ('flowColor0','flowColor04','flowColor05','flowColor06','flowColor1')),
@@ -783,9 +758,9 @@ class CandleChart(QWidget):
                       and self.inside_bars[i])
             wick_color=colors.get("wick_up" if rising else "wick_down")
             if wick_color is None:
-                wick_color=(QColor("#ededed") if rising else QColor("#242424")) if self.visual_theme == "tv" else (colors["wick"] or color)
+                wick_color=colors["wick"] or color
             p.setPen(QPen(wick_color,
-                          0.9 if self.visual_theme == "tv" else 1.2))
+                          1.2))
             body_w = max(2.0, min(18.0, stride * 0.62))
             a, b = y(bar.open), y(bar.close)
             body_top, body_bottom = min(a, b), max(a, b)
@@ -804,10 +779,9 @@ class CandleChart(QWidget):
                 p.fillRect(body, color)
             outline_key="chart_outline_up" if rising else "chart_outline_down"
             outline=colors["candle_up_outline"] if rising else colors["candle_down_outline"]
-            if hollow and self.visual_theme == "tv" and outline_key not in self.chart_color_overrides:
-                outline=QColor("#e4e4e4") if rising else QColor("#474747")
-            # Dark-theme hollow bodies must have a visible outline.
-            if self.visual_theme == "tv" or hollow or outline_key in self.chart_color_overrides:
+            # The single theme honors the configured candle contours.
+            # Inside candles remain hollow with a visible configured outline.
+            if hollow or outline_key in self.chart_color_overrides:
                 p.setPen(QPen(outline, 1.0))
                 p.drawRect(body)
         # Render the structural movement LAST relative to candles: the
@@ -972,7 +946,7 @@ class CandleChart(QWidget):
         p.fillRect(QRectF(x0, low_y, x1 - x0, height), bg)
         p.setPen(QPen(edge, cfg.fvgBorderWidth))
         p.drawRect(QRectF(x0, low_y, x1 - x0, height))
-        strong = QColor(bg.red(),bg.green(),bg.blue(),255) if self.visual_theme == 'tv' else edge
+        strong = QColor(bg.red(),bg.green(),bg.blue(),255)
         p.setPen(QPen(strong, cfg.fvgMiddleWidth, Qt.PenStyle.DotLine))
         p.drawLine(QPointF(x0, (y0 + y1) / 2), QPointF(x1, (y0 + y1) / 2))
         if x1>x0:
