@@ -64,5 +64,15 @@
       "MN1": 1
     }
   },
-  "checked_at_utc": "2026-11-15T18:22:14.465391+00:00"
+  "checked_at_utc": "2026-11-15T18:22:14.465391+00:00",
+  "stock_archive_check": {
+    "symbol": "SBER@MISX",
+    "raw_months_before": 330,
+    "recent_http_months": 60,
+    "prepared_months": 330,
+    "chart_months": 330,
+    "closed_months": 329,
+    "first_month": "1999-06",
+    "last_month": "2026-11"
+  }
 }

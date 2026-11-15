@@ -1,0 +1,11 @@
+{
+  "code_sha": "886dec066cea32cb90cee28503c10e906400dcc3",
+  "based_on_user_version": "67ae2553db9b1b13e38f1ee50f32cfa7fc2a6ec1",
+  "policy": "finam-native-dwm-1",
+  "preserved_user_changes": ["v2.14 working FVG", "30 instruments", "top 10 stocks over 20 completed sessions", "crypto-first sidebar", "no text search", "center latest candle", "saved view on refresh"],
+  "local": {"tests": 629, "skipped": 1, "failures": 0, "errors": 0, "seconds": 37.640, "profile": "isolated"},
+  "windows_ci": {"run_id": 43746698088, "job_id": 132911462104, "conclusion": "success", "tests": 629, "skipped": 0, "seconds": 43.035, "system_audit": "PASS", "extended_audit": "PASS", "dpi": [1, 1.25, 1.5, 2], "frozen_native_dwm": true, "frozen_session_candles": true, "packaged_exit_seconds": [0.060, 0.062, 0.060], "packaged_exit_codes": [0, 0, 0]},
+  "artifact": {"id": 14174318998, "signature": "UNSIGNED", "size_bytes": 49418238, "sha256": "e972f63e3fc8848872d2330ded2c8d40a2d03ac1e7576b5a453c77ae3b6a3f6b", "evidence_artifact": 14174747928},
+  "live_reads": {"finam_requests": 4, "isolated_copy": true, "production_cache_modified": false, "nqz26_months": 6, "nqz26_closed_months": 5, "sber_months": 330, "sber_closed_months": 329},
+  "tradingview_numeric_parity": "not claimed"
+}
