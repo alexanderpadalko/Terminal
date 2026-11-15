@@ -28,7 +28,8 @@ class SessionSeries:
 
 def _combine(start,end,bars):
     return Candle(start,bars[0].open,max(b.high for b in bars),min(b.low for b in bars),
-                  bars[-1].close,sum(b.volume for b in bars),scheduled_close=end)
+                  bars[-1].close,sum(b.volume for b in bars),scheduled_close=end,
+                  settlement_close=bars[-1].settlement_close)
 
 
 def _covered(intervals,start,end):

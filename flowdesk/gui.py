@@ -678,8 +678,8 @@ class CandleChart(QWidget):
         def x(index: int):
             return self.x0 + (index - left_edge + 0.5) * stride
         visible = candles[first:last]
-        lowest = min(b.low for b in visible)
-        highest = max(b.high for b in visible)
+        lowest = min(min(b.low,b.close) if b.settlement_close else b.low for b in visible)
+        highest = max(max(b.high,b.close) if b.settlement_close else b.high for b in visible)
         if cfg.vwapEnabled and self.analysis.timeframe in ('M1','M5'):
             plotted=[value for value in self.vwap[first:last] if value is not None]
             if cfg.vwapShowPrevious:

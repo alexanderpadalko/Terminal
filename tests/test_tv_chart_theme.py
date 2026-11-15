@@ -76,6 +76,20 @@ class TestTradingViewAppearance(unittest.TestCase):
                                     (pixel.red(),pixel.green(),pixel.blue()))
                 chart.close()
 
+    def test_explicit_settlement_close_outside_range_is_visible_without_altering_ohl(self):
+        start=datetime(2026,11,13,tzinfo=MOSCOW)
+        bars=[Candle(start+timedelta(days=i),100,102,99,110,5,settlement_close=True)
+              for i in range(2)]
+        chart=CandleChart();chart.resize(1020,680)
+        chart.set_analysis(analyze(bars,'D1'))
+        chart.show_structure=chart.show_fvg=chart.show_flow=chart.show_previous=False
+        chart.show();self.app.processEvents()
+        self.assertFalse(chart.grab().isNull())
+        y=chart._surface_context[5](110)
+        self.assertGreaterEqual(y,chart.top);self.assertLessEqual(y,chart.bottom)
+        self.assertEqual([(b.open,b.high,b.low) for b in chart.analysis.candles],[(100,102,99)]*2)
+        chart.close()
+
     def test_current_price_text_contrast_adapts_to_dark_and_light_markers(self):
         background=QColor("#898989")
         self.assertEqual(_contrast_text_color(QColor("#080808"),background).name(),

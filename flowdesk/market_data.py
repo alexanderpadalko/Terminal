@@ -71,6 +71,9 @@ class Candle:
     close: float
     volume: float = 0.0
     scheduled_close: datetime | None = None
+    # Exchange settlement is a reference close, not necessarily a traded
+    # price inside the session range (notably on illiquid deferred futures).
+    settlement_close: bool = False
 
     def __post_init__(self):
         if self.time.tzinfo is None or self.time.utcoffset() is None:
@@ -82,7 +85,10 @@ class Candle:
         values = (self.open, self.high, self.low, self.close, self.volume)
         if not all(math.isfinite(v) for v in values):
             raise ValueError("OHLCV содержит NaN/Inf")
-        if self.high < max(self.open, self.close, self.low) or self.low > min(self.open, self.close, self.high):
+        if type(self.settlement_close) is not bool:
+            raise ValueError('Invalid settlement close flag')
+        prices=(self.open,self.low,self.high) if self.settlement_close else (self.open,self.close,self.low,self.high)
+        if self.high < max(prices) or self.low > min(prices):
             raise ValueError(f"Неверный OHLC: {self.time}")
 
 
@@ -94,7 +100,8 @@ def normalize(candles: list[Candle]) -> list[Candle]:
 def serialize_candle(c: Candle) -> dict:
     return {"time": c.time.isoformat(), "open": c.open, "high": c.high,
             "low": c.low, "close": c.close, "volume": c.volume,
-            **({"scheduled_close": c.scheduled_close.isoformat()} if c.scheduled_close else {})}
+            **({"scheduled_close": c.scheduled_close.isoformat()} if c.scheduled_close else {}),
+            **({"settlement_close":True} if c.settlement_close else {})}
 
 
 def parse_time(value: str) -> datetime:
@@ -256,7 +263,7 @@ def aggregate(candles: list[Candle], tf: str, tz: ZoneInfo = MOSCOW,
         key = period_floor(local, tf)
         grouped.setdefault(key, []).append(c)
     return [Candle(key, cs[0].open, max(c.high for c in cs), min(c.low for c in cs),
-                   cs[-1].close, sum(c.volume for c in cs))
+                   cs[-1].close, sum(c.volume for c in cs),settlement_close=cs[-1].settlement_close)
             for key, cs in sorted(grouped.items())]
 
 

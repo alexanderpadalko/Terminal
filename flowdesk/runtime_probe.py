@@ -57,11 +57,24 @@ def check_finam_runtime(output):
         native,_=native_higher_series({'MN1':months},observed,
             {('MN1',b.time):observed for b in months})
         result['native_dwm']=len(native.get('MN1',()))==6
+        from .nq_session_family import calendar_for_pilot,build_family
+        nq_calendar=calendar_for_pilot(calendar_for('NQZ26@XCME'))
+        nq_session=nq_calendar.daily_session(date(2026,11,13))
+        hours=[Candle(nq_session.start+timedelta(hours=i),100,102,99,101,1,
+            scheduled_close=nq_session.start+timedelta(hours=i+1)) for i in range(23)]
+        daily=finam_bar({'timestamp':'2026-11-13T05:00:00Z','open':100,
+                        'high':102,'low':99,'close':100.5,'volume':23},'D1')
+        observations={('H1',b.time):observed for b in hours}
+        observations['D1',daily.time]=observed
+        family,status,_=build_family({'H1':hours,'D1':[daily]},nq_calendar,observed,
+            coverage={'H1':[(nq_session.start,nq_session.end)]},observations=observations)
+        result['nq_session_family']=bool(status=='ready' and family and
+            family['D1'][0].close==100.5 and family['MN1'][0].settlement_close)
         result["ok"] = (result.get("executor_callable") and
                         result.get("thread_result") == 17 and result.get("localhost_resolved")
                         and result.get("scheduler_result")==23 and result.get("scanner_rows")==3
                         and result.get("binance_decoder") and result.get('session_candles')
-                        and result.get('native_dwm'))
+                        and result.get('native_dwm') and result.get('nq_session_family'))
     except Exception as exc:
         result["error_type"] = type(exc).__name__
     Path(output).write_text(json.dumps(result, indent=2), encoding="utf-8")

@@ -179,13 +179,16 @@ class TestNativeHigher(unittest.TestCase):
             def bars(self,symbol,tf,**kw):
                 self.calls.append((symbol,tf,kw));return []
         api=Archive();self.market.api=api
-        self.market._upsert(SYMBOL,'MN1',months())
-        _backfill_higher_history(self.market,SYMBOL,NOW,self.market._series(SYMBOL))
+        # Generic native policy still has the original five-request budget;
+        # the exact NQZ26 pilot has its own versioned bootstrap test.
+        symbol='ESZ26@XCME'
+        self.market._upsert(symbol,'MN1',months())
+        _backfill_higher_history(self.market,symbol,NOW,self.market._series(symbol))
         frames=[tf for _,tf,_ in api.calls]
         self.assertIn('MN1',frames);self.assertIn('H1',frames)
         self.assertLessEqual(len(frames),5)
         before=len(frames)
-        _backfill_higher_history(self.market,SYMBOL,NOW,self.market._series(SYMBOL))
+        _backfill_higher_history(self.market,symbol,NOW,self.market._series(symbol))
         self.assertEqual(len(api.calls),before)
 
     def test_control_diagnostics_are_safe_and_separate_from_primary_failures(self):
