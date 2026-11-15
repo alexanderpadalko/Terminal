@@ -631,7 +631,10 @@ class FinamWindow(QMainWindow):
                 merged.append(resolved if resolved and resolved.verified
                               else fallback.get(key,contract))
             self.universe[group]=merged
-        self._catalog_success_slot=slot_date(datetime.now(timezone.utc))
+        # An outage must not be counted as a completed daily refresh.
+        # The ten-minute attempt throttle will retry without hammering APIs.
+        if not self.catalog_error and "MOEX недоступна" not in self.ranking_status and "ошибка MOEX" not in self.ranking_status:
+            self._catalog_success_slot=slot_date(datetime.now(timezone.utc))
         self.screen_results.clear()  # Do not reuse stale contract/roll signals.
         self._populate_universe()
         self._request_screener_scan()
@@ -657,6 +660,20 @@ class FinamWindow(QMainWindow):
                     self.mic.setCurrentText(mic)
             self._load(refresh=False)
             self._start_stream()
+        elif self.current_view:
+            # An already open futures chart must follow a newly confirmed
+            # roll when the daily refresh runs without restarting the app.
+            current_symbol=symbol_name(*self.current_view[:2])
+            moved=payload.get("roll_map",{}).get(current_symbol.upper())
+            if moved and moved.upper()!=current_symbol.upper() and is_in_universe(moved,self.universe):
+                ticker,mic=moved.split("@",1)
+                self.symbol_edit.setText(ticker)
+                self.mic.setCurrentText(mic)
+                self.ui_prefs.setValue("ticker",ticker)
+                self.ui_prefs.setValue("mic",mic)
+                self.status.setText("Контракт переключён после ежедневной проверки Finam: "+moved)
+                self._load(refresh=True)
+                self._start_stream()
 
     def _catalog_progress(self,message):
         if not self.closing and self.catalog_worker is not None:
