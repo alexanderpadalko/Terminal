@@ -962,17 +962,13 @@ class CandleChart(QWidget):
         low_y, high_y = min(y0, y1), max(y0, y1)
         height = max(1.5, high_y - low_y)
         cfg=self.indicator_settings
-        if self.visual_theme == "tv":
-            bg=qcolor(cfg.fvgFilledColor if broken else cfg.fvgBullColor if side==1 else cfg.fvgBearColor)
-            rgb=(bg.red(),bg.green(),bg.blue())
-            edge=QColor(*rgb,179)
-        else:
-            if broken:
-                bg, edge = QColor(243, 169, 45, 40), QColor(241, 173, 70, 130)
-            elif side == 1:
-                bg, edge = QColor(24, 196, 145, 38 if not parent else 28), QColor(19, 148, 123, 135)
-            else:
-                bg, edge = QColor(221, 70, 100, 38 if not parent else 28), QColor(204, 74, 95, 135)
+        # Both TradingView and the Finam dark chart must respect the FVG
+        # palette configured in SettingsDialog. Previously the dark theme
+        # substituted hard-coded colors, so saved FVG preferences had no
+        # visible effect on the actual analytical terminal.
+        bg=qcolor(cfg.fvgFilledColor if broken else
+                  cfg.fvgBullColor if side==1 else cfg.fvgBearColor)
+        edge=QColor(bg.red(),bg.green(),bg.blue(),179)
         p.fillRect(QRectF(x0, low_y, x1 - x0, height), bg)
         p.setPen(QPen(edge, cfg.fvgBorderWidth))
         p.drawRect(QRectF(x0, low_y, x1 - x0, height))
