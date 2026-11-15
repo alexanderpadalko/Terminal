@@ -50,4 +50,9 @@
 
 ## Итоговая Windows-сборка
 
-Результаты сборки после исправлений будут записаны после фактического завершения GitHub Actions.
+- Исходный код исправлений: [477d065916a6a89f0bb32b4cc66679f508b04dc7](https://github.com/alexanderpadalko/Terminal/commit/477d065916a6a89f0bb32b4cc66679f508b04dc7).
+- [Windows CI 43698885696](https://github.com/alexanderpadalko/Terminal/actions/runs/43698885696) — **success**, **522 теста без пропусков**, 37.583 с; системный стресс, запуск окна, упаковка, три закрытия EXE и frozen probe успешны. Время закрытия: 0.066–0.075 с, exit code 0.
+- [ZIP 0.2.26 Windows x64, UNSIGNED](https://github.com/alexanderpadalko/Terminal/actions/runs/43698885696/artifacts/14155622083): **49 347 399 байт**. [Evidence artifact](https://github.com/alexanderpadalko/Terminal/actions/runs/43698885696/artifacts/14155587367).
+- Итоговый ZIP скачан и проверен локально: SHA-256 **ad89464a383250b78b5bafea5d29247df3dd8a8c1ff4078936122d9a6367b697**. EXE SHA-256 **b56989765a97961fbd9084f21da987fb200f80bd92beb4c131373aa9e25b4e25**, совпадает с манифестом commit 477d065. Локальный frozen runtime этой же сборки успешен, без ключа и рабочего профиля.
+- Визуально просмотрены график и настройки в изолированном offscreen-профиле на синтетических свечах; для отображения шрифтов явно загружен системный Segoe UI. Это проверка компоновки, не рыночных сигналов. `pip check`: зависимостей с нарушенными требованиями нет.
+- Последующая запись итогов меняет только документацию/evidence; проверяемый код и EXE остаются 477d065.

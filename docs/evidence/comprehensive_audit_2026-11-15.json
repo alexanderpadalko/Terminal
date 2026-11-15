@@ -436,5 +436,102 @@
     "Live prices may change between passes; EURRUBF direction changed, old prices were not recorded",
     "Cold-cache performance and full monthly archive were not requested/tested",
     "First automatic scan/deferred startup restore still waits for MOEX ranking; futures rows publish earlier"
-  ]
+  ],
+  "final_windows": {
+    "source": "477d065916a6a89f0bb32b4cc66679f508b04dc7",
+    "run": 43698885696,
+    "job": 132765375706,
+    "conclusion": "success",
+    "ci_tests": 522,
+    "ci_skipped": 0,
+    "ci_test_seconds": 37.583,
+    "app_artifact": 14155622083,
+    "evidence_artifact": 14155587367,
+    "hashes": {
+      "app": {
+        "bytes": 49347399,
+        "sha256": "ad89464a383250b78b5bafea5d29247df3dd8a8c1ff4078936122d9a6367b697"
+      },
+      "evidence": {
+        "bytes": 1052,
+        "sha256": "746fdb197c8ad1cfe88bbe57c5fdcc2f00cbd2c400f959bb189ec9d00b6699c1"
+      },
+      "exe": {
+        "sha256": "b56989765a97961fbd9084f21da987fb200f80bd92beb4c131373aa9e25b4e25",
+        "commit": "477d065916a6a89f0bb32b4cc66679f508b04dc7",
+        "signature": "UNSIGNED"
+      }
+    },
+    "local_frozen_probe": {
+      "ok": true,
+      "frozen": true,
+      "executor_callable": true,
+      "thread_result": 17,
+      "localhost_resolved": true,
+      "scheduler_result": 23,
+      "scanner_rows": 3
+    },
+    "ci_shutdown": [
+      {
+        "close_after_seconds": 0,
+        "exit_seconds": 0.075,
+        "code": 0
+      },
+      {
+        "close_after_seconds": 0.8,
+        "exit_seconds": 0.066,
+        "code": 0
+      },
+      {
+        "close_after_seconds": 3,
+        "exit_seconds": 0.066,
+        "code": 0
+      }
+    ],
+    "ci_system": {
+      "audit_schema": 1,
+      "network": "offline_synthetic_only",
+      "credentials": "not_loaded",
+      "version": "0.2.26",
+      "sqlite_stress": {
+        "instruments": 38,
+        "timeframes": 7,
+        "candles": 10640,
+        "overlap_corrections": 266,
+        "elapsed_seconds": 15.977,
+        "sqlite_integrity": "ok",
+        "sqlite_journal": "wal"
+      },
+      "safety": {
+        "trade_account_calls_blocked": 3,
+        "stale_quote_rejected": true,
+        "market_scope_isolation": true,
+        "safe_permissions": true
+      },
+      "gui": {
+        "offscreen_layouts": [
+          {
+            "width": 1040,
+            "height": 650,
+            "list_viewport": 374
+          },
+          {
+            "width": 1280,
+            "height": 720,
+            "list_viewport": 418
+          },
+          {
+            "width": 1600,
+            "height": 900,
+            "list_viewport": 418
+          }
+        ],
+        "read_only_ui": true
+      },
+      "duration_seconds": 16.245,
+      "status": "PASS"
+    },
+    "visual_review": "isolated offscreen chart/settings with synthetic market fixtures; Segoe UI explicitly loaded",
+    "dependency_check": "No broken requirements found"
+  }
 }
