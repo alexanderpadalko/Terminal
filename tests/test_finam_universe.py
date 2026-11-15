@@ -1,11 +1,11 @@
-"""The only visible FlowDesk universe is the user's 8+20+10 shortlist."""
+"""The only visible FlowDesk universe is the user's 8+10+10+2 shortlist."""
 import json
 import unittest
 from pathlib import Path
 
 from flowdesk.finam_universe import (
     US_CONTRACTS, RU_CONTRACTS, US_FUTURES, RU_FUTURES, RU_STOCKS, CRYPTO,
-    compose_universe, cached_top20, match_contract, is_in_universe, Item
+    compose_universe, cached_top10, match_contract, is_in_universe, Item
 )
 
 
@@ -17,11 +17,11 @@ class FakeWatchlist:
 
 
 class TestCuratedFinamUniverse(unittest.TestCase):
-    def test_exact_eight_plus_twenty_plus_ten_only(self):
+    def test_exact_eight_plus_ten_plus_ten_plus_crypto_only(self):
         universe,status=compose_universe()
         self.assertEqual(tuple(universe),(US_FUTURES,RU_STOCKS,RU_FUTURES,CRYPTO))
         self.assertEqual(len(universe[US_FUTURES]),8)
-        self.assertEqual(len(universe[RU_STOCKS]),20)
+        self.assertEqual(len(universe[RU_STOCKS]),10)
         self.assertEqual(len(universe[RU_FUTURES]),10)
         self.assertEqual([row.label for row in universe[CRYPTO]],["BTCUSDT.P","ETHUSDT.P"])
         self.assertEqual(
@@ -74,24 +74,40 @@ class TestCuratedFinamUniverse(unittest.TestCase):
         self.assertEqual([match_contract(c,matches) for c in contracts],
                          [r["symbol"] for r in matches])
 
-    def test_previous_confirmed_twenty_session_rank_is_preserved(self):
+    def test_previous_confirmed_twenty_session_rank_is_trimmed_to_top_ten(self):
         stock_rows=[{"symbol":f"S{i:02d}","board":"TQBR","kind":"stock",
                      "name":f"Stock {i}","turnover":1000-i}
                     for i in range(40)]
         value={"slot":"2026-11-10",
                "window":[f"2026-11-{i:02d}" for i in range(1,21)],
                "instruments":stock_rows}
-        rows,source=cached_top20(watchlist=FakeWatchlist(value))
-        self.assertEqual(len(rows),20)
+        rows,source=cached_top10(watchlist=FakeWatchlist(value))
+        self.assertEqual(len(rows),10)
         self.assertEqual(rows[0].symbol,"S00@MISX")
-        self.assertEqual(rows[-1].symbol,"S19@MISX")
+        self.assertEqual(rows[-1].symbol,"S09@MISX")
         self.assertIn("2026-11-20",source)
 
     def test_seed_is_labelled_unconfirmed_and_never_rated_as_fresh(self):
-        rows,status=cached_top20()
-        self.assertEqual(len(rows),20)
+        rows,status=cached_top10()
+        self.assertEqual(len(rows),10)
         self.assertTrue(all(row.symbol.endswith("@MISX") for row in rows))
         self.assertNotIn("сейчас",status)
+
+    def test_top_ten_uses_saved_rank_not_alphabetical_tickers(self):
+        # Keep the complete 20-session archive intact. The curated list
+        # must take the *ranked first ten*, without re-sorting by name.
+        rows=[{"symbol":f"Z{i:02d}","board":"TQBR","kind":"stock",
+               "name":f"Stock {i}","turnover":1000-i}
+              for i in range(40)]
+        saved={"slot":"2026-11-10",
+               "window":["2026-11-10"],"instruments":rows}
+        selected,status=cached_top10(watchlist=FakeWatchlist(saved))
+        self.assertEqual([r.label for r in selected],
+                         [f"Z{i:02d}" for i in range(10)])
+        self.assertNotIn("Z10", [r.label for r in selected])
+        self.assertIn("2026-11-10", status)
+        # The full offline saved ranking is untouched.
+        self.assertEqual(len(saved["instruments"]),40)
 
     def test_catalog_only_enables_verified_future(self):
         assets=[{"ticker":"NQZ6","mic":"XCME","symbol":"NQZ6@XCME"}]
