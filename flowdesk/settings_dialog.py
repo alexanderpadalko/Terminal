@@ -264,7 +264,7 @@ class SettingsDialog(QDialog):
         colors_form.setFieldGrowthPolicy(
             QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
         self.chart_controls={}
-        theme='dark' if finam_only else 'tv'
+        theme='user'
         for field,label in CHART_COLOR_FIELDS:
             value=getattr(application,field) or CHART_THEME_DEFAULTS[theme][field]
             button=ColorButton(value,colors_widget)
@@ -382,7 +382,7 @@ class SettingsDialog(QDialog):
         super().accept()
 
     def restore_defaults(self):
-        theme='dark' if self.finam_only else 'tv'
+        theme='user'
         for field,button in self.chart_controls.items():
             button.set_value(CHART_THEME_DEFAULTS[theme][field])
         for spec in specifications():
