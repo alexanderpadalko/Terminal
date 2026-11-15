@@ -286,7 +286,7 @@ class TestFinamGui(unittest.TestCase):
 
     def test_fixed_universe_has_four_groups_including_crypto_without_old_demo_assets(self):
         rows=[self.window.examples.item(i).text() for i in range(self.window.examples.count())]
-        self.assertEqual(len(rows),8+20+10+2+4)
+        self.assertEqual(len(rows),8+10+10+2+4)
         self.assertFalse(self.window.symbol_edit.isVisible())
         self.assertFalse(self.window.mic.isVisible())
         self.assertFalse(any("AAPL" in s for s in rows))
@@ -545,7 +545,7 @@ class TestFinamGui(unittest.TestCase):
                              self.window.screen_buttons.values()))
         initial=[self.window.examples.item(i) for i in
                  range(self.window.examples.count())]
-        self.assertEqual(len(initial),44)
+        self.assertEqual(len(initial),34)
         self.window.screen_results[sber.symbol]=ScanResult(
             sber.symbol,(1,-1,0,0,0))
         self.window.screen_results[lkoh.symbol]=ScanResult(
@@ -576,7 +576,7 @@ class TestFinamGui(unittest.TestCase):
                             if not row.isHidden()))
         self.window.screen_buttons["H1"].setChecked(False)
         self.window.screen_buttons["W"].setChecked(False)
-        self.assertEqual(self.window.examples.count(),44)
+        self.assertEqual(self.window.examples.count(),34)
         self.assertIs(self.window.chart.analysis,analysis)
 
     def test_scanner_missing_history_stays_neutral_not_short(self):
@@ -655,7 +655,7 @@ class TestFinamGui(unittest.TestCase):
         self.assertIsNone(self.window.screener_worker)
         worker.deleteLater.assert_called_once()
 
-    def test_no_filter_shows_all_40_instruments_without_any_tf_badges(self):
+    def test_no_filter_shows_all_30_instruments_without_any_tf_badges(self):
         from PySide6.QtWidgets import QLabel
         from flowdesk.finam_screener import ScanResult
         from flowdesk.finam_universe import RU_STOCKS
@@ -666,7 +666,7 @@ class TestFinamGui(unittest.TestCase):
         self.window._populate_universe()
         self.assertFalse(any(button.isChecked() for button in
                              self.window.screen_buttons.values()))
-        self.assertEqual(self.window.examples.count(),44)
+        self.assertEqual(self.window.examples.count(),34)
         row=next(self.window.examples.item(i) for i in
                  range(self.window.examples.count())
                  if self.window.examples.item(i).text().startswith("SBER ·"))
