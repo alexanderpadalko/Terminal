@@ -1,0 +1,440 @@
+{
+  "audit": "comprehensive_2026-11-15",
+  "baseline_source": "c9efd1f43014f313c844b0f4d41fc144764a3726",
+  "version": "0.2.26",
+  "external_history_import": false,
+  "archive_backfill": false,
+  "baseline_binary": {
+    "run": 43691274599,
+    "artifact": 14152667119,
+    "zip_bytes": 49345496,
+    "zip_sha256": "4ac010807b568a73afccf8351e851974d6709617b472cdaabe8ac927b885f047",
+    "exe_sha256": "17bfb6c8ed48a173d0d1d850fde121967f97f0099e217d760e7c3b0cd3c8c5ed",
+    "signature": "UNSIGNED",
+    "hash_verified_locally": true,
+    "local_frozen_probe": {
+      "ok": true,
+      "frozen": true,
+      "executor_callable": true,
+      "thread_result": 17,
+      "localhost_resolved": true,
+      "scheduler_result": 23,
+      "scanner_rows": 3
+    },
+    "ci_shutdown": [
+      {
+        "close_after_seconds": 0,
+        "exit_seconds": 0.076,
+        "code": 0
+      },
+      {
+        "close_after_seconds": 0.8,
+        "exit_seconds": 0.075,
+        "code": 0
+      },
+      {
+        "close_after_seconds": 3,
+        "exit_seconds": 0.071,
+        "code": 0
+      }
+    ]
+  },
+  "baseline_tests": {
+    "tests": 510,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 1,
+    "passed": true,
+    "profile": "isolated",
+    "credentials": "null keyring; environment secret empty"
+  },
+  "regressions_before_fixes": {
+    "tests": 519,
+    "failures": 19,
+    "errors": 0,
+    "skipped": 1,
+    "passed": false,
+    "profile": "isolated",
+    "credentials": "null keyring; environment secret empty"
+  },
+  "final_tests": {
+    "tests": 522,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 1,
+    "passed": true,
+    "profile": "isolated",
+    "credentials": "null keyring; environment secret empty"
+  },
+  "final_system": {
+    "audit_schema": 1,
+    "network": "offline_synthetic_only",
+    "credentials": "not_loaded",
+    "version": "0.2.26",
+    "sqlite_stress": {
+      "instruments": 38,
+      "timeframes": 7,
+      "candles": 10640,
+      "overlap_corrections": 266,
+      "elapsed_seconds": 3.96,
+      "sqlite_integrity": "ok",
+      "sqlite_journal": "wal"
+    },
+    "safety": {
+      "trade_account_calls_blocked": 3,
+      "stale_quote_rejected": true,
+      "market_scope_isolation": true,
+      "safe_permissions": true
+    },
+    "gui": {
+      "offscreen_layouts": [
+        {
+          "width": 1040,
+          "height": 650,
+          "list_viewport": 374
+        },
+        {
+          "width": 1280,
+          "height": 720,
+          "list_viewport": 418
+        },
+        {
+          "width": 1600,
+          "height": 900,
+          "list_viewport": 418
+        }
+      ],
+      "read_only_ui": true
+    },
+    "duration_seconds": 4.186,
+    "status": "PASS"
+  },
+  "live": {
+    "started_at_utc": "2026-11-15T09:12:13.476894+00:00",
+    "finished_at_utc": "2026-11-15T09:14:27.575518+00:00",
+    "cache_mode": "isolated SQLite backup; source opened mode=ro",
+    "user_sqlite": {
+      "integrity": "ok",
+      "candles": 391181,
+      "instruments": 40
+    },
+    "audit_sqlite": {
+      "integrity": "ok",
+      "candles": 391237
+    },
+    "catalog_assets": 126955,
+    "metadata_requests": {
+      "auth": 2,
+      "catalog": 43,
+      "asset": 28
+    },
+    "expiry": [
+      {
+        "label": "NQZ2026",
+        "symbol": "NQZ26@XCME",
+        "verified": true,
+        "expiry": "2026-12-18",
+        "perpetual": false
+      },
+      {
+        "label": "ESZ2026",
+        "symbol": "ESZ26@XCME",
+        "verified": true,
+        "expiry": "2026-12-18",
+        "perpetual": false
+      },
+      {
+        "label": "GCZ2026",
+        "symbol": "GCZ26@XCEC",
+        "verified": true,
+        "expiry": "2026-12-29",
+        "perpetual": false
+      },
+      {
+        "label": "SIZ2026",
+        "symbol": "SIZ26@XCEC",
+        "verified": true,
+        "expiry": "2026-12-29",
+        "perpetual": false
+      },
+      {
+        "label": "PLF2027",
+        "symbol": "PLF27@XNYM",
+        "verified": true,
+        "expiry": "2027-01-27",
+        "perpetual": false
+      },
+      {
+        "label": "PAZ2026",
+        "symbol": "PAZ26@XNYM",
+        "verified": true,
+        "expiry": "2026-12-29",
+        "perpetual": false
+      },
+      {
+        "label": "NGZ2026",
+        "symbol": "NGZ26@XNYM",
+        "verified": true,
+        "expiry": "2026-11-25",
+        "perpetual": false
+      },
+      {
+        "label": "BRNF2027",
+        "symbol": "BRNF27@IFEU",
+        "verified": true,
+        "expiry": "2026-11-30",
+        "perpetual": false
+      },
+      {
+        "label": "SIZ2026",
+        "symbol": "SiZ6@RTSX",
+        "verified": true,
+        "expiry": "2026-12-17",
+        "perpetual": false
+      },
+      {
+        "label": "CRZ2026",
+        "symbol": "CRZ6@RTSX",
+        "verified": true,
+        "expiry": "2026-12-17",
+        "perpetual": false
+      },
+      {
+        "label": "EUZ2026",
+        "symbol": "EuZ6@RTSX",
+        "verified": true,
+        "expiry": "2026-12-17",
+        "perpetual": false
+      },
+      {
+        "label": "EDZ2026",
+        "symbol": "EDZ6@RTSX",
+        "verified": true,
+        "expiry": "2026-12-17",
+        "perpetual": false
+      },
+      {
+        "label": "USDRUB.P",
+        "symbol": "USDRUBF@RTSX",
+        "verified": true,
+        "expiry": null,
+        "perpetual": true
+      },
+      {
+        "label": "CNYRUB.P",
+        "symbol": "CNYRUBF@RTSX",
+        "verified": true,
+        "expiry": null,
+        "perpetual": true
+      },
+      {
+        "label": "EURRUB.P",
+        "symbol": "EURRUBF@RTSX",
+        "verified": true,
+        "expiry": null,
+        "perpetual": true
+      },
+      {
+        "label": "MIXZ2026",
+        "symbol": "MXZ6@RTSX",
+        "verified": true,
+        "expiry": "2026-12-17",
+        "perpetual": false
+      },
+      {
+        "label": "RIZ2026",
+        "symbol": "RIZ6@RTSX",
+        "verified": true,
+        "expiry": "2026-12-17",
+        "perpetual": false
+      },
+      {
+        "label": "IRUS.P",
+        "symbol": "IMOEXF@RTSX",
+        "verified": true,
+        "expiry": null,
+        "perpetual": true
+      }
+    ],
+    "passes": [
+      {
+        "pass": 1,
+        "seconds": 56.063,
+        "requests": {
+          "quotes": 38,
+          "bars": 114
+        },
+        "rows": 38,
+        "timed_out": false,
+        "progress": [
+          38,
+          38
+        ],
+        "error_rows": 0,
+        "last_price_rows": 38,
+        "incomplete_timeframes": [
+          {
+            "symbol": "BRNF27@IFEU",
+            "reasons": [
+              "",
+              "",
+              "",
+              "",
+              "поток ещё не сформирован"
+            ]
+          }
+        ]
+      },
+      {
+        "pass": 2,
+        "seconds": 9.218,
+        "requests": {
+          "quotes": 25
+        },
+        "rows": 38,
+        "timed_out": false,
+        "progress": [
+          38,
+          38
+        ],
+        "error_rows": 0,
+        "last_price_rows": 38,
+        "incomplete_timeframes": [
+          {
+            "symbol": "BRNF27@IFEU",
+            "reasons": [
+              "",
+              "",
+              "",
+              "",
+              "поток ещё не сформирован"
+            ]
+          }
+        ]
+      }
+    ],
+    "changed_between_live_passes": [
+      "EURRUBF@RTSX"
+    ],
+    "max_active_http_observed": 2,
+    "metadata_http_status_counts": {
+      "400": 14
+    },
+    "websocket": [
+      {
+        "symbol": "SBER@MISX",
+        "seconds": 21.0,
+        "stopped": true,
+        "events": {
+          "status": 3,
+          "quote": 9,
+          "candles": 49
+        },
+        "states": {
+          "connecting": 1,
+          "resync": 1,
+          "ready": 1
+        },
+        "candles": {
+          "H1": 306,
+          "M1": 306,
+          "M5": 306,
+          "MN1": 306,
+          "H4": 306,
+          "W1": 306,
+          "D1": 306
+        },
+        "oldest_bar": "2001-12-01T05:00:00+00:00",
+        "newest_bar": "2026-11-15T09:14:00+00:00"
+      },
+      {
+        "symbol": "SiZ6@RTSX",
+        "seconds": 21.032,
+        "stopped": true,
+        "events": {
+          "status": 3,
+          "quote": 51,
+          "candles": 13
+        },
+        "states": {
+          "connecting": 1,
+          "resync": 1,
+          "ready": 1
+        },
+        "candles": {
+          "H4": 301,
+          "M5": 301,
+          "M1": 301,
+          "MN1": 25,
+          "H1": 301,
+          "D1": 301,
+          "W1": 99
+        },
+        "oldest_bar": "2024-12-01T05:00:00+00:00",
+        "newest_bar": "2026-11-15T09:14:00+00:00"
+      }
+    ]
+  },
+  "permissions_after_fix": {
+    "levels": {
+      "QUOTE_LEVEL_DEPTH_OF_MARKET": 67,
+      "QUOTE_LEVEL_DEPTH_OF_BOOK": 1
+    },
+    "normalized_levels": {
+      "DEPTH_OF_MARKET": 67,
+      "DEPTH_OF_BOOK": 1
+    },
+    "observation_delay_minutes": {
+      "MISX": 0,
+      "RTSX": 0,
+      "XCME": 0,
+      "XCEC": 0,
+      "XNYM": 0,
+      "IFEU": 0
+    }
+  },
+  "moex_top20": {
+    "started_at": "2026-11-15T09:14:54.342172+00:00",
+    "sources": "MOEX TQBR VALUE only",
+    "stocks": 20,
+    "symbols": [
+      "GAZP@MISX",
+      "VKCO@MISX",
+      "SBER@MISX",
+      "LKOH@MISX",
+      "VTBR@MISX",
+      "T@MISX",
+      "SMLT@MISX",
+      "OZON@MISX",
+      "PLZL@MISX",
+      "NVTK@MISX",
+      "ROSN@MISX",
+      "YDEX@MISX",
+      "X5@MISX",
+      "GMKN@MISX",
+      "TATN@MISX",
+      "ALRS@MISX",
+      "MGNT@MISX",
+      "PHOR@MISX",
+      "AFKS@MISX",
+      "AFLT@MISX"
+    ],
+    "completed_sessions": 20,
+    "first_session": "2026-10-16",
+    "last_session": "2026-11-13",
+    "futures_requests": 0,
+    "passed": true,
+    "requests": {
+      "history": 10,
+      "metadata": 1
+    },
+    "seconds": 1.047
+  },
+  "limits": [
+    "Short live observation; no full trading-session/reconnect soak or US session measured",
+    "No exact TradingView parity established; Pine/FlowEngine untouched",
+    "Live prices may change between passes; EURRUBF direction changed, old prices were not recorded",
+    "Cold-cache performance and full monthly archive were not requested/tested",
+    "First automatic scan/deferred startup restore still waits for MOEX ranking; futures rows publish earlier"
+  ]
+}

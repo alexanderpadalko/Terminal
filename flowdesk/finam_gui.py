@@ -647,7 +647,9 @@ class FinamWindow(QMainWindow):
             self.universe[group]=merged
         # An outage must not be counted as a completed daily refresh.
         # The ten-minute attempt throttle will retry without hammering APIs.
-        if not self.catalog_error and "MOEX недоступна" not in self.ranking_status and "ошибка MOEX" not in self.ranking_status:
+        if (not self.catalog_error and "MOEX недоступна" not in self.ranking_status
+                and "ошибка MOEX" not in self.ranking_status
+                and FuturesListCache.complete(fresh)):
             self._catalog_success_slot=slot_date(datetime.now(timezone.utc))
         self.screen_results.clear()  # Do not reuse stale contract/roll signals.
         self._populate_universe()
@@ -787,6 +789,9 @@ class FinamWindow(QMainWindow):
         if not is_in_universe(ticker+"@"+mic,self.universe):
             self.status.setText("Инструмент отсутствует в выбранном списке или не подтверждён Finam")
             return
+        # A user's choice takes precedence over a saved startup selection
+        # whose asynchronous catalog lookup may still be running.
+        self._pending_restore=None
         self.ui_prefs.setValue("ticker",ticker)
         self.ui_prefs.setValue("mic",mic)
         self._load(refresh=False)

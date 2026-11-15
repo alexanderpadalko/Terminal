@@ -43,6 +43,24 @@ class FakeAPI:
 
 
 class TestFinamAPI(unittest.TestCase):
+    def test_permission_levels_accept_documented_prefixed_and_numeric_enums(self):
+        api=FinamAPI()
+        for level in ("QUOTE_LEVEL_LAST_PRICE","QUOTE_LEVEL_DEPTH_OF_MARKET",1,4):
+            with self.subTest(level=level):
+                api.permissions=[{"mic":"XCME","quote_level":level,"delay_minutes":0}]
+                self.assertEqual(api.market_delay_minutes("XCME"),0)
+                self.assertNotEqual(api.permission_summary()["permissions"][0]["quote_level"],"UNKNOWN")
+
+    def test_unknown_and_forbidden_levels_do_not_imply_zero_delay(self):
+        api=FinamAPI()
+        for level in ("QUOTE_LEVEL_ACCESS_FORBIDDEN","ACCESS_FORBIDDEN",5,
+                      "QUOTE_LEVEL_UNSPECIFIED",0,None,False,"future_level"):
+            with self.subTest(level=level):
+                api.permissions=[{"mic":"XCME","quote_level":level,"delay_minutes":0}]
+                self.assertEqual(api.market_delay_minutes("XCME"),15)
+        api.permissions=[{"mic":"XCME","delay_minutes":0}]
+        self.assertEqual(api.market_delay_minutes("XCME"),15)
+
     def test_new_token_invalidates_prior_account_scoped_session_cache(self):
         api=FinamAPI(secret_reader=lambda:"local_secret")
         api._jwt="previous_access_key"
@@ -87,7 +105,8 @@ class TestFinamAPI(unittest.TestCase):
             if request.full_url.endswith("/sessions"):
                 value={"token":"access_dummy"}
             elif request.full_url.endswith("/sessions/details"):
-                value={"md_permissions":[{"mic":"XNAS","delay_minutes":0}]}
+                value={"md_permissions":[{"mic":"XNAS","delay_minutes":0,
+                                           "quote_level":"QUOTE_LEVEL_LAST_PRICE"}]}
             elif "/bars?" in request.full_url:
                 value={"bars":[]}
             else:raise AssertionError("unexpected endpoint")

@@ -85,6 +85,54 @@ class DailyFuturesListsTest(unittest.TestCase):
             FinamWindow._daily_catalog_refresh(stub)
             stub._refresh_catalog.assert_called_once_with()
 
+    def test_cache_verified_flag_must_be_a_boolean(self):
+        from dataclasses import asdict
+        for value in (False,"false","true",1,[],{}):
+            with self.subTest(value=value):
+                record={**asdict(self.us),"verified":value}
+                self.assertIsNone(self.cache._safe_item(US_CONTRACTS[0],record,
+                                                       self.now.date()))
+
+    def test_term_contract_cannot_become_perpetual_via_source_text(self):
+        from dataclasses import asdict
+        record={**asdict(self.us),"source":"вечный контракт, без ролловера"}
+        self.assertIsNone(self.cache._safe_item(US_CONTRACTS[0],record,
+                                               self.now.date()))
+
+    def test_cache_expiry_requires_a_finam_source(self):
+        from dataclasses import asdict
+        for source in ("MOEX LASTTRADEDATE","CME calendar","ICE Brent","данные источника"):
+            with self.subTest(source=source):
+                record={**asdict(self.us),"source":"действует до 2026-12-18 · "+source}
+                self.assertIsNone(self.cache._safe_item(US_CONTRACTS[0],record,
+                                                       self.now.date()))
+        for source in ("Finam GetAsset","Finam каталог"):
+            record={**asdict(self.us),"source":"действует до 2026-12-18 · "+source}
+            self.assertIsNotNone(self.cache._safe_item(US_CONTRACTS[0],record,
+                                                      self.now.date()))
+
+    def test_perpetual_cache_uses_contract_definition(self):
+        contract=RU_CONTRACTS[4]
+        record={"symbol":"USDRUBF@RTSX","label":contract.display,"verified":True,
+                "source":"вечный контракт, без ролловера"}
+        self.assertIsNotNone(self.cache._safe_item(contract,record,self.now.date()))
+        record["source"]="действует до 2026-12-18 · Finam GetAsset"
+        self.assertIsNone(self.cache._safe_item(contract,record,self.now.date()))
+
+    def test_rollover_cache_uses_actual_catalog_mic_local_date(self):
+        from dataclasses import replace
+        contract=US_CONTRACTS[2]  # GC may be returned on XCEC or XCME.
+        row=Item(contract.display,contract.name,contract.group,"GCZ6@XCME",True,
+                 "действует до 2026-12-18 · Finam GetAsset")
+        key=contract.group+":"+contract.display
+        boundary=datetime(2026,12,17,5,30,tzinfo=timezone.utc)
+        self.cache.save({key:row},now=boundary)
+        # Chicago is still Dec 16; New York is already Dec 17 (roll day).
+        self.assertIn(key,self.cache.load(now=boundary))
+        from dataclasses import asdict
+        self.assertIsNone(self.cache._safe_item_at(contract,
+            asdict(replace(row,symbol="GCZ6@XCEC")),boundary))
+
 
 if __name__=="__main__":
     unittest.main()

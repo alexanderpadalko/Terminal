@@ -82,10 +82,10 @@ def _price(value):
     return parsed if isfinite(parsed) and parsed > 0 else None
 
 
-def quote_last(response, symbol=None):
-    """Return LAST only from the exact requested symbol, never a neighbour."""
+def _quote_record(response, symbol=None):
+    """Choose one record for both LAST and its timestamp validation."""
     if not isinstance(response, dict):
-        return None
+        return {}
     quotes=response.get("quote")
     if isinstance(quotes, list):
         if symbol:
@@ -104,11 +104,13 @@ def quote_last(response, symbol=None):
         response=quotes
     if symbol and response.get("symbol") and (
             str(response["symbol"]).upper()!=symbol.upper()):
-        return None
-    if not isinstance(response,dict):
-        return None
-    price=response.get("last")
-    return _price(price)
+        return {}
+    return response
+
+
+def quote_last(response, symbol=None):
+    """Return LAST only from the exact requested symbol, never a neighbour."""
+    return _price(_quote_record(response,symbol).get("last"))
 
 
 # Analytical signals may use the last exchange trade across weekends,
@@ -124,19 +126,12 @@ def quote_age_problem(response, observed, symbol, *,
     it is an analytical lookback limit, not a claim of a live quote.
     Missing timestamps retain the legacy fallback policy.
     """
-    if not isinstance(response,dict):
+    response=_quote_record(response,symbol)
+    time_key=next((key for key in ("timestamp","trade_time","last_time")
+                   if key in response),None)
+    if time_key is None:
         return ""
-    quotes=response.get("quote")
-    if isinstance(quotes,list):
-        response=next((row for row in quotes if isinstance(row,dict) and
-                       str(row.get("symbol","")).upper()==symbol.upper()),{})
-    elif isinstance(quotes,dict):
-        response=quotes
-    if not isinstance(response,dict):
-        return ""
-    stamp=response.get("timestamp") or response.get("trade_time") or response.get("last_time")
-    if stamp is None:
-        return ""
+    stamp=response[time_key]
     try:
         trade_time=parse_instant(stamp)
     except (TypeError,ValueError,KeyError,OverflowError):

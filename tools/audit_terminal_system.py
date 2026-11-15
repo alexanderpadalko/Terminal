@@ -142,11 +142,17 @@ def gui_geometry():
     """Offscreen, no-token GUI: range of supported window dimensions."""
     os.environ["QT_QPA_PLATFORM"] = "offscreen"
     from PySide6.QtWidgets import QApplication
+    from PySide6.QtCore import QSettings
     from flowdesk.finam_gui import FinamWindow
     from flowdesk.finam_universe import US_FUTURES, RU_FUTURES, RU_STOCKS, GROUP_LABELS
     app = QApplication.instance() or QApplication([])
     app.setQuitOnLastWindowClosed(False)
-    with patch("flowdesk.finam_gui.read_secret", return_value=""):
+    with tempfile.TemporaryDirectory(prefix="flowdesk-gui-audit-") as temp, \
+         patch.object(Path,"home",return_value=Path(temp)), \
+         patch("flowdesk.finam_gui.QSettings",side_effect=lambda *args:
+               QSettings(str(Path(temp)/"prefs.ini"),QSettings.Format.IniFormat)), \
+         patch("flowdesk.diagnostics_log.LOG_PATH",Path(temp)/"diagnostics.log"), \
+         patch("flowdesk.finam_gui.read_secret", return_value=""):
         window = FinamWindow(settings_store=MemorySettingsStore())
         try:
             observed = []

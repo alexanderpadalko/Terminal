@@ -49,7 +49,7 @@ class FuturesListCache:
         mic = symbol.rsplit("@", 1)[1].upper()
         if mic not in contract.mics or not label or len(label) > 45:
             return None
-        if not record.get("verified"):
+        if record.get("verified") is not True:
             return None
         ticker = symbol.split("@", 1)[0].upper()
         # A local file is not authoritative: prohibit a different root,
@@ -65,8 +65,10 @@ class FuturesListCache:
                 return None
         elif ticker not in {alias.upper() for alias in contract.aliases}:
             return None
-        dated = DATE.search(source)
-        if dated:
+        if valid_roots:
+            dated = DATE.search(source)
+            if dated is None or not source.endswith((" · Finam GetAsset", " · Finam каталог")):
+                return None
             try:
                 expiry = date.fromisoformat(dated.group(1))
             except ValueError:
@@ -75,12 +77,34 @@ class FuturesListCache:
             # Never show yesterday's active contract as verified on roll day.
             if today >= expiry - timedelta(days=1):
                 return None
-        elif "вечный контракт, без ролловера" not in source:
+        elif source != "вечный контракт, без ролловера":
             # A term contract without a verified expiry must be checked
             # live; a saved ticker is insufficient evidence.
             return None
         return Item(label, contract.name, contract.group, symbol, True,
                     source + " · сохранённый список; сверка Finam")
+
+    @classmethod
+    def _safe_item_at(cls, contract, record, now):
+        symbol=record.get("symbol","") if isinstance(record,dict) else ""
+        mic=symbol.rsplit("@",1)[-1].upper() if isinstance(symbol,str) else ""
+        if mic not in contract.mics:
+            mic=contract.mics[0]
+        today=now.astimezone(exchange_clock(mic).zone).date()
+        return cls._safe_item(contract,record,today)
+
+    @classmethod
+    def complete(cls, futures, *, now=None):
+        """Only fresh, fully confirmed metadata completes the daily check."""
+        if not isinstance(futures,dict):
+            return False
+        now=now or datetime.now(timezone.utc)
+        for group,contracts in GROUP_CONTRACTS.items():
+            for contract in contracts:
+                item=futures.get(group+":"+contract.display)
+                if not isinstance(item,Item) or cls._safe_item_at(contract,asdict(item),now) is None:
+                    return False
+        return True
 
     def load(self, *, now=None):
         now = now or datetime.now(timezone.utc)
@@ -95,8 +119,7 @@ class FuturesListCache:
                     continue
                 for contract in contracts:
                     key = group + ":" + contract.display
-                    exchange_today = now.astimezone(exchange_clock(contract.mics[0]).zone).date()
-                    item = self._safe_item(contract, stored.get(key), exchange_today)
+                    item = self._safe_item_at(contract, stored.get(key), now)
                     if item is not None:
                         result[key] = item
             except (OSError, ValueError, TypeError):
@@ -122,8 +145,7 @@ class FuturesListCache:
                 item = futures.get(key)
                 if isinstance(item, Item) and item.verified:
                     candidate = asdict(item)
-                    exchange_today = now.astimezone(exchange_clock(contract.mics[0]).zone).date()
-                    if self._safe_item(contract, candidate, exchange_today):
+                    if self._safe_item_at(contract, candidate, now):
                         records[key] = candidate
             document = {"schema": 1, "slot": slot_date(now).isoformat(),
                         "updated_at": now.isoformat(), "contracts": records}

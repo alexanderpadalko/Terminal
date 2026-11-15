@@ -209,6 +209,38 @@ class TestFinamGui(unittest.TestCase):
                                        GROUP_LABELS[RU_FUTURES],
                                        GROUP_LABELS[RU_STOCKS]])
 
+    def test_manual_selection_cancels_deferred_saved_contract(self):
+        self.window._pending_restore="TSLA@XNGS"
+        with patch.object(self.window,"_load"), patch.object(self.window,"_start_stream"):
+            self.select("SBER")
+        self.assertIsNone(self.window._pending_restore)
+
+    def test_incomplete_expiry_refresh_is_retried_even_with_healthy_catalog(self):
+        from flowdesk.finam_universe import US_CONTRACTS,RU_CONTRACTS,RU_STOCKS,Item
+        from flowdesk.watchlist import slot_date
+        from datetime import datetime,timezone
+        # Exact catalog symbols with unknown expiry remain selectable, but
+        # they cannot mark the day's metadata check as completed.
+        rows={c.group+":"+c.display:Item(c.display,c.name,c.group,
+              c.aliases[0]+"@"+c.mics[0],True,
+              "вечный контракт, без ролловера" if ".P" in c.display else
+              "действует до 2027-12-18 · Finam GetAsset")
+              for c in (*US_CONTRACTS,*RU_CONTRACTS)}
+        key=US_CONTRACTS[0].group+":"+US_CONTRACTS[0].display
+        good=rows[key]
+        from dataclasses import replace
+        rows[key]=replace(good,source="экспирация не подтверждена; автопереход приостановлен")
+        payload={"assets":[],"finam_error":"","futures":rows,
+                 "stocks":self.window.universe[RU_STOCKS],"ranking_status":"MOEX: подтверждено"}
+        with patch.object(self.window,"_request_screener_scan"), \
+             patch.object(self.window.futures_list_cache,"load",return_value={}), \
+             patch.object(self.window,"_load"), patch.object(self.window,"_start_stream"):
+            self.window._catalog_loaded(payload)
+            self.assertIsNone(self.window._catalog_success_slot)
+            rows[key]=good
+            self.window._catalog_loaded(payload)
+            self.assertEqual(self.window._catalog_success_slot,slot_date(datetime.now(timezone.utc)))
+
     def test_finam_controls_are_absent_and_http_stream_are_on(self):
         from PySide6.QtWidgets import QPushButton, QCheckBox
         self.assertTrue(self.window.app_settings.auto_updates)

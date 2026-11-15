@@ -178,6 +178,36 @@ class TestSignalLogic(unittest.TestCase):
         self.assertEqual(quote_age_problem({"symbol":"SBER@MISX","last":100},
                                            observed,"SBER@MISX"),"")
 
+    def test_quote_age_checks_the_same_single_record_as_last(self):
+        observed=datetime(2026,11,13,16,tzinfo=timezone.utc)
+        for stamp, expected in (("2026-11-06T16:00:00Z", ""),
+                                ("2026-11-06T15:59:59Z", "устарела"),
+                                ("2026-11-13T17:00:00Z", "опережает")):
+            quote={"last":100,"timestamp":stamp}
+            for payload in (quote, {"quote":quote}, {"quote":[quote]}):
+                with self.subTest(stamp=stamp,payload=payload):
+                    self.assertEqual(quote_last(payload,"SBER@MISX"),100)
+                    problem=quote_age_problem(payload,observed,"SBER@MISX")
+                    self.assertIn(expected,problem) if expected else self.assertEqual(problem,"")
+
+    def test_explicit_invalid_quote_time_is_not_a_missing_timestamp(self):
+        observed=datetime(2026,11,13,16,tzinfo=timezone.utc)
+        for stamp in (0,False,"",{},[],"not-a-date"):
+            with self.subTest(stamp=stamp):
+                payload={"quote":[{"last":100,"timestamp":stamp}]}
+                self.assertTrue(quote_age_problem(payload,observed,"SBER@MISX"))
+        self.assertEqual(quote_age_problem({"quote":[{"last":100}]},
+                                           observed,"SBER@MISX"),"")
+
+    def test_quote_age_ignores_other_symbols_in_batch(self):
+        observed=datetime(2026,11,13,16,tzinfo=timezone.utc)
+        payload={"quote":[{"symbol":"GAZP@MISX","last":10,
+                            "timestamp":"2000-01-01T00:00:00Z"},
+                           {"symbol":"sber@misx","last":100,
+                            "timestamp":"2026-11-13T15:59:00Z"}]}
+        self.assertEqual(quote_last(payload,"SBER@MISX"),100)
+        self.assertEqual(quote_age_problem(payload,observed,"SBER@MISX"),"")
+
     def test_monthly_backfill_migrates_five_year_boundary_and_checks_old_window(self):
         from flowdesk.finam_api import FinamAPI, DEPTH_DAYS
         from flowdesk.finam_market import FinamMarketService

@@ -29,6 +29,19 @@ FRAMES = {"M1": "TIME_FRAME_M1", "M5": "TIME_FRAME_M5",
 DEPTH_DAYS = {"M1": 7, "M5": 30, "H1": 30, "H4": 30,
               "D1": 365, "W1": 5 * 365, "MN1": 5 * 365}
 SAFE_SYMBOL = re.compile(r"^[A-Z0-9._-]{1,32}@[A-Z0-9]{4}$")
+QUOTE_LEVELS = {1:"LAST_PRICE",2:"BEST_BID_OFFER",3:"DEPTH_OF_MARKET",
+                4:"DEPTH_OF_BOOK",5:"ACCESS_FORBIDDEN"}
+
+
+def _quote_level(value):
+    """Normalize Finam's protobuf JSON enum without exposing unknown text."""
+    if type(value) is int:
+        return QUOTE_LEVELS.get(value,"UNKNOWN")
+    if isinstance(value,str):
+        level=value.removeprefix("QUOTE_LEVEL_")
+        if level in QUOTE_LEVELS.values():
+            return level
+    return "UNKNOWN"
 
 
 class FinamAPIError(RuntimeError):
@@ -226,7 +239,7 @@ class FinamAPI:
             if not isinstance(row,dict) or (
                     row.get("mic")!=mic and not row.get("worldwide")):
                 continue
-            if row.get("quote_level")=="ACCESS_FORBIDDEN":
+            if _quote_level(row.get("quote_level")) in ("UNKNOWN","ACCESS_FORBIDDEN"):
                 continue
             try:
                 value=int(row.get("delay_minutes",15))
@@ -237,16 +250,12 @@ class FinamAPI:
 
     def permission_summary(self):
         """Allowlisted local-only rights; no account IDs or JWT."""
-        allowed={"LAST_PRICE","BEST_BID_OFFER","DEPTH_OF_MARKET",
-                 "DEPTH_OF_BOOK","ACCESS_FORBIDDEN"}
         summary=[]
         for p in self.permissions:
             mic=str(p.get("mic") or "*")
-            level=str(p.get("quote_level") or "UNKNOWN")
+            level=_quote_level(p.get("quote_level"))
             if not re.fullmatch(r"[A-Z0-9]{4}|\*",mic):
                 mic="?"
-            if level not in allowed:
-                level="UNKNOWN"
             try:
                 delay=int(p.get("delay_minutes",15))
             except (ValueError,TypeError,OverflowError):
