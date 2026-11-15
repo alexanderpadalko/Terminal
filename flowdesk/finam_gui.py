@@ -24,6 +24,7 @@ from .exchange_time import exchange_clock
 from .finam_market import FinamMarketService
 from .finam_universe import (
     US_FUTURES, RU_STOCKS, RU_FUTURES, GROUP_LABELS,
+    US_CONTRACTS, RU_CONTRACTS,
     compose_universe, cached_top20, is_in_universe
 )
 from .finam_catalog_worker import FinamCatalogWorker
@@ -605,11 +606,24 @@ class FinamWindow(QMainWindow):
         self._catalog_attempt_at=now
         self.catalog_error=""
         self.catalog_worker=FinamCatalogWorker(self.service.api,self)
+        self.catalog_worker.futures_ready.connect(self._futures_ready)
         self.catalog_worker.loaded.connect(self._catalog_loaded)
         self.catalog_worker.failed.connect(self._catalog_failed)
         self.catalog_worker.progress.connect(self._catalog_progress)
         self.catalog_worker.finished.connect(self._catalog_finished)
         self.catalog_worker.start()
+
+    def _futures_ready(self, futures):
+        if self.closing or not isinstance(futures,dict):
+            return
+        for group, contracts in ((US_FUTURES,US_CONTRACTS),
+                                 (RU_FUTURES,RU_CONTRACTS)):
+            updates=[]
+            for contract, prior in zip(contracts,self.universe[group]):
+                verified=futures.get(group+":"+contract.display)
+                updates.append(verified if verified and verified.verified else prior)
+            self.universe[group]=updates
+        self._populate_universe()
 
     def _catalog_loaded(self,assets):
         if self.closing:return
