@@ -25,10 +25,10 @@ class TestTradingViewAppearance(unittest.TestCase):
 
     def test_fixed_theme_and_hollow_bull_palette(self):
         chart = CandleChart()
-        self.assertEqual(chart.visual_theme, "tv")
-        self.assertEqual(CHART_PALETTES["tv"]["background"].name(), "#898989")
-        self.assertEqual(CHART_PALETTES["tv"]["candle_up_outline"].name(), "#f8f8f8")
-        self.assertEqual(CHART_PALETTES["tv"]["candle_down"].name(), "#111111")
+        self.assertEqual(chart.visual_theme, "user")
+        self.assertEqual(CHART_PALETTES["user"]["background"].name(), "#0c131e")
+        self.assertEqual(CHART_PALETTES["user"]["candle_up_outline"].name(), "#20c997")
+        self.assertEqual(CHART_PALETTES["user"]["candle_down"].name(), "#f46b82")
         self.assertEqual(chart.viewport.right_padding, 16)
         chart.close()
 
@@ -132,9 +132,9 @@ class TestTradingViewAppearance(unittest.TestCase):
             ("tv",1,False,QColor(cfg.fvgBullColor[:7])),
             ("tv",-1,False,QColor(cfg.fvgBearColor[:7])),
             ("tv",1,True,QColor(cfg.fvgFilledColor[:7])),
-            ("dark",1,False,QColor(24,196,145)),
-            ("dark",-1,False,QColor(221,70,100)),
-            ("dark",1,True,QColor(243,169,45)),
+            ("dark",1,False,QColor(cfg.fvgBullColor[:7])),
+            ("dark",-1,False,QColor(cfg.fvgBearColor[:7])),
+            ("dark",1,True,QColor(cfg.fvgFilledColor[:7])),
         )
         for theme,side,broken,expected in cases:
             with self.subTest(theme=theme,side=side,broken=broken):
@@ -149,6 +149,35 @@ class TestTradingViewAppearance(unittest.TestCase):
                 self.assertEqual(text_pen.alpha(),255)
         chart.close()
 
+    def test_user_selected_fvg_colors_replace_presets_in_one_theme(self):
+        # Same chart with a single user configuration for bullish, bearish,
+        # and broken zones, regardless of any legacy theme aliases.
+        chart = CandleChart()
+        changed = IndicatorSettings().changed(
+            fvgBullColor="#1246AB99",
+            fvgBearColor="#ED289577",
+            fvgFilledColor="#EEB20055")
+        chart.set_settings(changed)
+        painter_colors = []
+        for alias, side, broken, rgb in (
+            ("tv", 1, False, "#1246ab"),
+            ("dark", -1, False, "#ed2895"),
+            ("user", 1, True, "#eeb200"),
+        ):
+            chart.set_theme(alias)
+            self.assertEqual(chart.visual_theme, "user")
+            canvas = QImage(360, 180, QImage.Format.Format_ARGB32_Premultiplied)
+            canvas.fill(QColor("#0c131e"))
+            painter = QPainter(canvas)
+            chart._draw_zone(painter, 20, 340, 45, 125, side, broken, "H1", 12)
+            text_pen = painter.pen().color()
+            painter.end()
+            self.assertEqual(text_pen.name(), rgb)
+            self.assertEqual(text_pen.alpha(), 255)
+            painter_colors.append(canvas.pixelColor(32, 78).name())
+        self.assertEqual(len(set(painter_colors)), 3)
+        chart.close()
+
     def test_visual_controls_preserve_all_candles_and_flows(self):
         analysis = analyze(demo_data(), "H1")
         chart = CandleChart()
@@ -161,7 +190,7 @@ class TestTradingViewAppearance(unittest.TestCase):
         self.app.processEvents()
         image = chart.grab().toImage()
         self.assertFalse(image.isNull())
-        self.assertEqual(image.pixelColor(3, 3).name(), "#898989")
+        self.assertEqual(image.pixelColor(3, 3).name(), "#0c131e")
         chart.viewport.drag_chart(-25, len(analysis.candles),
                                  start_offset=0, start_padding=16)
         chart.update()
@@ -210,13 +239,13 @@ class TestTradingViewAppearance(unittest.TestCase):
             x = round(chart.x0 + (i + 0.5 - left) * stride + x_offset)
             return image.pixelColor(x, y).name()
 
-        self.assertEqual(body_color(0), "#ffffff")
-        self.assertEqual(body_color(1), "#898989")
-        self.assertEqual(body_color(2), "#898989")
-        self.assertEqual(body_color(3), "#ffffff")
-        self.assertEqual(body_color(4), "#898989")
-        self.assertEqual(body_color(5), "#898989")
-        self.assertEqual(body_color(6), "#111111")
+        self.assertEqual(body_color(0), "#20c997")
+        self.assertEqual(body_color(1), "#0c131e")
+        self.assertEqual(body_color(2), "#0c131e")
+        self.assertEqual(body_color(3), "#20c997")
+        self.assertEqual(body_color(4), "#0c131e")
+        self.assertEqual(body_color(5), "#0c131e")
+        self.assertEqual(body_color(6), "#f46b82")
         # At the candle CENTER the wick used to remain visible through the
         # transparent hollow body. It must now be pure chart background.
         for index in (1, 2, 4, 5):
@@ -225,10 +254,12 @@ class TestTradingViewAppearance(unittest.TestCase):
                 # The antialiased pale grid can tint the chart background by
                 # 2-3 RGB units at this pixel. A wick passing through the body
                 # would instead produce a near-white/black stroke (>80 away).
-                channel = int(pixel[1:3], 16)
-                self.assertLessEqual(abs(channel - 0x89), 8, pixel)
-                self.assertEqual(pixel[1:3], pixel[3:5])
-                self.assertEqual(pixel[3:5], pixel[5:7])
+                actual = QColor(pixel)
+                background = QColor("#0c131e")
+                for value, baseline in zip(
+                        (actual.red(), actual.green(), actual.blue()),
+                        (background.red(), background.green(), background.blue())):
+                    self.assertLessEqual(abs(value - baseline), 8, pixel)
         chart.close()
 
     def test_hollow_inside_is_visible_in_finam_dark_theme_and_toggle_repaints(self):
@@ -345,7 +376,7 @@ class TestTradingViewAppearance(unittest.TestCase):
 
     def test_permanent_dark_chrome_and_instrument_header(self):
         w = MainWindow(startup=False, watchlist_service=False)
-        self.assertEqual(w.chart.visual_theme, "tv")
+        self.assertEqual(w.chart.visual_theme, "user")
         self.assertFalse(hasattr(w, "visual_style"))
         self.assertIn("background: #1c1c1c", w.styleSheet())
         self.assertTrue(w.right_panel.isHidden())
