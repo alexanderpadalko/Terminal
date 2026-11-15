@@ -22,4 +22,7 @@
 
 ## Windows
 
-Результаты итоговой сборки и ссылки на EXE/CI записать после фактического завершения.
+- Проверенный код: [056b116b836d4fd3803eab2f26b8df3f594a6719](https://github.com/alexanderpadalko/Terminal/commit/056b116b836d4fd3803eab2f26b8df3f594a6719).
+- [Windows CI 43705077214](https://github.com/alexanderpadalko/Terminal/actions/runs/43705077214) — **success**, **538 тестов без пропусков**, 45.091 с. Системный аудит, запуск окна, упаковка, три закрытия EXE и frozen executor/DNS/очередь/скринер/**Binance decoder** успешны. Закрытие EXE: 0.066–0.080 с, exit code 0.
+- [ZIP 0.2.26 Windows x64 UNSIGNED](https://github.com/alexanderpadalko/Terminal/actions/runs/43705077214/artifacts/14158307607) — **49 363 595 байт**. Evidence artifact **14158207644**. ZIP/EXE скачаны и проверены локально; commit манифеста совпал. ZIP SHA-256 `6b8d94b77895f26aa60b82dc7674b0b559071e8c4ffeff6d45ef9432b5a603ec`; EXE `21570b0ae03e04fa0e227d7ade03b78a363a35df6300e378e7e458e4411d3f89`. Локальный frozen probe этой же сборки успешен без ключей/рабочего профиля.
+- Последующая запись результатов меняет только документацию/evidence; код и EXE остаются 056b116.
