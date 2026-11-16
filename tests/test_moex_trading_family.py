@@ -19,7 +19,7 @@ from flowdesk.session_store import _candle,backfill
 
 UTC=timezone.utc
 NOW=datetime(2026,11,16,12,tzinfo=MOSCOW)
-SYMBOL='SBER@MISX'
+SYMBOL='CRZ6@RTSX'
 
 def day(text,o=10,h=12,l=9,c=11,v=100):
     return Candle(datetime.fromisoformat(text).replace(hour=8,tzinfo=MOSCOW),o,h,l,c,v)
@@ -65,9 +65,9 @@ class TestMoexTradingFamily(unittest.TestCase):
         self.assertEqual(moex.trading_day(date(2026,2,21),SYMBOL),date(2026,2,24))
         self.assertEqual(moex.trading_day(date(2026,2,23),'SIZ6@RTSX'),date(2026,2,24))
 
-    def test_working_saturday_is_not_moved_and_launches_differ(self):
+    def test_working_saturday_is_not_moved_and_futures_launch_is_respected(self):
         self.assertEqual(moex.trading_day(date(2025,11,1),SYMBOL),date(2025,11,1))
-        self.assertEqual(moex.trading_day(date(2025,3,1),SYMBOL),date(2025,3,3))
+        self.assertEqual(moex.trading_day(date(2025,3,1),SYMBOL),date(2025,3,1))
         self.assertEqual(moex.trading_day(date(2025,3,1),'MXZ6@RTSX'),date(2025,3,1))
         self.assertEqual(moex.trading_day(date(2025,8,16),'MXZ6@RTSX'),date(2025,8,18))
 
@@ -142,7 +142,7 @@ class TestMoexTradingFamily(unittest.TestCase):
         self.assertEqual(ticks[0][1],'02.11')
 
     def test_only_supported_moex_symbols_enabled(self):
-        for symbol in ('SIZ26@XCEC','NQZ26@XCME','BTCUSDT@BINANCE','BAD@RTSX'):
+        for symbol in ('SBER@MISX','SBER@XMOE','SIZ26@XCEC','NQZ26@XCME','BTCUSDT@BINANCE','BAD@RTSX'):
             self.assertFalse(moex.enabled(symbol))
         self.assertTrue(moex.enabled('SiH7@RTSX'))
 
@@ -192,15 +192,15 @@ class TestMoexTradingStore(unittest.TestCase):
         def bars(symbol,tf,**kw):calls.append((tf,kw));return []
         self.api.bars=bars
         moex.backfill(self.market,SYMBOL,NOW,cancelled=lambda:False)
-        self.assertEqual(len(calls),4)
+        self.assertEqual(len(calls),3)
 
         self.assertTrue(all(tf=='D1' and kw['end']-kw['start']<=timedelta(days=180) for tf,kw in calls))
         self.assertTrue(self.market.load_history_progress()[(SYMBOL,moex.PROGRESS)]['exhausted'])
         moex.backfill(self.market,SYMBOL,NOW,cancelled=lambda:False)
-        self.assertEqual(len(calls),4)
+        self.assertEqual(len(calls),3)
         self.market.save_history_progress(SYMBOL,moex.PROGRESS,{'cursor':NOW,'exhausted':False})
         with self.assertRaises(InterruptedError):moex.backfill(self.market,SYMBOL,NOW,cancelled=lambda:True)
-        self.assertEqual(len(calls),4)
+        self.assertEqual(len(calls),3)
 
     def test_empty_response_cannot_verify_an_existing_price_window(self):
         self.market._upsert(SYMBOL,'D1',[day('2026-11-13')])

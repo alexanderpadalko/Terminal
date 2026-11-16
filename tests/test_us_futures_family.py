@@ -180,7 +180,7 @@ class TestUSFuturesFamily(unittest.TestCase):
             for symbol in SYMBOLS:market.refresh_series(symbol,('MN1',))
             for symbol in SYMBOLS:self.assertEqual([tf for s,tf in calls if s==symbol],['H1','MN1'])
             calls.clear();market.refresh_series('SBER@MISX',('MN1',))
-        self.assertEqual(calls,[('SBER@MISX','D1'),('SBER@MISX','MN1')])
+        self.assertEqual(calls,[('SBER@MISX','MN1')])
 
     def test_empty_backfill_keeps_cursor_and_cancellation_makes_no_request(self):
         calls=[]

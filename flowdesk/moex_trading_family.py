@@ -1,7 +1,7 @@
-"""Finam physical-day OHLCV assigned to official MOEX trading dates.
+"""Russian futures: Finam physical-day OHLCV assigned to MOEX trading dates.
 
-Intraday bars keep their physical timestamps. Only D/W/M are regrouped; raw
-prices and old pre-DSVD W/M archives are retained. No external quotes are used.
+Stocks retain separate native calendar-day D/W/M. Intraday bars keep physical
+timestamps. Futures raw prices and pre-DSVD W/M archives are retained.
 """
 from dataclasses import replace
 from datetime import date, datetime, time, timedelta, timezone
@@ -19,12 +19,12 @@ UTC=timezone.utc
 
 
 def enabled(symbol):
-    try:return calendar_for(symbol).profile in ('MOEX_STOCK_FULL','MOEX_FUTURE_FULL')
+    try:return calendar_for(symbol).profile=='MOEX_FUTURE_FULL'
     except (CalendarUnavailable,ValueError):return False
 
 
 def launch(symbol):
-    return date(2025,8,16) if symbol.upper().endswith('@RTSX') else date(2025,3,1)
+    return date(2025,8,16)
 
 
 def trading_day(day,symbol):
@@ -106,6 +106,7 @@ def build_family(raw,symbol,observed,*,observations,archive_verified):
     affected period remain intact, including decades of monthly stock history.
     """
     detail={'policy':POLICY,'archive_start':archive_start(raw,symbol).isoformat()}
+    if not enabled(symbol):return None,'instrument_calendar_unknown',detail
     if not archive_verified:return None,'incomplete_daily_coverage',detail
     daily=normalize(raw.get('D1',()))
     if not daily:return None,'lower_history_unavailable',detail
@@ -164,6 +165,7 @@ def build_family(raw,symbol,observed,*,observations,archive_verified):
 
 
 def backfill(service,symbol,now,*,cancelled):
+    if not enabled(symbol):return {}
     # The selected chart and scanner can request this same bootstrap at once.
     # Serialize only this instrument's bootstrap, never the DB or other charts.
     lock=service._key_lock(service._pull_locks,(symbol,PROGRESS))

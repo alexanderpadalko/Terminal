@@ -1,0 +1,194 @@
+{
+  "mode": "live_read_only_finam_isolated_copies",
+  "production_changed": false,
+  "stock_policy": "finam-native-dwm-1",
+  "futures_policy": "moex-trading-date-1",
+  "stocks": [
+    {
+      "symbol": "GAZP@MISX",
+      "status": "PASS",
+      "separate_saturday": true,
+      "raw_unchanged": true,
+      "counts": {
+        "D1": 578,
+        "W1": 301,
+        "MN1": 251
+      }
+    },
+    {
+      "symbol": "VKCO@MISX",
+      "status": "PASS",
+      "separate_saturday": true,
+      "raw_unchanged": true,
+      "counts": {
+        "D1": 578,
+        "W1": 255,
+        "MN1": 77
+      }
+    },
+    {
+      "symbol": "SBER@MISX",
+      "status": "PASS",
+      "separate_saturday": true,
+      "raw_unchanged": true,
+      "counts": {
+        "D1": 578,
+        "W1": 301,
+        "MN1": 330
+      },
+      "october_ohlc": [
+        273.92,
+        300.83,
+        272.91,
+        296.02
+      ],
+      "october_31_ohlc": [
+        296.25,
+        297.0,
+        295.17,
+        296.02
+      ]
+    },
+    {
+      "symbol": "LKOH@MISX",
+      "status": "PASS",
+      "separate_saturday": true,
+      "raw_unchanged": true,
+      "counts": {
+        "D1": 578,
+        "W1": 301,
+        "MN1": 355
+      }
+    },
+    {
+      "symbol": "VTBR@MISX",
+      "status": "PASS",
+      "separate_saturday": true,
+      "raw_unchanged": true,
+      "counts": {
+        "D1": 578,
+        "W1": 259,
+        "MN1": 235
+      }
+    },
+    {
+      "symbol": "T@MISX",
+      "status": "PASS",
+      "separate_saturday": true,
+      "raw_unchanged": true,
+      "counts": {
+        "D1": 570,
+        "W1": 301,
+        "MN1": 86
+      }
+    },
+    {
+      "symbol": "SMLT@MISX",
+      "status": "PASS",
+      "separate_saturday": true,
+      "raw_unchanged": true,
+      "counts": {
+        "D1": 578,
+        "W1": 258,
+        "MN1": 74
+      }
+    },
+    {
+      "symbol": "OZON@MISX",
+      "status": "PASS",
+      "separate_saturday": true,
+      "raw_unchanged": true,
+      "counts": {
+        "D1": 487,
+        "W1": 301,
+        "MN1": 72
+      }
+    },
+    {
+      "symbol": "PLZL@MISX",
+      "status": "PASS",
+      "separate_saturday": true,
+      "raw_unchanged": true,
+      "counts": {
+        "D1": 571,
+        "W1": 259,
+        "MN1": 247
+      }
+    },
+    {
+      "symbol": "NVTK@MISX",
+      "status": "PASS",
+      "separate_saturday": true,
+      "raw_unchanged": true,
+      "counts": {
+        "D1": 574,
+        "W1": 259,
+        "MN1": 244
+      }
+    }
+  ],
+  "futures": [
+    {
+      "symbol": "CRZ6@RTSX",
+      "status": "PASS",
+      "all_higher_candles_unchanged": true,
+      "raw_unchanged": true
+    },
+    {
+      "symbol": "SIZ6@RTSX",
+      "status": "PASS",
+      "all_higher_candles_unchanged": true,
+      "raw_unchanged": true
+    },
+    {
+      "symbol": "EUZ6@RTSX",
+      "status": "PASS",
+      "all_higher_candles_unchanged": true,
+      "raw_unchanged": true
+    },
+    {
+      "symbol": "EDZ6@RTSX",
+      "status": "PASS",
+      "all_higher_candles_unchanged": true,
+      "raw_unchanged": true
+    },
+    {
+      "symbol": "USDRUBF@RTSX",
+      "status": "PASS",
+      "all_higher_candles_unchanged": true,
+      "raw_unchanged": true
+    },
+    {
+      "symbol": "CNYRUBF@RTSX",
+      "status": "PASS",
+      "all_higher_candles_unchanged": true,
+      "raw_unchanged": true
+    },
+    {
+      "symbol": "EURRUBF@RTSX",
+      "status": "PASS",
+      "all_higher_candles_unchanged": true,
+      "raw_unchanged": true
+    },
+    {
+      "symbol": "MXZ6@RTSX",
+      "status": "PASS",
+      "all_higher_candles_unchanged": true,
+      "raw_unchanged": true
+    },
+    {
+      "symbol": "RIZ6@RTSX",
+      "status": "PASS",
+      "all_higher_candles_unchanged": true,
+      "raw_unchanged": true
+    },
+    {
+      "symbol": "IMOEXF@RTSX",
+      "status": "PASS",
+      "all_higher_candles_unchanged": true,
+      "raw_unchanged": true
+    }
+  ],
+  "checked_at_utc": "2026-11-16T12:55:30.159647+00:00",
+  "passed": true
+}
