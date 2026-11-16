@@ -282,8 +282,8 @@ class TestFinamOnlyExpiry(unittest.TestCase):
 
     def test_missing_finam_dates_keep_exact_contract_and_block_roll(self):
         from test_moex_startup_roll import row,API
-        rows=[row("NQZ6","XCME"),row("NQH7","XCME"),row("SiZ6","RTSX"),row("SiH7","RTSX")]
+        rows=[row("GCZ6","XCEC"),row("GCH7","XCEC"),row("SiZ6","RTSX"),row("SiH7","RTSX")]
         result,_,_=resolve_futures(rows,API(rows),now=NOW)
-        self.assertEqual(result["us:NQZ2026"].symbol,"NQZ6@XCME")
+        self.assertEqual(result["us:GCZ2026"].symbol,"GCZ6@XCEC")
         self.assertEqual(result["ru:SIZ2026"].symbol,"SiZ6@RTSX")
         self.assertIn("не подтверждена",result["ru:SIZ2026"].source)
