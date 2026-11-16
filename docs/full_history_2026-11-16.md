@@ -27,4 +27,6 @@ Finam: окна7дней M1/30дней M5-H4/365дней D/1825дней W-M, п�
 
 ## Выпуск
 
-Итоговый полный локальный прогон: **734теста/44.705с**,0ошибок,1предусмотренный Windows subprocess-пропуск. Оба terminal-аудита PASS, pinned-сборщики31функция/74настройки, pip check/compileall PASS. Commit, Windows CI/EXE и frozen/shutdown проверки записываются в `CURRENT_STATE.md` после сборки. Полный архив всех30 пока не скачан; новая программа продолжает его постепенно.
+Полный локальный прогон: **734теста/44.705с**,0ошибок,1предусмотренный Windows subprocess-пропуск; после финальной правки границ27точечных тестов PASS. Оба terminal-аудита, pinned-сборщики31функция/74настройки, pip check/compileall PASS.
+
+Финальный код [4e4ff98](https://github.com/alexanderpadalko/Terminal/commit/4e4ff98d8c087815fbdbc9bc8a94956f17364df5), [Windows CI43913534177](https://github.com/alexanderpadalko/Terminal/actions/runs/43913534177) — success: **735тестов/76.489с**,0ошибок/пропусков/Traceback, оба аудита/4DPI/EXE/frozen runtime PASS. Закрытие0.102/0.096/0.100с, exit0. [Windows ZIP —UNSIGNED](https://github.com/alexanderpadalko/Terminal/actions/runs/43913534177/artifacts/14249855437),49,465,873байта; SHA256`84f9f6d4cba99565fe61a46a443b1dae53cd7024e3866d3a4f4514a375fe5c92`. Полный архив всех30 пока не скачан; новая программа продолжает его постепенно. Установленная программа/рабочий кэш автоматически не заменены.

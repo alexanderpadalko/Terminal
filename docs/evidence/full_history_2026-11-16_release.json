@@ -1,0 +1,28 @@
+{
+  "code_commit": "4e4ff98d8c087815fbdbc9bc8a94956f17364df5",
+  "feature_commit": "cf6fab64e1e07c326d198b2e2cc178ea169fdce5",
+  "workflow_run": 43913534177,
+  "workflow_job": 133461511235,
+  "conclusion": "success",
+  "tests": {"count": 735, "seconds": 76.489, "failures": 0, "skipped": 0, "tracebacks": 0},
+  "system_audit": "PASS",
+  "extended_audit": "PASS",
+  "dpi_scales": [1, 1.25, 1.5, 2],
+  "dependencies_compile": "PASS",
+  "packaged_exit": [
+    {"close_after_seconds": 0, "exit_seconds": 0.102, "code": 0},
+    {"close_after_seconds": 0.8, "exit_seconds": 0.096, "code": 0},
+    {"close_after_seconds": 3, "exit_seconds": 0.1, "code": 0}
+  ],
+  "frozen_runtime": "PASS",
+  "zip": {
+    "artifact_id": 14249855437,
+    "name": "FlowDesk-0.2.26-Finam-Windows-x64-UNSIGNED",
+    "size_bytes": 49465873,
+    "sha256": "84f9f6d4cba99565fe61a46a443b1dae53cd7024e3866d3a4f4514a375fe5c92",
+    "authenticode": "UNSIGNED"
+  },
+  "evidence_artifact": 14248728713,
+  "production_install": "not changed",
+  "full_production_archive_download": "not completed; performed isolated source-window probes only"
+}
