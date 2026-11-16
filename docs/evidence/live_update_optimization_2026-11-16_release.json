@@ -1,0 +1,88 @@
+{
+  "code_sha": "404cde9c1850fd445b7b5b91864acb1280cb96b1",
+  "workflow_run_id": 43933451088,
+  "job_id": 133531685618,
+  "conclusion": "success",
+  "tests": {
+    "count": 762,
+    "seconds": 94.936,
+    "errors": 0,
+    "skips": 0,
+    "tracebacks": 0
+  },
+  "validations": [
+    "system audit",
+    "extended provider/theme/fault audit",
+    "dependency constraints",
+    "compile",
+    "four DPI layouts",
+    "Qt no-token smoke",
+    "portable EXE",
+    "frozen runtime",
+    "packaged clean exit"
+  ],
+  "packaged_exit": [
+    {
+      "close_after_seconds": 0,
+      "exit_seconds": 0.087,
+      "code": 0
+    },
+    {
+      "close_after_seconds": 0.8,
+      "exit_seconds": 0.089,
+      "code": 0
+    },
+    {
+      "close_after_seconds": 3,
+      "exit_seconds": 0.082,
+      "code": 0
+    }
+  ],
+  "artifacts": [
+    {
+      "id": 14260650462,
+      "name": "FlowDesk-0.2.26-Finam-Windows-x64-UNSIGNED",
+      "size_in_bytes": 49475769,
+      "url": "https://api.github.com/repos/alexanderpadalko/Terminal/actions/artifacts/14260650462",
+      "archive_download_url": "https://api.github.com/repos/alexanderpadalko/Terminal/actions/artifacts/14260650462/zip",
+      "expired": false,
+      "created_at": "2026-11-16T18:58:00Z",
+      "expires_at": "2026-12-16T18:57:54Z",
+      "updated_at": "2026-11-16T18:58:00Z",
+      "digest": "sha256:42c700ac2a572f31d047916dd2df3972ec3fb3e4c4e63a83c3ce0804f5251732",
+      "workflow_run": {
+        "id": 43933451088,
+        "repository_id": 1452983732,
+        "head_repository_id": 1452983732,
+        "head_branch": "main",
+        "head_sha": "404cde9c1850fd445b7b5b91864acb1280cb96b1"
+      }
+    },
+    {
+      "id": 14260022790,
+      "name": "FlowDesk-0.2.26-Finam-Test-Evidence",
+      "size_in_bytes": 2704,
+      "url": "https://api.github.com/repos/alexanderpadalko/Terminal/actions/artifacts/14260022790",
+      "archive_download_url": "https://api.github.com/repos/alexanderpadalko/Terminal/actions/artifacts/14260022790/zip",
+      "expired": false,
+      "created_at": "2026-11-16T18:58:01Z",
+      "expires_at": "2026-12-16T18:58:00Z",
+      "updated_at": "2026-11-16T18:58:01Z",
+      "digest": "sha256:dbbece3766c2314b88d3dd599fd5bbf899479211eed0741f4464b6e3caf7bcad",
+      "workflow_run": {
+        "id": 43933451088,
+        "repository_id": 1452983732,
+        "head_repository_id": 1452983732,
+        "head_branch": "main",
+        "head_sha": "404cde9c1850fd445b7b5b91864acb1280cb96b1"
+      }
+    }
+  ],
+  "performance_evidence": "live_update_optimization_2026-11-16.json",
+  "limitations": [
+    "Installed EXE not automatically replaced",
+    "Live total GUI CPU/RAM not measured",
+    "Performance numbers are isolated components, not expected whole-application speedup",
+    "UNSIGNED artifact; no signing configuration"
+  ]
+}
