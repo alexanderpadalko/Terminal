@@ -201,14 +201,14 @@ class FinamMarketService:
         """Deduplicate refreshes by exact symbol/TF; do not lock the DB across HTTP."""
         policy=bool(getattr(self.api,'session_candles',False))
         if policy:
-            # US futures D/W/M need the current H1 source too. Native D/W/M
-            # retain archive boundaries and untouched provider history.
+            # US futures need H1 for session OHLCV; RU futures need it for
+            # continuous Open. Preserve native archives separately.
             needed=[]
             for frame in frames:
                 if native_higher_enabled(self.api):
                     sources=(('H1','M5') if frame=='H4' else
                              ('H1',frame) if session_future(symbol) and frame in NATIVE_HIGHER else
-                             ('D1',frame) if moex_trading(symbol) and frame in NATIVE_HIGHER else (frame,))
+                             ('H1','D1',frame) if moex_trading(symbol) and frame in NATIVE_HIGHER else (frame,))
                 else:
                     sources=('H1','M5','D1') if frame in ('H4',*NATIVE_HIGHER) else (frame,)
                 for item in sources:
@@ -352,18 +352,19 @@ class FinamMarketService:
         observed=self.clock()-timedelta(minutes=delay)
         raw=self._series(symbol)
         if (allow_http and timeframe in NATIVE_HIGHER and native_higher_enabled(self.api)
-                and moex_trading(symbol) and not moex.archive_ready(raw,symbol)):
+                and moex_trading(symbol) and (not moex.archive_ready(raw,symbol)
+                    or not moex.opening_ready(raw,symbol,observed))):
             # This runs in the selected chart's cancellable worker at chart
             # priority. First opening must not depend on a 30-symbol scanner
             # finishing before its low-priority archive pass even starts.
-            progress('Finam: подготовка дневной истории торговых дней')
+            progress('Finam: подготовка дневной истории торговых дней и цен открытия')
             try:moex.backfill(self,symbol,self.clock(),cancelled=cancelled)
             except InterruptedError:raise
             except Exception as exc:
                 code=getattr(exc,'http_status',None)
-                reason={401:'нужно обновить авторизацию Финама',403:'нет доступа к дневной истории Финама',
+                reason={401:'нужно обновить авторизацию Финама',403:'нет доступа к исходной истории Финама',
                         404:'контракт не найден Финамом',429:'достигнут лимит запросов Финама'}.get(
-                            code if type(code) is int else None,'не удалось подготовить дневную историю Финама')
+                            code if type(code) is int else None,'не удалось подготовить исходные свечи Финама')
                 raise FinamAPIError(reason,http_status=code if type(code) is int and 100<=code<=599 else None) from None
             raw=self._series(symbol)
             observed=self.clock()-timedelta(minutes=delay)
@@ -377,6 +378,8 @@ class FinamMarketService:
                     'incomplete_daily_coverage':('подготовка дневной истории Финама ещё не завершена'
                         if not moex.archive_ready(raw,symbol) else 'дневная история Финама не покрывает нужные периоды'),
                     'native_snapshot_unconfirmed':'Финам ещё не подтвердил снимок исходной свечи',
+                    'opening_source_unavailable':'Финам ещё не подтвердил первую цену непрерывных торгов',
+                    'opening_source_conflict':'исходные цены открытия Финама требуют повторной сверки',
                     'calendar_history_unknown':'нет подтверждённого календаря для дат исходной истории',
                     'calendar_source_conflict':'дата исходной свечи противоречит календарю торгов',
                 }.get(issue,reason)

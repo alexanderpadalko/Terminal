@@ -1,0 +1,314 @@
+{
+  "mode": "live_read_only_finam_isolated_copy",
+  "production_changed": false,
+  "policy": "moex-trading-date-1",
+  "revision": "moex-continuous-open-2026-11-16.2",
+  "futures": [
+    {
+      "symbol": "EDZ6@RTSX",
+      "status": "PASS",
+      "changed_open": {
+        "D1": 5,
+        "W1": 3,
+        "MN1": 0
+      },
+      "continuous_days": 164,
+      "legacy_days": 39,
+      "raw_unchanged_by_prepare": true,
+      "counts": {
+        "D1": 203,
+        "W1": 47,
+        "MN1": 12
+      },
+      "hlcv_and_dates_unchanged": true
+    },
+    {
+      "symbol": "CNYRUBF@RTSX",
+      "status": "PASS",
+      "changed_open": {
+        "D1": 42,
+        "W1": 10,
+        "MN1": 2
+      },
+      "continuous_days": 168,
+      "legacy_days": 161,
+      "raw_unchanged_by_prepare": true,
+      "counts": {
+        "D1": 329,
+        "W1": 239,
+        "MN1": 56
+      },
+      "hlcv_and_dates_unchanged": true
+    },
+    {
+      "symbol": "CRZ6@RTSX",
+      "status": "PASS",
+      "changed_open": {
+        "D1": 19,
+        "W1": 7,
+        "MN1": 0
+      },
+      "continuous_days": 168,
+      "legacy_days": 161,
+      "raw_unchanged_by_prepare": true,
+      "counts": {
+        "D1": 329,
+        "W1": 75,
+        "MN1": 18
+      },
+      "week_19_oct_ohlcv": [
+        12.648,
+        12.664,
+        12.181,
+        12.227,
+        39657821.0
+      ],
+      "week_19_oct_hlcv_and_dates_unchanged": true,
+      "hlcv_and_dates_unchanged": true
+    },
+    {
+      "symbol": "EURRUBF@RTSX",
+      "status": "PASS",
+      "changed_open": {
+        "D1": 10,
+        "W1": 5,
+        "MN1": 2
+      },
+      "continuous_days": 168,
+      "legacy_days": 161,
+      "raw_unchanged_by_prepare": true,
+      "counts": {
+        "D1": 329,
+        "W1": 239,
+        "MN1": 56
+      },
+      "hlcv_and_dates_unchanged": true
+    },
+    {
+      "symbol": "EUZ6@RTSX",
+      "status": "PASS",
+      "changed_open": {
+        "D1": 2,
+        "W1": 0,
+        "MN1": 0
+      },
+      "continuous_days": 167,
+      "legacy_days": 94,
+      "raw_unchanged_by_prepare": true,
+      "counts": {
+        "D1": 261,
+        "W1": 67,
+        "MN1": 16
+      },
+      "hlcv_and_dates_unchanged": true
+    },
+    {
+      "symbol": "IMOEXF@RTSX",
+      "status": "PASS",
+      "changed_open": {
+        "D1": 52,
+        "W1": 17,
+        "MN1": 1
+      },
+      "continuous_days": 168,
+      "legacy_days": 161,
+      "raw_unchanged_by_prepare": true,
+      "counts": {
+        "D1": 329,
+        "W1": 158,
+        "MN1": 37
+      },
+      "hlcv_and_dates_unchanged": true
+    },
+    {
+      "symbol": "MXZ6@RTSX",
+      "status": "PASS",
+      "changed_open": {
+        "D1": 10,
+        "W1": 6,
+        "MN1": 0
+      },
+      "continuous_days": 168,
+      "legacy_days": 103,
+      "raw_unchanged_by_prepare": true,
+      "counts": {
+        "D1": 271,
+        "W1": 61,
+        "MN1": 15
+      },
+      "hlcv_and_dates_unchanged": true
+    },
+    {
+      "symbol": "RIZ6@RTSX",
+      "status": "PASS",
+      "changed_open": {
+        "D1": 8,
+        "W1": 3,
+        "MN1": 0
+      },
+      "continuous_days": 162,
+      "legacy_days": 116,
+      "raw_unchanged_by_prepare": true,
+      "counts": {
+        "D1": 278,
+        "W1": 90,
+        "MN1": 23
+      },
+      "hlcv_and_dates_unchanged": true
+    },
+    {
+      "symbol": "SIZ6@RTSX",
+      "status": "PASS",
+      "changed_open": {
+        "D1": 14,
+        "W1": 9,
+        "MN1": 1
+      },
+      "continuous_days": 168,
+      "legacy_days": 161,
+      "raw_unchanged_by_prepare": true,
+      "counts": {
+        "D1": 329,
+        "W1": 100,
+        "MN1": 24
+      },
+      "hlcv_and_dates_unchanged": true
+    },
+    {
+      "symbol": "USDRUBF@RTSX",
+      "status": "PASS",
+      "changed_open": {
+        "D1": 41,
+        "W1": 15,
+        "MN1": 2
+      },
+      "continuous_days": 168,
+      "legacy_days": 161,
+      "raw_unchanged_by_prepare": true,
+      "counts": {
+        "D1": 329,
+        "W1": 239,
+        "MN1": 56
+      },
+      "hlcv_and_dates_unchanged": true
+    }
+  ],
+  "stocks": [
+    {
+      "symbol": "ROSN@MISX",
+      "status": "PASS",
+      "native_higher_unchanged": true
+    },
+    {
+      "symbol": "YDEX@MISX",
+      "status": "PASS",
+      "native_higher_unchanged": true
+    },
+    {
+      "symbol": "X5@MISX",
+      "status": "PASS",
+      "native_higher_unchanged": true
+    },
+    {
+      "symbol": "GMKN@MISX",
+      "status": "PASS",
+      "native_higher_unchanged": true
+    },
+    {
+      "symbol": "TATN@MISX",
+      "status": "PASS",
+      "native_higher_unchanged": true
+    },
+    {
+      "symbol": "ALRS@MISX",
+      "status": "PASS",
+      "native_higher_unchanged": true
+    },
+    {
+      "symbol": "MGNT@MISX",
+      "status": "PASS",
+      "native_higher_unchanged": true
+    },
+    {
+      "symbol": "PHOR@MISX",
+      "status": "PASS",
+      "native_higher_unchanged": true
+    },
+    {
+      "symbol": "AFLT@MISX",
+      "status": "PASS",
+      "native_higher_unchanged": true
+    },
+    {
+      "symbol": "AFKS@MISX",
+      "status": "PASS",
+      "native_higher_unchanged": true
+    },
+    {
+      "symbol": "VKCO@MISX",
+      "status": "PASS",
+      "native_higher_unchanged": true
+    },
+    {
+      "symbol": "SBER@MISX",
+      "status": "PASS",
+      "native_higher_unchanged": true
+    },
+    {
+      "symbol": "GAZP@MISX",
+      "status": "PASS",
+      "native_higher_unchanged": true
+    },
+    {
+      "symbol": "T@MISX",
+      "status": "PASS",
+      "native_higher_unchanged": true
+    },
+    {
+      "symbol": "LKOH@MISX",
+      "status": "PASS",
+      "native_higher_unchanged": true
+    },
+    {
+      "symbol": "VTBR@MISX",
+      "status": "PASS",
+      "native_higher_unchanged": true
+    },
+    {
+      "symbol": "SMLT@MISX",
+      "status": "PASS",
+      "native_higher_unchanged": true
+    },
+    {
+      "symbol": "OZON@MISX",
+      "status": "PASS",
+      "native_higher_unchanged": true
+    },
+    {
+      "symbol": "PLZL@MISX",
+      "status": "PASS",
+      "native_higher_unchanged": true
+    },
+    {
+      "symbol": "NVTK@MISX",
+      "status": "PASS",
+      "native_higher_unchanged": true
+    }
+  ],
+  "checked_at_utc": "2026-11-16T14:48:04.513942+00:00",
+  "passed": true,
+  "stock_archive_checked": 20,
+  "local_tests": {
+    "count": 709,
+    "seconds": 40.265,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 1,
+    "home_isolated": true
+  },
+  "totals": {
+    "D1": 203,
+    "W1": 75,
+    "MN1": 8
+  }
+}

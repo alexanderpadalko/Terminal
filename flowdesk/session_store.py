@@ -192,7 +192,7 @@ def prepare(service,symbol,raw,observed):
             try:
                 if ru:
                     candidate,status,detail=moex.build_family(raw,symbol,observed,
-                        observations=observed_at,archive_verified=moex.archive_ready(raw,symbol))
+                        observations=observed_at,archive_verified=moex.archive_ready(raw,symbol),coverage=coverage)
                 else:
                     candidate,status,detail=futures.build_family(raw,calendar,observed,
                         coverage=coverage,observations=observed_at)

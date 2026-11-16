@@ -26,6 +26,8 @@ def day(text,o=10,h=12,l=9,c=11,v=100):
 
 def build(rows,now=NOW,symbol=SYMBOL,extra=None,observations=None):
     raw={'D1':rows,**(extra or {})}
+    raw.setdefault('H1',[replace(b,time=s.start) for b in rows
+                        if (s:=moex._opening_session(b.time.date(),symbol)) is not None])
     known=observations if observations is not None else {(tf,b.time):now for tf,bars in raw.items() for b in bars}
     return moex.build_family(raw,symbol,now,observations=known,archive_verified=True)
 
@@ -156,7 +158,9 @@ class TestMoexTradingStore(unittest.TestCase):
         self.market=FinamMarketService(Path(self.temp.name)/'cache.sqlite',api=self.api,clock=lambda:self.now)
 
     def seed(self):
-        self.market._upsert(SYMBOL,'D1',[day('2026-11-13'),day('2026-11-14'),day('2026-11-15'),day('2026-11-16')])
+        rows=[day('2026-11-13'),day('2026-11-14'),day('2026-11-15'),day('2026-11-16')]
+        self.market._upsert(SYMBOL,'D1',rows)
+        self.market._upsert(SYMBOL,'H1',[replace(b,time=moex._opening_session(b.time.date(),SYMBOL).start) for b in rows])
         self.market.save_history_progress(SYMBOL,moex.PROGRESS,{'cursor':datetime(2025,2,24,tzinfo=UTC),'exhausted':True})
 
     def prepare(self):return self.market.prepare_series(SYMBOL,self.market._series(SYMBOL),self.now)
@@ -179,12 +183,12 @@ class TestMoexTradingStore(unittest.TestCase):
         self.assertEqual({tf:len(built[tf]) for tf in NATIVE_HIGHER},{'D1':2,'W1':2,'MN1':1})
         self.assertTrue(all(built.session_metadata['origins'][tf]=='finam_moex_trading_day' for tf in NATIVE_HIGHER))
 
-    def test_higher_refresh_requests_daily_source_without_intraday_dependency(self):
+    def test_higher_refresh_requests_daily_and_opening_source_once(self):
         calls=[]
         def bars(symbol,tf,**kw):calls.append(tf);return [day('2026-11-13')]
         self.api.bars=bars
         self.market.refresh_series(SYMBOL,('W1','MN1'))
-        self.assertEqual(calls,['D1','W1','MN1'])
+        self.assertEqual(calls,['H1','D1','W1','MN1'])
 
     def test_durable_bounded_backfill_and_cancellation(self):
         self.market._upsert(SYMBOL,'MN1',[day('1999-06-01')])

@@ -27,6 +27,8 @@ class FirstOpenFeed(FinamAPI):
         self.rows={'D1':[bar(n) for n in (13,14,15,16)],
                    'W1':[bar(9),bar(16)],
                    'MN1':[Candle(datetime(2025,6,1,8,tzinfo=MOSCOW),20,22,19,21,200),bar(1)]}
+        self.rows['H1']=[Candle(datetime(2026,11,n,10 if n in (14,15) else 7,tzinfo=MOSCOW),
+                               10,12,9,11,100) for n in (13,14,15,16)]
 
     def market_delay_minutes(self,mic):return 0
 
@@ -139,3 +141,41 @@ class TestMoexFirstOpen(unittest.TestCase):
         self.assertIn('timeframe=D1',logged)
         self.assertIn('http=http_503',logged)
         self.assertNotIn('SENTINEL_SECRET',logged)
+
+    def add_older_opening(self):
+        native=Candle(datetime(2026,10,17,7,tzinfo=MOSCOW),10,15,5,11,100)
+        source=Candle(datetime(2026,10,17,10,tzinfo=MOSCOW),12,15,5,11,100)
+        self.api.rows['D1'].insert(0,native)
+        self.api.rows['H1'].insert(0,source)
+        self.market._upsert(SYMBOL,'D1',[native])
+        return source
+
+    def test_old_opening_outside_normal_refresh_is_loaded_on_first_chart_open(self):
+        source=self.add_older_opening()
+        main,_,_=self.market.view('CRZ6','RTSX','W1',allow_http=True)
+        selected=next(b for b in main.candles if b.trading_date==date(2026,10,19))
+        self.assertEqual(selected.open,12)
+        requests=[(a,b) for _,tf,a,b in self.api.calls if tf=='H1']
+        self.assertTrue(any(a<=source.time<b for a,b in requests))
+        self.assertTrue(all(b-a<=timedelta(days=30) for a,b in requests))
+        before=len(self.api.calls)
+        restarted=FinamMarketService(self.path,api=self.api,clock=lambda:NOW)
+        cached,_,_=restarted.view('CRZ6','RTSX','W1',allow_http=False)
+        self.assertEqual(cached.candles,main.candles)
+        self.assertEqual(len(self.api.calls),before)
+
+    def test_opening_bootstrap_cancellation_resumes_completed_h1_cursor(self):
+        self.add_older_opening();stop=threading.Event();count=[0]
+        def hook(tf,start,end):
+            if tf=='H1':
+                count[0]+=1
+                if count[0]==3:stop.set()
+        self.api.hook=hook
+        with self.assertRaises(InterruptedError):
+            self.market.view('CRZ6','RTSX','W1',allow_http=True,cancelled=stop.is_set)
+        progress=self.market.load_history_progress()[(SYMBOL,moex.OPEN_PROGRESS)]
+        self.assertEqual(progress['cursor'],NOW-timedelta(days=30))
+        stop.clear();self.api.hook=None;before=len(self.api.calls)
+        main,_,_=self.market.view('CRZ6','RTSX','W1',allow_http=True)
+        self.assertTrue(main.candles)
+        self.assertTrue(any(tf=='H1' and end==progress['cursor'] for _,tf,_,end in self.api.calls[before:]))
