@@ -9,12 +9,13 @@ from unittest.mock import patch
 
 from flowdesk.finam_market import FinamMarketService
 from flowdesk.market_data import Candle,serialize_candle
-from flowdesk.nq_session_family import build_family,calendar_for_pilot,POLICY,SYMBOL
+from flowdesk.us_futures_family import build_family,calendar_for_family as calendar_for_pilot,POLICY
 from flowdesk.provider_candles import NATIVE_HIGHER
 from flowdesk.session_store import record_response
 from flowdesk.trading_calendar import calendar_for,CalendarUnavailable
 
 UTC=timezone.utc
+SYMBOL='NQZ26@XCME'
 CAL=calendar_for_pilot(calendar_for(SYMBOL))
 NOW=datetime(2026,10,31,12,tzinfo=UTC)
 

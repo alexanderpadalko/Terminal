@@ -1,0 +1,781 @@
+{
+  "mode": "live_read_only_finam_isolated_copy",
+  "policy": "us-futures-last-trade-1",
+  "production_changed": false,
+  "symbols": [
+    {
+      "symbol": "NQZ26@XCME",
+      "metadata": {
+        "version": "us-futures-last-trade-1",
+        "profile": "CME_EQUITY",
+        "policy": "e8151f2a7edbbc035a27b4a545edcd16e1a7fa84cc89fc113f9a8e41c1d2b1b9",
+        "issues": {
+          "H4": "incomplete_lower_coverage"
+        },
+        "origins": {
+          "H4": "session_lower",
+          "D1": "us_futures_session_last_trade",
+          "W1": "us_futures_session_last_trade",
+          "MN1": "us_futures_session_last_trade"
+        },
+        "calendar_parity": "unverified_tradingview",
+        "control_issues": {},
+        "control_counts": {
+          "D1": 104,
+          "W1": 22,
+          "MN1": 5
+        },
+        "futures_staging": {
+          "policy": "us-futures-last-trade-1",
+          "close_rule": "session_last_trade",
+          "volume_rule": "finam_h1_sum",
+          "left_partial": true,
+          "available_from": "2026-06-18T04:00:00+00:00",
+          "daily_count": 105,
+          "status": "ready"
+        },
+        "futures_snapshot_at": "2026-11-16T07:22:03.436558+00:00"
+      },
+      "counts": {
+        "H1": 2443,
+        "H4": 640,
+        "D1": 105,
+        "W1": 23,
+        "MN1": 6
+      },
+      "native_counts": {
+        "H1": 2443,
+        "D1": 109,
+        "W1": 23,
+        "MN1": 6
+      },
+      "raw_unchanged_by_prepare": true,
+      "daily_checked": 105,
+      "last_closed_daily": {
+        "date": "2026-11-13",
+        "start": "2026-11-12T23:00:00+00:00",
+        "end": "2026-11-13T22:00:00+00:00",
+        "ohlcv": [
+          28399.25,
+          28607.75,
+          27695.25,
+          27927.25,
+          800785.0
+        ]
+      },
+      "latest_daily": {
+        "date": "2026-11-16",
+        "start": "2026-11-15T23:00:00+00:00",
+        "end": "2026-11-16T22:00:00+00:00",
+        "ohlcv": [
+          28062.5,
+          28279.25,
+          27658.0,
+          27750.5,
+          120532.0
+        ]
+      },
+      "periods_preserved": true,
+      "status": "PASS",
+      "consumer": {
+        "monthly_count": 6,
+        "monthly_confirmed": 5,
+        "policy": "us-futures-last-trade-1",
+        "screener_error": ""
+      }
+    },
+    {
+      "symbol": "ESZ26@XCME",
+      "metadata": {
+        "version": "us-futures-last-trade-1",
+        "profile": "CME_EQUITY",
+        "policy": "31f208dc691a119f2f274a0af85e95a82d4f66d0ef9da8c9991942c4fe1a3063",
+        "issues": {
+          "H4": "incomplete_lower_coverage"
+        },
+        "origins": {
+          "H4": "session_lower",
+          "D1": "us_futures_session_last_trade",
+          "W1": "us_futures_session_last_trade",
+          "MN1": "us_futures_session_last_trade"
+        },
+        "calendar_parity": "unverified_tradingview",
+        "control_issues": {},
+        "control_counts": {
+          "D1": 104,
+          "W1": 22,
+          "MN1": 5
+        },
+        "futures_staging": {
+          "policy": "us-futures-last-trade-1",
+          "close_rule": "session_last_trade",
+          "volume_rule": "finam_h1_sum",
+          "left_partial": true,
+          "available_from": "2026-06-18T04:00:00+00:00",
+          "daily_count": 105,
+          "status": "ready"
+        },
+        "futures_snapshot_at": "2026-11-16T07:22:06.746705+00:00"
+      },
+      "counts": {
+        "H1": 2425,
+        "H4": 640,
+        "D1": 105,
+        "W1": 23,
+        "MN1": 6
+      },
+      "native_counts": {
+        "H1": 2425,
+        "D1": 109,
+        "W1": 23,
+        "MN1": 6
+      },
+      "raw_unchanged_by_prepare": true,
+      "daily_checked": 105,
+      "last_closed_daily": {
+        "date": "2026-11-13",
+        "start": "2026-11-12T23:00:00+00:00",
+        "end": "2026-11-13T22:00:00+00:00",
+        "ohlcv": [
+          7620.25,
+          7669.25,
+          7519.25,
+          7561.0,
+          1869037.0
+        ]
+      },
+      "latest_daily": {
+        "date": "2026-11-16",
+        "start": "2026-11-15T23:00:00+00:00",
+        "end": "2026-11-16T22:00:00+00:00",
+        "ohlcv": [
+          7577.25,
+          7614.25,
+          7537.75,
+          7550.75,
+          113330.0
+        ]
+      },
+      "periods_preserved": true,
+      "status": "PASS",
+      "consumer": {
+        "monthly_count": 6,
+        "monthly_confirmed": 5,
+        "policy": "us-futures-last-trade-1",
+        "screener_error": ""
+      }
+    },
+    {
+      "symbol": "GCZ26@XCEC",
+      "metadata": {
+        "version": "us-futures-last-trade-1",
+        "profile": "CME_METALS",
+        "policy": "90233587b0a880c753efebda38bdf38960ce82eb4adfcf9c37c584e7c30c7482",
+        "issues": {
+          "H4": "incomplete_lower_coverage"
+        },
+        "origins": {
+          "H4": "session_lower",
+          "D1": "us_futures_session_last_trade",
+          "W1": "us_futures_session_last_trade",
+          "MN1": "us_futures_session_last_trade"
+        },
+        "calendar_parity": "unverified_tradingview",
+        "control_issues": {},
+        "control_counts": {
+          "D1": 49,
+          "W1": 10,
+          "MN1": 2
+        },
+        "futures_staging": {
+          "policy": "us-futures-last-trade-1",
+          "close_rule": "session_last_trade",
+          "volume_rule": "finam_h1_sum",
+          "left_partial": true,
+          "available_from": "2026-06-26T04:00:00+00:00",
+          "daily_count": 100,
+          "status": "ready"
+        },
+        "futures_snapshot_at": "2026-11-16T07:22:09.640101+00:00"
+      },
+      "counts": {
+        "H1": 2320,
+        "H4": 606,
+        "D1": 100,
+        "W1": 22,
+        "MN1": 6
+      },
+      "native_counts": {
+        "H1": 2320,
+        "D1": 102,
+        "W1": 22,
+        "MN1": 6
+      },
+      "raw_unchanged_by_prepare": true,
+      "daily_checked": 100,
+      "last_closed_daily": {
+        "date": "2026-11-13",
+        "start": "2026-11-12T23:00:00+00:00",
+        "end": "2026-11-13T22:00:00+00:00",
+        "ohlcv": [
+          3883.3,
+          3927.2,
+          3871.1,
+          3887.6,
+          131788.0
+        ]
+      },
+      "latest_daily": {
+        "date": "2026-11-16",
+        "start": "2026-11-15T23:00:00+00:00",
+        "end": "2026-11-16T22:00:00+00:00",
+        "ohlcv": [
+          3869.7,
+          3904.3,
+          3835.2,
+          3856.1,
+          55416.0
+        ]
+      },
+      "periods_preserved": true,
+      "status": "PASS",
+      "consumer": {
+        "monthly_count": 6,
+        "monthly_confirmed": 5,
+        "policy": "us-futures-last-trade-1",
+        "screener_error": ""
+      }
+    },
+    {
+      "symbol": "SIZ26@XCEC",
+      "metadata": {
+        "version": "us-futures-last-trade-1",
+        "profile": "CME_METALS",
+        "policy": "b7194b5d31f1d660b9dec7da6510240eff19c3923f705a2cc1c76fd48db9c343",
+        "issues": {
+          "H4": "incomplete_lower_coverage"
+        },
+        "origins": {
+          "H4": "session_lower",
+          "D1": "us_futures_session_last_trade",
+          "W1": "us_futures_session_last_trade",
+          "MN1": "us_futures_session_last_trade"
+        },
+        "calendar_parity": "unverified_tradingview",
+        "control_issues": {},
+        "control_counts": {
+          "D1": 49,
+          "W1": 10,
+          "MN1": 2
+        },
+        "futures_staging": {
+          "policy": "us-futures-last-trade-1",
+          "close_rule": "session_last_trade",
+          "volume_rule": "finam_h1_sum",
+          "left_partial": true,
+          "available_from": "2026-08-11T04:00:00+00:00",
+          "daily_count": 69,
+          "status": "ready"
+        },
+        "futures_snapshot_at": "2026-11-16T07:22:12.165454+00:00"
+      },
+      "counts": {
+        "H1": 1588,
+        "H4": 415,
+        "D1": 69,
+        "W1": 15,
+        "MN1": 4
+      },
+      "native_counts": {
+        "H1": 1588,
+        "D1": 70,
+        "W1": 15,
+        "MN1": 4
+      },
+      "raw_unchanged_by_prepare": true,
+      "daily_checked": 69,
+      "last_closed_daily": {
+        "date": "2026-11-13",
+        "start": "2026-11-12T23:00:00+00:00",
+        "end": "2026-11-13T22:00:00+00:00",
+        "ohlcv": [
+          50.005,
+          50.725,
+          48.405,
+          48.65,
+          41360.0
+        ]
+      },
+      "latest_daily": {
+        "date": "2026-11-16",
+        "start": "2026-11-15T23:00:00+00:00",
+        "end": "2026-11-16T22:00:00+00:00",
+        "ohlcv": [
+          48.395,
+          49.005,
+          47.065,
+          47.32,
+          22146.0
+        ]
+      },
+      "periods_preserved": true,
+      "status": "PASS",
+      "consumer": {
+        "monthly_count": 4,
+        "monthly_confirmed": 3,
+        "policy": "us-futures-last-trade-1",
+        "screener_error": ""
+      }
+    },
+    {
+      "symbol": "PLF27@XNYM",
+      "metadata": {
+        "version": "us-futures-last-trade-1",
+        "profile": "CME_METALS",
+        "policy": "56d71ed228f0fe13c6689c281f4eedd8f1a0dceb435834c05e1de39e17541e23",
+        "issues": {
+          "H4": "incomplete_lower_coverage"
+        },
+        "origins": {
+          "H4": "session_lower",
+          "D1": "us_futures_session_last_trade",
+          "W1": "us_futures_session_last_trade",
+          "MN1": "us_futures_session_last_trade"
+        },
+        "calendar_parity": "unverified_tradingview",
+        "control_issues": {},
+        "control_counts": {
+          "D1": 49,
+          "W1": 10,
+          "MN1": 2
+        },
+        "futures_staging": {
+          "policy": "us-futures-last-trade-1",
+          "close_rule": "session_last_trade",
+          "volume_rule": "finam_h1_sum",
+          "left_partial": true,
+          "available_from": "2026-08-17T04:00:00+00:00",
+          "daily_count": 65,
+          "status": "ready"
+        },
+        "futures_snapshot_at": "2026-11-16T07:22:14.551271+00:00"
+      },
+      "counts": {
+        "H1": 1475,
+        "H4": 391,
+        "D1": 65,
+        "W1": 14,
+        "MN1": 4
+      },
+      "native_counts": {
+        "H1": 1475,
+        "D1": 66,
+        "W1": 14,
+        "MN1": 4
+      },
+      "raw_unchanged_by_prepare": true,
+      "daily_checked": 65,
+      "last_closed_daily": {
+        "date": "2026-11-13",
+        "start": "2026-11-12T23:00:00+00:00",
+        "end": "2026-11-13T22:00:00+00:00",
+        "ohlcv": [
+          1519.9,
+          1541.2,
+          1485.7,
+          1492.2,
+          12538.0
+        ]
+      },
+      "latest_daily": {
+        "date": "2026-11-16",
+        "start": "2026-11-15T23:00:00+00:00",
+        "end": "2026-11-16T22:00:00+00:00",
+        "ohlcv": [
+          1487.1,
+          1511.9,
+          1461.0,
+          1473.8,
+          5395.0
+        ]
+      },
+      "periods_preserved": true,
+      "status": "PASS",
+      "consumer": {
+        "monthly_count": 4,
+        "monthly_confirmed": 3,
+        "policy": "us-futures-last-trade-1",
+        "screener_error": ""
+      }
+    },
+    {
+      "symbol": "PAZ26@XNYM",
+      "metadata": {
+        "version": "us-futures-last-trade-1",
+        "profile": "CME_METALS",
+        "policy": "9c7d42628728da727ec18bbe594f572666978a78f9b7518c608468a9a95b06d9",
+        "issues": {
+          "H4": "incomplete_lower_coverage"
+        },
+        "origins": {
+          "H4": "session_lower",
+          "D1": "us_futures_session_last_trade",
+          "W1": "us_futures_session_last_trade",
+          "MN1": "us_futures_session_last_trade"
+        },
+        "calendar_parity": "unverified_tradingview",
+        "control_issues": {},
+        "control_counts": {
+          "D1": 49,
+          "W1": 10,
+          "MN1": 2
+        },
+        "futures_staging": {
+          "policy": "us-futures-last-trade-1",
+          "close_rule": "session_last_trade",
+          "volume_rule": "finam_h1_sum",
+          "left_partial": true,
+          "available_from": "2026-08-17T04:00:00+00:00",
+          "daily_count": 65,
+          "status": "ready"
+        },
+        "futures_snapshot_at": "2026-11-16T07:22:16.993029+00:00"
+      },
+      "counts": {
+        "H1": 1490,
+        "H4": 391,
+        "D1": 65,
+        "W1": 14,
+        "MN1": 4
+      },
+      "native_counts": {
+        "H1": 1490,
+        "D1": 66,
+        "W1": 14,
+        "MN1": 4
+      },
+      "raw_unchanged_by_prepare": true,
+      "daily_checked": 65,
+      "last_closed_daily": {
+        "date": "2026-11-13",
+        "start": "2026-11-12T23:00:00+00:00",
+        "end": "2026-11-13T22:00:00+00:00",
+        "ohlcv": [
+          993.0,
+          1019.0,
+          993.0,
+          1000.0,
+          5973.0
+        ]
+      },
+      "latest_daily": {
+        "date": "2026-11-16",
+        "start": "2026-11-15T23:00:00+00:00",
+        "end": "2026-11-16T22:00:00+00:00",
+        "ohlcv": [
+          997.5,
+          1007.0,
+          977.5,
+          988.0,
+          1773.0
+        ]
+      },
+      "periods_preserved": true,
+      "status": "PASS",
+      "consumer": {
+        "monthly_count": 4,
+        "monthly_confirmed": 3,
+        "policy": "us-futures-last-trade-1",
+        "screener_error": ""
+      }
+    },
+    {
+      "symbol": "NGZ26@XNYM",
+      "metadata": {
+        "version": "us-futures-last-trade-1",
+        "profile": "CME_ENERGY",
+        "policy": "6676d82a05437fa2f1a5c9479f4bb67ca5287036911d085ae0b5934210e0c820",
+        "issues": {
+          "H4": "incomplete_lower_coverage"
+        },
+        "origins": {
+          "H4": "session_lower",
+          "D1": "us_futures_session_last_trade",
+          "W1": "us_futures_session_last_trade",
+          "MN1": "us_futures_session_last_trade"
+        },
+        "calendar_parity": "unverified_tradingview",
+        "control_issues": {},
+        "control_counts": {
+          "D1": 49,
+          "W1": 10,
+          "MN1": 2
+        },
+        "futures_staging": {
+          "policy": "us-futures-last-trade-1",
+          "close_rule": "session_last_trade",
+          "volume_rule": "finam_h1_sum",
+          "left_partial": true,
+          "available_from": "2026-07-29T04:00:00+00:00",
+          "daily_count": 78,
+          "status": "ready"
+        },
+        "futures_snapshot_at": "2026-11-16T07:22:19.407409+00:00"
+      },
+      "counts": {
+        "H1": 1784,
+        "H4": 469,
+        "D1": 78,
+        "W1": 17,
+        "MN1": 5
+      },
+      "native_counts": {
+        "H1": 1784,
+        "D1": 79,
+        "W1": 17,
+        "MN1": 5
+      },
+      "raw_unchanged_by_prepare": true,
+      "daily_checked": 78,
+      "last_closed_daily": {
+        "date": "2026-11-13",
+        "start": "2026-11-12T23:00:00+00:00",
+        "end": "2026-11-13T22:00:00+00:00",
+        "ohlcv": [
+          3.36,
+          3.368,
+          3.206,
+          3.242,
+          135016.0
+        ]
+      },
+      "latest_daily": {
+        "date": "2026-11-16",
+        "start": "2026-11-15T23:00:00+00:00",
+        "end": "2026-11-16T22:00:00+00:00",
+        "ohlcv": [
+          3.18,
+          3.18,
+          3.109,
+          3.12,
+          13227.0
+        ]
+      },
+      "periods_preserved": true,
+      "status": "PASS",
+      "consumer": {
+        "monthly_count": 5,
+        "monthly_confirmed": 4,
+        "policy": "us-futures-last-trade-1",
+        "screener_error": ""
+      }
+    },
+    {
+      "symbol": "BRNF27@IFEU",
+      "metadata": {
+        "version": "us-futures-last-trade-1",
+        "profile": "ICE_BRENT",
+        "policy": "1e329169881257ffb2ecd8b49641bed4626d1090af7df57a660c5d6934a1353e",
+        "issues": {
+          "H4": "incomplete_lower_coverage"
+        },
+        "origins": {
+          "H4": "session_lower",
+          "D1": "us_futures_session_last_trade",
+          "W1": "us_futures_session_last_trade",
+          "MN1": "us_futures_session_last_trade"
+        },
+        "calendar_parity": "unverified_tradingview",
+        "control_issues": {},
+        "control_counts": {
+          "D1": 14,
+          "W1": 3,
+          "MN1": 1
+        },
+        "futures_staging": {
+          "policy": "us-futures-last-trade-1",
+          "close_rule": "session_last_trade",
+          "volume_rule": "finam_h1_sum",
+          "left_partial": true,
+          "available_from": "2026-10-27T14:00:00+00:00",
+          "daily_count": 15,
+          "status": "ready"
+        },
+        "futures_snapshot_at": "2026-11-16T07:22:20.776389+00:00"
+      },
+      "counts": {
+        "H1": 307,
+        "H4": 83,
+        "D1": 15,
+        "W1": 4,
+        "MN1": 2
+      },
+      "native_counts": {
+        "H1": 307,
+        "D1": 15,
+        "W1": 4,
+        "MN1": 2
+      },
+      "raw_unchanged_by_prepare": true,
+      "daily_checked": 15,
+      "last_closed_daily": {
+        "date": "2026-11-13",
+        "start": "2026-11-13T01:00:00+00:00",
+        "end": "2026-11-13T23:00:00+00:00",
+        "ohlcv": [
+          95.84,
+          97.13,
+          95.06,
+          96.29,
+          156833.0
+        ]
+      },
+      "latest_daily": {
+        "date": "2026-11-16",
+        "start": "2026-11-15T23:00:00+00:00",
+        "end": "2026-11-16T23:00:00+00:00",
+        "ohlcv": [
+          95.84,
+          96.77,
+          94.32,
+          96.27,
+          17527.0
+        ]
+      },
+      "periods_preserved": true,
+      "status": "PASS",
+      "consumer": {
+        "monthly_count": 2,
+        "monthly_confirmed": 1,
+        "policy": "us-futures-last-trade-1",
+        "screener_error": ""
+      }
+    }
+  ],
+  "requests": [
+    {
+      "symbol": "NQZ26@XCME",
+      "tf": "D1",
+      "count": 5
+    },
+    {
+      "symbol": "NQZ26@XCME",
+      "tf": "W1",
+      "count": 6
+    },
+    {
+      "symbol": "NQZ26@XCME",
+      "tf": "MN1",
+      "count": 1
+    },
+    {
+      "symbol": "ESZ26@XCME",
+      "tf": "D1",
+      "count": 5
+    },
+    {
+      "symbol": "ESZ26@XCME",
+      "tf": "W1",
+      "count": 6
+    },
+    {
+      "symbol": "ESZ26@XCME",
+      "tf": "MN1",
+      "count": 1
+    },
+    {
+      "symbol": "GCZ26@XCEC",
+      "tf": "D1",
+      "count": 5
+    },
+    {
+      "symbol": "GCZ26@XCEC",
+      "tf": "W1",
+      "count": 6
+    },
+    {
+      "symbol": "GCZ26@XCEC",
+      "tf": "MN1",
+      "count": 1
+    },
+    {
+      "symbol": "SIZ26@XCEC",
+      "tf": "D1",
+      "count": 5
+    },
+    {
+      "symbol": "SIZ26@XCEC",
+      "tf": "W1",
+      "count": 6
+    },
+    {
+      "symbol": "SIZ26@XCEC",
+      "tf": "MN1",
+      "count": 1
+    },
+    {
+      "symbol": "PLF27@XNYM",
+      "tf": "D1",
+      "count": 5
+    },
+    {
+      "symbol": "PLF27@XNYM",
+      "tf": "W1",
+      "count": 6
+    },
+    {
+      "symbol": "PLF27@XNYM",
+      "tf": "MN1",
+      "count": 1
+    },
+    {
+      "symbol": "PAZ26@XNYM",
+      "tf": "D1",
+      "count": 5
+    },
+    {
+      "symbol": "PAZ26@XNYM",
+      "tf": "W1",
+      "count": 6
+    },
+    {
+      "symbol": "PAZ26@XNYM",
+      "tf": "MN1",
+      "count": 1
+    },
+    {
+      "symbol": "NGZ26@XNYM",
+      "tf": "D1",
+      "count": 5
+    },
+    {
+      "symbol": "NGZ26@XNYM",
+      "tf": "W1",
+      "count": 6
+    },
+    {
+      "symbol": "NGZ26@XNYM",
+      "tf": "MN1",
+      "count": 1
+    },
+    {
+      "symbol": "BRNF27@IFEU",
+      "tf": "D1",
+      "count": 5
+    },
+    {
+      "symbol": "BRNF27@IFEU",
+      "tf": "W1",
+      "count": 4
+    },
+    {
+      "symbol": "BRNF27@IFEU",
+      "tf": "MN1",
+      "count": 1
+    }
+  ],
+  "checked_at_utc": "2026-11-16T07:22:20.870152+00:00",
+  "passed": true,
+  "request_log_scope": "Higher-frame refresh only; H1 fetched via production bounded backfill.",
+  "consumer_check": "offline frozen snapshots; screener quote stub from last saved session price, not live quote validation"
+}

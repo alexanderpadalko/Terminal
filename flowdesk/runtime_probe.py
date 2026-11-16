@@ -57,8 +57,8 @@ def check_finam_runtime(output):
         native,_=native_higher_series({'MN1':months},observed,
             {('MN1',b.time):observed for b in months})
         result['native_dwm']=len(native.get('MN1',()))==6
-        from .nq_session_family import calendar_for_pilot,build_family
-        nq_calendar=calendar_for_pilot(calendar_for('NQZ26@XCME'))
+        from .us_futures_family import calendar_for_family,build_family,enabled
+        nq_calendar=calendar_for_family(calendar_for('NQZ26@XCME'))
         nq_session=nq_calendar.daily_session(date(2026,11,13))
         hours=[Candle(nq_session.start+timedelta(hours=i),100,102,99,101,1,
             scheduled_close=nq_session.start+timedelta(hours=i+1)) for i in range(23)]
@@ -72,12 +72,28 @@ def check_finam_runtime(output):
             family['D1'][0].close==101 and not family['MN1'][0].settlement_close)
         result['nq_session_last_trade']=bool(result['nq_session_family'] and
             family['W1'][0].close==101 and family['MN1'][0].close==101)
+        checked=[]
+        for symbol in ('NQZ26@XCME','ESZ26@XCME','GCZ26@XCEC','SIZ26@XCEC',
+                       'PLF27@XNYM','PAZ26@XNYM','NGZ26@XNYM','BRNF27@IFEU'):
+            cal=calendar_for_family(calendar_for(symbol));session=cal.daily_session(date(2026,11,13))
+            rows=[]
+            for left,right in session.segments:
+                while left<right:
+                    end=min(right,left+timedelta(hours=1))
+                    rows.append(Candle(left,100,102,99,101,1,scheduled_close=end));left=end
+            values,status,_=build_family({'H1':rows,'D1':[daily]},cal,observed,
+                coverage={'H1':[(session.start,session.end)]},
+                observations={('H1',bar.time):observed for bar in rows})
+            if enabled(symbol,cal) and status=='ready' and all(values[tf][-1].close==101
+                    and not values[tf][-1].settlement_close for tf in ('D1','W1','MN1')):
+                checked.append(symbol)
+        result['us_futures_session_last_trade']=len(checked)==8
         result["ok"] = (result.get("executor_callable") and
                         result.get("thread_result") == 17 and result.get("localhost_resolved")
                         and result.get("scheduler_result")==23 and result.get("scanner_rows")==3
                         and result.get("binance_decoder") and result.get('session_candles')
                         and result.get('native_dwm') and result.get('nq_session_family')
-                        and result.get('nq_session_last_trade'))
+                        and result.get('nq_session_last_trade') and result.get('us_futures_session_last_trade'))
     except Exception as exc:
         result["error_type"] = type(exc).__name__
     Path(output).write_text(json.dumps(result, indent=2), encoding="utf-8")

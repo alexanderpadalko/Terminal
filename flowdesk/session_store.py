@@ -9,7 +9,7 @@ from .session_candles import AGGREGATION_VERSION, SessionSeries, build_session_s
 from .provider_candles import (NATIVE_HIGHER, NATIVE_POLICY_VERSION, native_higher_enabled,
                                native_higher_series, control_issues)
 from .trading_calendar import CalendarUnavailable, calendar_for
-from . import nq_session_family as nq
+from . import us_futures_family as futures
 
 
 class PreparedSeries(dict):
@@ -104,7 +104,7 @@ def _candle(row):
 def prepare(service,symbol,raw,observed):
     if not getattr(service.api,'session_candles',False):return raw
     primary_native=native_higher_enabled(service.api)
-    pilot_requested=primary_native and symbol.upper()==nq.SYMBOL
+    pilot_requested=primary_native and bool(futures.product(symbol))
     state=getattr(raw,'source_state',None)
     snapshots=state['observations'] if state else []
     observed_at={(tf,datetime.fromisoformat(ts)):datetime.fromisoformat(stamp) for tf,ts,stamp in snapshots}
@@ -112,7 +112,7 @@ def prepare(service,symbol,raw,observed):
     factory=getattr(service,'calendar_factory',calendar_for)
     try:
         calendar=factory(symbol)
-        if pilot_requested and not nq.enabled(symbol,calendar):
+        if pilot_requested and not futures.enabled(symbol,calendar):
             raise CalendarUnavailable('instrument_calendar_unknown')
     except CalendarUnavailable:
         result={tf:bars for tf,bars in raw.items() if tf not in ('H4',*NATIVE_HIGHER)}
@@ -121,14 +121,14 @@ def prepare(service,symbol,raw,observed):
         if primary_native and not pilot_requested:
             issues={**{'H4':'instrument_calendar_unknown'},**native_issues}
         return PreparedSeries(result,
-            {'version':nq.POLICY if pilot_requested else NATIVE_POLICY_VERSION if primary_native else AGGREGATION_VERSION,
+            {'version':futures.POLICY if pilot_requested else NATIVE_POLICY_VERSION if primary_native else AGGREGATION_VERSION,
              'profile':'unknown','issues':issues,
              'origins':{tf:'finam_native' for tf in NATIVE_HIGHER} if primary_native and not pilot_requested else {},
              'control_issues':{tf:'instrument_calendar_unknown' for tf in NATIVE_HIGHER} if primary_native else {}})
-    pilot=primary_native and nq.enabled(symbol,calendar)
-    if pilot:calendar=nq.calendar_for_pilot(calendar)
+    pilot=primary_native and futures.enabled(symbol,calendar)
+    if pilot:calendar=futures.calendar_for_family(calendar)
     versions=(AGGREGATION_VERSION,calendar.revision,NATIVE_POLICY_VERSION if primary_native else None)
-    if pilot:versions+=(nq.POLICY,)
+    if pilot:versions+=(futures.POLICY,)
     policy=hashlib.sha256(repr(versions).encode()).hexdigest()
     with closing(service._connection()) as db:
         revision=state['revision'] if state else -1
@@ -174,28 +174,28 @@ def prepare(service,symbol,raw,observed):
         built.series={tf:bars for tf,bars in built.series.items() if tf not in NATIVE_HIGHER}
         built.series.update(native)
         if pilot:
-            # NQ Last-price policy never falls back to differently bounded
+            # US futures never fall back to differently bounded
             # native D/W/M while its session history is pending or unavailable.
             for tf in NATIVE_HIGHER:built.series.pop(tf,None)
-            metadata['version']=nq.POLICY
+            metadata['version']=futures.POLICY
             metadata['issues']={tf:value for tf,value in metadata['issues'].items() if tf not in NATIVE_HIGHER}
             metadata['origins']={tf:value for tf,value in metadata['origins'].items() if tf not in NATIVE_HIGHER}
             metadata['control_issues']={}
             try:
-                candidate,status,detail=nq.build_family(raw,calendar,observed,
+                candidate,status,detail=futures.build_family(raw,calendar,observed,
                     coverage=coverage,observations=observed_at)
             except (ValueError,OverflowError):
-                candidate,status,detail=None,'control_source_invalid',{'policy':nq.POLICY}
-            metadata['nq_staging']={**detail,'status':status}
+                candidate,status,detail=None,'control_source_invalid',{'policy':futures.POLICY}
+            metadata['futures_staging']={**detail,'status':status}
             if candidate is not None:
                 # Publish all three frames from one source snapshot. Never
                 # append a rebuilt recent month to an older native prefix.
                 built.series.update(candidate)
-                metadata['version']=nq.POLICY
+                metadata['version']=futures.POLICY
                 metadata['origins']={**metadata['origins'],
-                    **{tf:'nq_session_last_trade' for tf in NATIVE_HIGHER}}
+                    **{tf:'us_futures_session_last_trade' for tf in NATIVE_HIGHER}}
                 metadata['control_issues']={}
-                metadata['nq_snapshot_at']=observed.isoformat()
+                metadata['futures_snapshot_at']=observed.isoformat()
             else:
                 metadata['issues'].update({tf:status for tf in NATIVE_HIGHER})
                 # Once promoted, a transient missing source must not switch
@@ -205,16 +205,16 @@ def prepare(service,symbol,raw,observed):
                 try:
                     previous=json.loads(saved[3]) if saved and saved[0]==policy else {}
                     prior_meta=previous.get('metadata',{})
-                    stamp=datetime.fromisoformat(prior_meta['nq_snapshot_at'])
-                    if prior_meta.get('version')==nq.POLICY and stamp<=observed:
+                    stamp=datetime.fromisoformat(prior_meta['futures_snapshot_at'])
+                    if prior_meta.get('version')==futures.POLICY and stamp<=observed:
                         retained={tf:[bar for row in previous['derived'].get(tf,())
                             if (bar:=_candle(row)).scheduled_close<=stamp or bar.scheduled_close>observed]
                             for tf in NATIVE_HIGHER}
                         built.series.update(retained)
-                        metadata['version']=nq.POLICY
-                        metadata['nq_snapshot_at']=stamp.isoformat()
+                        metadata['version']=futures.POLICY
+                        metadata['futures_snapshot_at']=stamp.isoformat()
                         metadata['origins']={**metadata['origins'],
-                            **{tf:'nq_session_last_trade' for tf in NATIVE_HIGHER}}
+                            **{tf:'us_futures_session_last_trade' for tf in NATIVE_HIGHER}}
                         metadata['issues']={**metadata['issues'],**{tf:status for tf in NATIVE_HIGHER}}
                 except (ValueError,KeyError,TypeError,AttributeError):pass
     from .diagnostics_log import log_candle_policy
@@ -243,8 +243,8 @@ def backfill(service,symbol,now,*,cancelled=lambda:False):
     if getattr(service.api,'provider_name','Finam')=='Binance':return {}
     try:calendar=service.calendar_factory(symbol)
     except CalendarUnavailable:return {'H4':'нет подтверждённого календаря инструмента'}
-    if native_higher_enabled(service.api) and nq.enabled(symbol,calendar):
-        return nq.backfill(service,symbol,now,cancelled=cancelled)
+    if native_higher_enabled(service.api) and futures.enabled(symbol,calendar):
+        return futures.backfill(service,symbol,now,cancelled=cancelled)
     tf='M5' if calendar.profile in ('US_EQUITY_RTH','MOEX_STOCK_FULL') else 'H1'
     raw=service._series(symbol)
     bars=raw.get(tf,[])

@@ -1,4 +1,4 @@
-"""NQZ26 pilot: complete Finam H1 session OHLCV, coherent Last-price D/W/M.
+"""Curated US futures: complete Finam H1 session OHLCV, Last-price D/W/M.
 
 Raw provider archives are never modified. A candidate must cover every observed
 session in the available archive before the whole higher family can replace
@@ -6,17 +6,24 @@ native D/W/M. The initial, truncated source session is explicitly identified.
 """
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta, timezone
+import re
 
 from .market_data import candle_close_time, normalize
 from .session_candles import _LowerSource, _combine, _period
 from .trading_calendar import TradingCalendar, TradingSession, CalendarUnavailable
 
 UTC=timezone.utc
-POLICY='nq-session-last-trade-1'
-SYMBOL='NQZ26@XCME'
-# Official NQ Globex product calendar, read 2026-11-15. Holiday matching
-# stops at noon CT; its trades clear on the following business trading date.
-# Weekend calendar entries alone do not establish production trading hours.
+POLICY='us-futures-last-trade-1'
+PRODUCTS={
+    'NQ':('CME_EQUITY',('XCME',)), 'ES':('CME_EQUITY',('XCME',)),
+    'GC':('CME_METALS',('XCEC','XCME')), 'SI':('CME_METALS',('XCEC','XCME')),
+    'PL':('CME_METALS',('XNYM','XCME')), 'PA':('CME_METALS',('XNYM','XCME')),
+    'NG':('CME_ENERGY',('XNYM','XCME')), 'BRN':('ICE_BRENT',('IFEU','XICE','XNYM')),
+}
+# CME Globex / published broker session notices; checked 2026-11-16.
+# June/July stop at 12 CT for these products. Labor Day and Thanksgiving
+# have different Equity vs Energy/Metals hours. See the source audit.
+# Unknown earlier/future holiday regimes remain unavailable, never inferred.
 HOLIDAYS={date(2026,6,19):date(2026,6,22),
           date(2026,7,3):date(2026,7,6),
           date(2026,9,7):date(2026,9,8),
@@ -24,20 +31,34 @@ HOLIDAYS={date(2026,6,19):date(2026,6,22),
 
 
 @dataclass(frozen=True)
-class NQCalendar(TradingCalendar):
+class FuturesCalendar(TradingCalendar):
     @property
     def revision(self):return (POLICY,super().revision)
 
     def session(self,day):
-        if day in HOLIDAYS:return self._session(day,time(17),time(12),previous=True)
-        if day==date(2026,11,27):return self._session(day,time(17),time(12,15),previous=True)
-        if day in (date(2026,6,18),date(2026,9,8),date(2026,11,25)):
-            return self._session(day,time(17),time(16),previous=True)
+        if day in dict(self.overrides):return super().session(day)
+        if self.profile.startswith('CME_'):
+            if not date(2026,6,1)<=day<=date(2026,11,30):
+                return super().session(day)  # Keeps unknown holiday guards.
+            if day.weekday()>=5:return None
+            closing=time(16)
+            if day in HOLIDAYS:
+                closing=(time(13,30) if self.profile!='CME_EQUITY' and
+                         day in (date(2026,9,7),date(2026,11,26)) else time(12))
+            if day==date(2026,11,27):
+                # Energy/Metals date is not independently verified here.
+                if self.profile!='CME_EQUITY':
+                    raise CalendarUnavailable('product_holiday_hours_unknown')
+                closing=time(12,15)
+            return self._session(day,time(17),closing,previous=True)
         return super().session(day)
 
-    def trading_date(self,day):return HOLIDAYS.get(day,day)
+    def trading_date(self,day):
+        return HOLIDAYS.get(day,day) if self.profile.startswith('CME_') else day
 
     def daily_session(self,day):
+        if day in dict(self.overrides):return self.session(day)
+        if not self.profile.startswith('CME_'):return super().daily_session(day)
         if day in HOLIDAYS:return None
         regular=self.session(day)
         if regular is None:return None
@@ -46,12 +67,21 @@ class NQCalendar(TradingCalendar):
         return TradingSession(day,self.session(prior).segments+regular.segments)
 
 
+def product(symbol):
+    match=re.fullmatch(r'([A-Z]+)[FGHJKMNQUVXZ][0-9]{1,4}@([A-Z0-9]+)',symbol.upper())
+    if not match:return None
+    root,mic=match.groups();spec=PRODUCTS.get(root)
+    return root if spec and mic in spec[1] else None
+
+
 def enabled(symbol,calendar):
-    return symbol.upper()==SYMBOL and calendar.profile=='CME_EQUITY' and calendar.root=='NQ'
+    root=product(symbol)
+    return bool(root and calendar.root==root and calendar.profile==PRODUCTS[root][0]
+                and (root!='BRN' or symbol.upper().endswith('@IFEU')))
 
 
-def calendar_for_pilot(calendar):
-    return NQCalendar(calendar.profile,calendar.zone_name,calendar.root,calendar.overrides)
+def calendar_for_family(calendar):
+    return FuturesCalendar(calendar.profile,calendar.zone_name,calendar.root,calendar.overrides)
 
 
 def build_family(raw,calendar,observed,*,coverage,observations):
@@ -182,9 +212,9 @@ def next_window(raw,now,progress,calendar):
 def backfill(service,symbol,now,*,cancelled):
     from .session_store import record_response
     raw=service._series(symbol)
-    key='NQ_SESSION_H1_v1'
+    key='US_FUTURES_H1_v1'
     progress=service.load_history_progress().get((symbol,key),{})
-    cal=calendar_for_pilot(service.calendar_factory(symbol))
+    cal=calendar_for_family(service.calendar_factory(symbol))
     # One initial bounded batch (six 30-day windows), then one repair window
     # per pass. Each completed request persists its cursor before continuing.
     budget=1 if progress.get('exhausted') else 6
@@ -195,7 +225,7 @@ def backfill(service,symbol,now,*,cancelled):
         start,end=window
         bars=service.api.bars(symbol,'H1',start=start,end=end)
         if cancelled():raise InterruptedError()
-        if not bars:return {'H4':'исходное окно Finam не подтверждено'}
+        if not bars:return {'D1':'исходное окно Finam не подтверждено'}
         service._upsert(symbol,'H1',bars)
         record_response(service,symbol,'H1',bars,start,end,now)
         earliest=min(b.time for b in raw['D1'])-timedelta(days=1)
@@ -203,4 +233,4 @@ def backfill(service,symbol,now,*,cancelled):
         service.save_history_progress(symbol,key,progress)
         if progress['exhausted']:break
         raw=service._series(symbol)
-    return {'H4':'проверка исходной истории NQ'}
+    return {'D1':'проверка исходной истории фьючерса'}

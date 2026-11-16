@@ -15,6 +15,7 @@ from .settings import IndicatorSettings
 from . import session_store
 from .trading_calendar import calendar_for
 from .provider_candles import native_higher_enabled, NATIVE_HIGHER
+from .us_futures_family import product as session_future
 
 TTL_SECONDS = {"M1":60,"M5":300,"H1":300,"H4":900,"D1":1800,"W1":3600,"MN1":14400}
 STREAM_VERIFY_SECONDS = 900
@@ -196,12 +197,13 @@ class FinamMarketService:
         """Deduplicate refreshes by exact symbol/TF; do not lock the DB across HTTP."""
         policy=bool(getattr(self.api,'session_candles',False))
         if policy:
-            # Finam D/W/M are primary provider series; only H4 requires
-            # intraday reconstruction. Binance retains its UTC session policy.
+            # US futures D/W/M need the current H1 source too. Native D/W/M
+            # retain archive boundaries and untouched provider history.
             needed=[]
             for frame in frames:
                 if native_higher_enabled(self.api):
-                    sources=('H1','M5') if frame=='H4' else (frame,)
+                    sources=(('H1','M5') if frame=='H4' else
+                             ('H1',frame) if session_future(symbol) and frame in NATIVE_HIGHER else (frame,))
                 else:
                     sources=('H1','M5','D1') if frame in ('H4',*NATIVE_HIGHER) else (frame,)
                 for item in sources:

@@ -9,7 +9,7 @@ from unittest.mock import patch
 
 from flowdesk.market_data import Candle, serialize_candle, aggregate
 from flowdesk.session_store import SourceSeries, record_response, _candle
-from flowdesk.nq_session_family import (build_family, calendar_for_pilot, enabled,
+from flowdesk.us_futures_family import (build_family, calendar_for_family as calendar_for_pilot, enabled,
                                       next_window, backfill, POLICY)
 from flowdesk.trading_calendar import calendar_for
 from flowdesk.finam_market import FinamMarketService
@@ -130,9 +130,11 @@ class TestNQFamily(unittest.TestCase):
         self.assertEqual(status,'ready');self.assertTrue(detail['left_partial'])
         self.assertEqual(family['MN1'][0].time,raw['H1'][0].time)
 
-    def test_pilot_does_not_change_es_other_contracts_or_crypto(self):
+    def test_scope_includes_following_series_but_not_russian_futures_or_crypto(self):
         self.assertTrue(enabled(SYMBOL,calendar_for(SYMBOL)))
-        for symbol in ('ESZ26@XCME','NQH27@XCME','BTCUSDT@BINANCE'):
+        for symbol in ('ESZ26@XCME','NQH27@XCME'):
+            self.assertTrue(enabled(symbol,calendar_for(symbol)))
+        for symbol in ('SIZ26@RTSX','SBER@MISX','BTCUSDT@BINANCE'):
             self.assertFalse(enabled(symbol,calendar_for(symbol)))
 
     def test_dst_sunday_and_month_end_scheduled_close(self):
@@ -189,7 +191,7 @@ class TestNQFamily(unittest.TestCase):
             self.assertEqual(market._series(SYMBOL),before)
             # An incomplete Last-price candidate cannot fall back to native
             # midnight D/W/M, which caused the original error.
-            with patch('flowdesk.session_store.nq.build_family',return_value=(None,'incomplete_lower_coverage',{})):
+            with patch('flowdesk.session_store.futures.build_family',return_value=(None,'incomplete_lower_coverage',{})):
                 with closing(market._connection()) as db,db:db.execute('DELETE FROM session_series_cache')
                 pending=market.prepare_series(SYMBOL,before,now)
             self.assertTrue(all(not pending.get(tf) for tf in NATIVE_HIGHER))
@@ -204,7 +206,7 @@ class TestNQFamily(unittest.TestCase):
             for tf,bars in raw.items():market._upsert(SYMBOL,tf,bars)
             for a,b in coverage['H1']:record_response(market,SYMBOL,'H1',raw['H1'],a,b,now)
             first=market.prepare_series(SYMBOL,market._series(SYMBOL),now)
-            with patch('flowdesk.session_store.nq.build_family',return_value=(None,'incomplete_lower_coverage',{})):
+            with patch('flowdesk.session_store.futures.build_family',return_value=(None,'incomplete_lower_coverage',{})):
                 failed=market.prepare_series(SYMBOL,market._series(SYMBOL),now+timedelta(hours=1))
                 self.assertEqual(failed['D1'],first['D1'])
                 self.assertEqual(failed.session_metadata['version'],POLICY)
@@ -229,13 +231,13 @@ class TestNQFamily(unittest.TestCase):
             self.assertEqual(calls,[])
             backfill(market,SYMBOL,now,cancelled=lambda:False)
             self.assertEqual(len(calls),6)
-            progress=market.load_history_progress()[SYMBOL,'NQ_SESSION_H1_v1']
+            progress=market.load_history_progress()[SYMBOL,'US_FUTURES_H1_v1']
             self.assertTrue(progress['exhausted'])
             restarted=FinamMarketService(path,api=api,clock=lambda:now)
-            self.assertEqual(restarted.load_history_progress()[SYMBOL,'NQ_SESSION_H1_v1'],progress)
+            self.assertEqual(restarted.load_history_progress()[SYMBOL,'US_FUTURES_H1_v1'],progress)
             api.bars=lambda *args,**kwargs:[]
             backfill(restarted,SYMBOL,now,cancelled=lambda:False)
-            self.assertEqual(restarted.load_history_progress()[SYMBOL,'NQ_SESSION_H1_v1'],progress)
+            self.assertEqual(restarted.load_history_progress()[SYMBOL,'US_FUTURES_H1_v1'],progress)
 
 
 if __name__=='__main__':unittest.main()
