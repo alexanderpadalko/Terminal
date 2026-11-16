@@ -39,6 +39,8 @@ class FinamMarketService:
         self.last_snapshot = {}
         self.analysis_cache = OrderedDict()
         self._active_analysis_key = None
+        self._source_repair_attempts = {}
+        self._source_repair_checked = {}
         self._pull_locks = {}
         self._analysis_locks = {}
         self._stream_updates = {}
@@ -146,6 +148,10 @@ class FinamMarketService:
             cleaned=session_store.SourceSeries(cleaned,raw.source_state)
         return session_store.prepare(self,symbol,cleaned,observed)
 
+    def repair_source_evidence(self,symbol,raw,observed,*,cancelled=lambda:False,priority=0):
+        from .source_repair import repair_source_evidence
+        return repair_source_evidence(self,symbol,raw,observed,cancelled=cancelled,priority=priority)
+
     def invalidate_network_cache(self):
         with self.lock,closing(self._connection()) as db,db:
             self._generation+=1
@@ -154,6 +160,8 @@ class FinamMarketService:
             self._repair_tried.clear()
             self._stream_updates.clear()
             self.analysis_cache.clear()
+            self._source_repair_attempts={}
+            self._source_repair_checked={}
             db.execute("DELETE FROM finam_pulls")
 
     def _tail(self,symbol,tf,limit=3):
@@ -385,6 +393,10 @@ class FinamMarketService:
         delay=self.api.market_delay_minutes(mic)
         observed=self.clock()-timedelta(minutes=delay)
         raw=self._series(symbol)
+        if (allow_http and 'H1' not in errors and
+                self.repair_source_evidence(symbol,raw,observed,cancelled=cancelled)):
+            raw=self._series(symbol)
+            observed=self.clock()-timedelta(minutes=self.api.market_delay_minutes(mic))
         if (allow_http and timeframe in NATIVE_HIGHER and native_higher_enabled(self.api)
                 and moex_trading(symbol) and (not moex.archive_ready(raw,symbol)
                     or not moex.opening_ready(raw,symbol,observed))):

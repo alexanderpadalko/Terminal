@@ -330,6 +330,11 @@ def scan_one(service, ticker, mic, settings, *, cancelled=lambda:False,
                                      for tf in TIMEFRAMES))
     delay=service.api.market_delay_minutes(mic)
     observed=service.clock()-timedelta(minutes=delay or 0)
+    repair=getattr(service,'repair_source_evidence',None)
+    if ('H1' not in fetch_problems and callable(repair) and
+            repair(symbol,series,observed,cancelled=cancelled,priority=10)):
+        series=service._series(symbol)
+        observed=service.clock()-timedelta(minutes=service.api.market_delay_minutes(mic) or 0)
     prepare=getattr(service,'prepare_series',None)
     if callable(prepare):series=prepare(symbol,series,observed)
     else:series=exclude_stock_closing_auction(series,mic)
