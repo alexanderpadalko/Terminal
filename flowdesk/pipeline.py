@@ -8,6 +8,7 @@ from dataclasses import replace
 from .engine import Analysis, analyze
 from .market_data import Candle, TIMEFRAMES, normalize,candle_close_time
 from .liquidity import HIGHER_SOURCES
+from .history_analysis import analyze_history
 
 
 def _closed(source):
@@ -53,6 +54,9 @@ def analyze_timeframes(series: dict[str, list[Candle]], display_tf: str,
         settings=IndicatorSettings()
     analyses: dict[str, Analysis] = {}
     minimum_tick=next((data['minimum_tick'] for data in (provenance or {}).values() if data.get('minimum_tick')), .01)
+    def replay(bars,tf,**kwargs):
+        boundaries=(provenance or {}).get(tf,{}).get('history_breaks',{}).get(tf,())
+        return analyze_history(bars,tf,breaks=boundaries,**kwargs) if boundaries else analyze(bars,tf,**kwargs)
     limited={}
     previous_summary={}
     for saved in (cached or {}).values():
@@ -69,7 +73,7 @@ def analyze_timeframes(series: dict[str, list[Candle]], display_tf: str,
                 old=previous_summary.get(tf)
                 dependency_changed=bool(set(HIGHER_SOURCES.get(tf,()))&changed_contexts)
                 result=None if dependency_changed else _reuse(old,bars,tf,asof)
-                limited[tf]=result or analyze(bars,tf,asof=asof,higher_liquidity=limited,
+                limited[tf]=result or replay(bars,tf,asof=asof,higher_liquidity=limited,
                                              settings=settings,minimum_tick=minimum_tick)
                 if dependency_changed or not _same_closed(old,limited[tf]):changed_contexts.add(tf)
     reused=set()
@@ -85,7 +89,7 @@ def analyze_timeframes(series: dict[str, list[Candle]], display_tf: str,
             analyses[tf] = result
             reused.add(tf)
             continue
-        result = analyze(bars, tf, asof=asof,
+        result = replay(bars, tf, asof=asof,
                          higher_h1=analyses.get("H1"),
                          higher_liquidity=(limited if settings is not None else analyses) if tf in ("H1", "H4", "D1", "W1", "MN1") else None,
                          settings=settings,minimum_tick=minimum_tick)
@@ -106,7 +110,7 @@ def analyze_timeframes(series: dict[str, list[Candle]], display_tf: str,
                 changed=bool(set(HIGHER_SOURCES['H1'])&changed_contexts)
                 old=(cached or {}).get('H1') or previous_summary.get('H1')
                 kept=None if changed else _reuse(old,eligible,'H1',asof)
-                summary['H1']=kept or analyze(eligible,'H1',asof=asof,
+                summary['H1']=kept or replay(eligible,'H1',asof=asof,
                     higher_liquidity=limited,settings=settings,
                     minimum_tick=minimum_tick)
                 summary['H1'].session_info=dict((provenance or {}).get('H1',{}))

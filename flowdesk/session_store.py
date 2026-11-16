@@ -131,10 +131,23 @@ def prepare(service,symbol,raw,observed):
     pilot=primary_native and futures.enabled(symbol,calendar)
     if pilot:calendar=futures.calendar_for_family(calendar)
     versions=(AGGREGATION_VERSION,calendar.revision,NATIVE_POLICY_VERSION if primary_native else None)
+    full_archive=bool(state and state.get('full_archive'))
+    versions+=(full_archive,)
     if pilot:versions+=(futures.POLICY,)
     ru_progress=state.get('moex_progress') if state else None
     if ru:versions+=(moex.POLICY,moex.REVISION,ru_progress)
     policy=hashlib.sha256(repr(versions).encode()).hexdigest()
+    # History retention changes H1/H4 and the archive-mode flag, but must not
+    # discard an already coherent Last/Open family during a source outage.
+    # Accept only precisely matching calendar/family policies, including the
+    # pre-archive version; never a different session or closing-price rule.
+    family_cache_policies={policy}
+    if pilot or ru:
+        sibling=list(versions);sibling[3]=not full_archive
+        family_cache_policies.add(hashlib.sha256(repr(tuple(sibling)).encode()).hexdigest())
+        legacy=('session-ohlcv-1',calendar.revision,NATIVE_POLICY_VERSION)
+        legacy+=(futures.POLICY,) if pilot else (moex.POLICY,moex.REVISION,ru_progress)
+        family_cache_policies.add(hashlib.sha256(repr(legacy).encode()).hexdigest())
     with closing(service._connection()) as db:
         revision=state['revision'] if state else -1
         saved=db.execute('SELECT policy,revision,observed_at,payload FROM session_series_cache WHERE symbol=?',(symbol,)).fetchone()
@@ -170,6 +183,7 @@ def prepare(service,symbol,raw,observed):
             {tf:'control_source_invalid' for tf in ('H1','H4',*NATIVE_HIGHER)})
     metadata={'version':NATIVE_POLICY_VERSION if primary_native else built.version,
               'profile':calendar.profile,'policy':policy,
+              'history_breaks':built.breaks,
               'issues':built.issues,'origins':built.origins,'calendar_parity':'unverified_tradingview'}
     if primary_native:
         metadata['control_issues']=control_issues(built,native,calendar,observed)
@@ -178,6 +192,7 @@ def prepare(service,symbol,raw,observed):
         metadata['origins']={**built.origins,**{tf:'finam_native' for tf in NATIVE_HIGHER}}
         built.series={tf:bars for tf,bars in built.series.items() if tf not in NATIVE_HIGHER}
         built.series.update(native)
+        metadata['history_breaks']={tf:rows for tf,rows in built.breaks.items() if tf not in NATIVE_HIGHER}
         if pilot or ru:
             # A selected trading-day family never falls back to differently
             # grouped native D/W/M while its source history is unavailable.
@@ -196,6 +211,9 @@ def prepare(service,symbol,raw,observed):
                 else:
                     candidate,status,detail=futures.build_family(raw,calendar,observed,
                         coverage=coverage,observations=observed_at)
+                    if candidate is None and full_archive:
+                        candidate,status,detail=futures.build_verified_archive(raw,calendar,observed,
+                            coverage=coverage,observations=observed_at)
             except (ValueError,OverflowError):
                 candidate,status,detail=None,'control_source_invalid',{'policy':family_policy}
             metadata['moex_staging' if ru else 'futures_staging']={**detail,'status':status}
@@ -203,6 +221,8 @@ def prepare(service,symbol,raw,observed):
                 # Publish all three frames from one source snapshot. The RU
                 # candidate explicitly preserves its unaffected native prefix.
                 built.series.update(candidate)
+                if not ru and detail.get('history_breaks'):
+                    metadata['history_breaks'].update(detail['history_breaks'])
                 metadata['version']=family_policy
                 metadata['origins']={**metadata['origins'],
                     **{tf:origin for tf in NATIVE_HIGHER}}
@@ -215,7 +235,7 @@ def prepare(service,symbol,raw,observed):
                 # Keep the last coherent snapshot, never sealing its old
                 # drafts merely because the wall clock has advanced.
                 try:
-                    previous=json.loads(saved[3]) if saved and saved[0]==policy else {}
+                    previous=json.loads(saved[3]) if saved and saved[0] in family_cache_policies else {}
                     prior_meta=previous.get('metadata',{})
                     stamp=datetime.fromisoformat(prior_meta[snapshot_key])
                     if prior_meta.get('version')==family_policy and stamp<=observed:

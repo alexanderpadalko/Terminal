@@ -47,6 +47,24 @@ class TestBinance(unittest.TestCase):
     def api(self,**kwargs):
         return BinanceAPI(clock=lambda:NOW,coordinator=RequestCoordinator(per_minute=60000),**kwargs)
 
+    def test_archive_boundary_is_first_real_kline_and_is_cached_per_timeframe(self):
+        requests=[]
+        first=datetime(2019,9,8,tzinfo=timezone.utc)
+        def opened(req,timeout):
+            requests.append(req)
+            if 'exchangeInfo' in req.full_url:
+                return Response({'symbols':[contract(onboardDate=START)]})
+            query=parse_qs(urlsplit(req.full_url).query)
+            self.assertEqual(query['startTime'],['0'])
+            self.assertEqual(query['limit'],['1'])
+            return Response([row(int(first.timestamp()*1000))])
+        api=self.api(opener=opened)
+        self.assertEqual(api.archive_start('BTCUSDT@BINANCE','M1'),first)
+        self.assertEqual(api.archive_start('BTCUSDT@BINANCE','M1'),first)
+        self.assertEqual(len(requests),2)
+        api.archive_start('BTCUSDT@BINANCE','H1')
+        self.assertEqual(len(requests),3)
+
     def test_provider_identity_cannot_escape_two_perpetuals_or_finam_validation(self):
         self.assertEqual(symbol_name("btcusdt.p","BINANCE"),"BTCUSDT@BINANCE")
         for ticker in ("BTCUSD","BTCUSDT_261225","SOLUSDT","BTCUSDT/../../order"):

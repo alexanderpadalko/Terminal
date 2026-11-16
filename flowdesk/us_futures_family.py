@@ -171,6 +171,32 @@ def build_family(raw,calendar,observed,*,coverage,observations):
     return family,'ready',detail
 
 
+def build_verified_archive(raw,calendar,observed,*,coverage,observations):
+    """Full-archive mode: publish only complete, verified session blocks.
+
+    Extending native reference labels into an unknown historical calendar
+    cannot freeze the already usable current family. Prices still come ONLY
+    from H1 Last; native higher prices never enter this candidate. Whole
+    weeks/months with unknown or missing constituent days remain unpublished.
+    The three outputs are switched together, with explicit replay boundaries.
+    """
+    from .session_candles import build_session_series
+    built=build_session_series({'H1':raw.get('H1',())},calendar,observed,
+                               coverage=coverage,observed_at=observations)
+    family={tf:built.series.get(tf,[]) for tf in ('D1','W1','MN1')}
+    detail={'policy':POLICY,'close_rule':'session_last_trade','volume_rule':'finam_h1_sum',
+            'verified_archive_blocks':True,'history_breaks':built.breaks,
+            'unpublished_history':built.issues,'daily_count':len(family['D1'])}
+    if not family['D1']:
+        return None,'product_holiday_hours_unknown',detail
+    # An incomplete latest session cannot be hidden behind an older day's
+    # otherwise valid archival prices. Let the caller keep its coherent snapshot.
+    last=family['D1'][-1]
+    if any(last.scheduled_close<=b.time<observed for b in raw.get('H1',())):
+        return None,'incomplete_lower_coverage',detail
+    return family,'ready',detail
+
+
 def next_window(raw,now,progress,calendar):
     """Newest unverified interior H1 window, not min(raw timestamp).
 

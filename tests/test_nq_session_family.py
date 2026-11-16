@@ -214,6 +214,29 @@ class TestNQFamily(unittest.TestCase):
             self.assertFalse(after.get('MN1'))  # November draft never became closed.
             self.assertEqual(after['D1'],first['D1'])
 
+    def test_archive_migration_keeps_prior_family_from_same_calendar_policy(self):
+        import hashlib,json
+        from flowdesk.history_archive import VERSION
+        raw,obs,coverage,now=source()
+        api=SimpleNamespace(session_candles=True,native_higher_frames=NATIVE_HIGHER,
+                            market_delay_minutes=lambda mic:0)
+        with tempfile.TemporaryDirectory() as folder:
+            market=FinamMarketService(Path(folder)/'data.sqlite',api=api,clock=lambda:now)
+            for tf,bars in raw.items():market._upsert(SYMBOL,tf,bars)
+            for a,b in coverage['H1']:record_response(market,SYMBOL,'H1',raw['H1'],a,b,now)
+            first=market.prepare_series(SYMBOL,market._series(SYMBOL),now)
+            old_policy=hashlib.sha256(repr(('session-ohlcv-1',CAL.revision,NATIVE_POLICY_VERSION,POLICY)).encode()).hexdigest()
+            with closing(market._connection()) as db,db:
+                saved=json.loads(db.execute('SELECT payload FROM session_series_cache').fetchone()[0])
+                saved['metadata']['policy']=old_policy
+                db.execute('UPDATE session_series_cache SET policy=?,payload=?',
+                           (old_policy,json.dumps(saved)))
+            market.save_history_progress(SYMBOL,VERSION+'MN1',{'cursor':now,'exhausted':False})
+            with (patch('flowdesk.session_store.futures.build_family',return_value=(None,'incomplete_lower_coverage',{})),
+                  patch('flowdesk.session_store.futures.build_verified_archive',return_value=(None,'incomplete_lower_coverage',{}))):
+                failed=market.prepare_series(SYMBOL,market._series(SYMBOL),now+timedelta(minutes=1))
+            self.assertEqual([failed.get(tf) for tf in NATIVE_HIGHER],[first.get(tf) for tf in NATIVE_HIGHER])
+
     def test_bootstrap_budget_persisted_cursor_empty_response_and_cancellation(self):
         calls=[]
         def request(symbol,tf,*,start,end):

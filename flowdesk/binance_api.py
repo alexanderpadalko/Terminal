@@ -56,6 +56,7 @@ class BinanceAPI:
         self.coordinator=coordinator or RequestCoordinator()
         self._metadata=None;self._metadata_at=0
         self._metadata_lock=threading.RLock()
+        self._archive_starts={}
 
     def request_scope(self,**kwargs):return self.coordinator.scope(**kwargs)
 
@@ -101,6 +102,22 @@ class BinanceAPI:
             return row
 
     def market_delay_minutes(self,venue):return 0
+
+    def archive_start(self,symbol,timeframe):
+        """First actual kline returned from the epoch, not a guessed listing date."""
+        if timeframe not in INTERVALS:raise ValueError('Unknown Binance timeframe')
+        self._contract(symbol)
+        key=(symbol,timeframe)
+        with self._metadata_lock:
+            if key in self._archive_starts:return self._archive_starts[key]
+        rows=self._json('/fapi/v1/klines',{'symbol':self._ticker(symbol),
+            'interval':INTERVALS[timeframe],'startTime':0,'limit':1})
+        if not isinstance(rows,list) or len(rows)>1:
+            raise BinanceAPIError('Binance: неверная граница архива')
+        first=kline(rows[0]).time if rows else None
+        if first is not None:
+            with self._metadata_lock:self._archive_starts[key]=first
+        return first
 
     def asset_tick_size(self,symbol):
         row=self._contract(symbol)

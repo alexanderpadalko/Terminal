@@ -37,6 +37,7 @@ from .qt_gc import install_gui_gc
 from .diagnostics_log import log_event, log_snapshot
 from .finam_stream import FinamStreamWorker
 from .finam_screener import FinamScreenerWorker, ScanResult, LABELS, unknown
+from .history_archive import HistoryArchiveWorker
 from .gui import CandleChart, TimeframeBar
 from .settings import IndicatorSettings, ApplicationSettings, SettingsStore
 from .settings_dialog import SettingsDialog
@@ -152,6 +153,8 @@ class FinamWindow(QMainWindow):
         self.catalog_error = ""
         self.screen_results = {}
         self.screener_worker = None
+        self.history_worker = None
+        self._history_dirty=set()
         self.screener_rescan_requested = False
         self.screener_pending = set()
         self.futures_list_cache = FuturesListCache()
@@ -174,6 +177,10 @@ class FinamWindow(QMainWindow):
         self.screener_timer=QTimer(self)
         self.screener_timer.setInterval(300000)
         self.screener_timer.timeout.connect(self._start_screener)
+        self.history_chart_timer=QTimer(self)
+        self.history_chart_timer.setSingleShot(True)
+        self.history_chart_timer.setInterval(5000)
+        self.history_chart_timer.timeout.connect(self._history_chart_refresh)
         self.daily_catalog_timer = QTimer(self)
         self.daily_catalog_timer.setInterval(60000)
         self.daily_catalog_timer.timeout.connect(self._daily_catalog_refresh)
@@ -560,6 +567,54 @@ class FinamWindow(QMainWindow):
         worker.finished.connect(self._screener_finished)
         worker.start()
 
+    def _start_history(self):
+        if self.closing:
+            return
+        finam_enabled=bool(read_secret())
+        entries=tuple(row for group in (US_FUTURES,RU_STOCKS,RU_FUTURES,CRYPTO)
+                      for row in self.universe[group] if finam_enabled or group==CRYPTO)
+        symbols=tuple(dict.fromkeys(row.symbol.upper() for row in entries if row.verified and '@' in row.symbol))
+        if self.history_worker is not None:
+            if set(self.history_worker.symbols)!=set(symbols):
+                self.history_worker.requestInterruption()
+            return
+        if not symbols:
+            return
+        worker=HistoryArchiveWorker(self.service,entries,self)
+        self.history_worker=worker
+        worker.changed.connect(self._history_changed)
+        worker.finished.connect(self._history_finished)
+        worker.start()
+
+    def _history_changed(self,symbol):
+        self._history_dirty.add(symbol)
+        if not self.closing and self.current and '@'.join(self.current)==symbol:
+            # Coalesce successive source windows; delivery still preserves
+            # the user's latest timestamp/zoom through _loaded().
+            if not self.history_chart_timer.isActive():
+                self.history_chart_timer.start()
+
+    def _history_chart_refresh(self):
+        if self.closing or not self.current_view or '@'.join(self.current) not in self._history_dirty:
+            return
+        if self.loader is not None:
+            self.history_chart_timer.start()
+        else:
+            self._history_dirty.discard('@'.join(self.current))
+            self._load(refresh=False)
+
+    def _history_finished(self):
+        worker=self.sender()
+        if worker is not self.history_worker:
+            return
+        restart=worker.isInterruptionRequested() and not self.closing
+        self.history_worker=None
+        worker.deleteLater()
+        if self.closing:
+            self._finish_close()
+        elif restart:
+            QTimer.singleShot(0,self._start_history)
+
     def _screener_progress(self,completed,total):
         if not self.closing:
             self.scan_progress.setText(f"Проверено {completed} из {total}")
@@ -596,6 +651,8 @@ class FinamWindow(QMainWindow):
         elif self.screener_rescan_requested:
             self.screener_rescan_requested=False
             QTimer.singleShot(0,self._start_screener)
+        else:
+            self._start_history()
 
     def _daily_catalog_refresh(self):
         if self.closing or not read_secret():
@@ -1122,6 +1179,7 @@ class FinamWindow(QMainWindow):
     def _finish_close(self):
         if (self.loader is None and self.stream is None and
                 self.catalog_worker is None and self.screener_worker is None and
+                self.history_worker is None and
                 not getattr(self,"_retiring",[])):
             QApplication.instance().quit()
 
@@ -1130,17 +1188,21 @@ class FinamWindow(QMainWindow):
         self.feed_timer.stop()
         self.http_timer.stop()
         self.screener_timer.stop()
+        self.history_chart_timer.stop()
         self.daily_catalog_timer.stop()
         self.storage_backup_timer.stop()
         self._stop_stream()
         if self.screener_worker is not None:
             self.screener_worker.requestInterruption()
+        if self.history_worker is not None:
+            self.history_worker.requestInterruption()
         if self.loader is not None:
             self.loader.requestInterruption()
         if self.catalog_worker is not None:
             self.catalog_worker.requestInterruption()
         if (self.loader is not None or self.catalog_worker is not None or
-                self.screener_worker is not None or getattr(self,"_retiring",[])):
+                self.screener_worker is not None or self.history_worker is not None or
+                getattr(self,"_retiring",[])):
             event.ignore()
             self.hide()
         else:

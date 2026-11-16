@@ -273,6 +273,29 @@ class TestFinamGui(unittest.TestCase):
         self.assertEqual(chart.analysis.candles[chart.window()[1]-1].time,anchor)
         self.assertEqual(chart.viewport.bounds(len(chart.times)),(bounds[0]+1,bounds[1]+1))
 
+    def test_archive_updates_wait_for_current_loader_and_coalesce(self):
+        self.select('SBER');self.settle()
+        self.window._history_changed('SBER@MISX')
+        self.assertTrue(self.window.history_chart_timer.isActive())
+        self.window.loader=object()
+        try:
+            with patch.object(self.window,'_load') as load:
+                self.window._history_chart_refresh()
+                load.assert_not_called()
+        finally:self.window.loader=None
+        with patch.object(self.window,'_load') as load:
+            self.window._history_chart_refresh()
+            self.window._history_chart_refresh()
+            load.assert_called_once_with(refresh=False)
+        self.window.history_chart_timer.stop()
+
+    def test_archive_update_of_other_symbol_does_not_reload_selected_chart(self):
+        self.select('SBER');self.settle()
+        with patch.object(self.window,'_load') as load:
+            self.window._history_changed('GAZP@MISX')
+            self.window._history_chart_refresh()
+            load.assert_not_called()
+
     def test_stale_failure_does_not_replace_newer_selection(self):
         self.market.block_symbol="GAZP"
         self.select("GAZP","MISX")

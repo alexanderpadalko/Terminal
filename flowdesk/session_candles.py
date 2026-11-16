@@ -13,7 +13,7 @@ from .market_data import Candle, candle_close_time, normalize
 from .trading_calendar import CalendarUnavailable
 
 UTC=timezone.utc
-AGGREGATION_VERSION='session-ohlcv-1'
+AGGREGATION_VERSION='session-ohlcv-2-history'
 LOWER=('M1','M5','H1')
 HIGHER=('H4','D1','W1','MN1')
 
@@ -24,6 +24,7 @@ class SessionSeries:
     issues: dict=field(default_factory=dict)
     origins: dict=field(default_factory=dict)
     version: str=AGGREGATION_VERSION
+    breaks: dict=field(default_factory=dict)
 
 
 def _combine(start,end,bars):
@@ -157,6 +158,12 @@ def build_session_series(raw,calendar,observed,*,coverage=None,observed_at=None)
     native_crypto={tf:{b.time:b for b in normalize(raw.get(tf,[]))} for tf in ('H4','D1')}
     h4_start=min(intraday_start,min(native_crypto['H4'],default=observed))
     days={};empty_days=set();h4=[];hourly=[]
+    breaks={};pending=set();unknown_days=set()
+    def append(tf,items,bar):
+        if tf in pending and items:
+            breaks.setdefault(tf,[]).append(bar.time.isoformat())
+        pending.discard(tf)
+        items.append(bar)
     def native_bar(tf,start,end):
         bar=native_crypto[tf].get(start)
         if (bar is not None and (bar.scheduled_close is None or bar.scheduled_close==end) and
@@ -170,7 +177,8 @@ def build_session_series(raw,calendar,observed,*,coverage=None,observed_at=None)
         except CalendarUnavailable as exc:
             if cursor<=observed.astimezone(calendar.zone).date():
                 for tf in HIGHER:issues.setdefault(tf,str(exc))
-                h4.clear();hourly.clear();days.clear();empty_days.clear()
+                pending.update(('H1','H4','D1'))
+                unknown_days.add(cursor)
             cursor+=timedelta(days=1);continue
         physical_day=cursor
         cursor+=timedelta(days=1)
@@ -179,8 +187,8 @@ def build_session_series(raw,calendar,observed,*,coverage=None,observed_at=None)
             for pieces in session.buckets(60):
                 if pieces[0][0]>=observed:continue
                 hour,origin=lower.bucket(pieces,session.end)
-                if hour is not None:hourly.append(hour)
-                elif origin!='no_trades' and pieces[-1][1]<=observed:hourly.clear()
+                if hour is not None:append('H1',hourly,hour)
+                elif origin!='no_trades' and pieces[-1][1]<=observed:pending.add('H1')
         if session.end<=h4_start:pieces_iter=()
         else:pieces_iter=session.buckets(240)
         for pieces in pieces_iter:
@@ -188,15 +196,15 @@ def build_session_series(raw,calendar,observed,*,coverage=None,observed_at=None)
             bar=native_bar('H4',pieces[0][0],pieces[-1][1]) if crypto else None
             origin=None
             if bar is None:bar,origin=lower.bucket(pieces,session.end)
-            if bar is not None:h4.append(bar)
+            if bar is not None:append('H4',h4,bar)
             elif origin=='no_trades':continue
             else:
                 issues.setdefault('H4','incomplete_lower_coverage')
-                if pieces[-1][1]<=observed:h4.clear()
+                if pieces[-1][1]<=observed:pending.add('H4')
         try:
             daily=calendar.daily_session(calendar.trading_date(physical_day))
         except CalendarUnavailable as exc:
-            issues.setdefault('D1',str(exc));days.clear();empty_days.clear();continue
+            issues.setdefault('D1',str(exc));pending.add('D1');continue
         if daily is None:continue
         day=native_bar('D1',daily.start,daily.end) if crypto else None
         origin='provider_native_verified' if day is not None else 'session_lower'
@@ -207,7 +215,7 @@ def build_session_series(raw,calendar,observed,*,coverage=None,observed_at=None)
         if day is None:
             if lower_origin=='no_trades':empty_days.add(daily.trading_date);continue
             issues.setdefault('D1','incomplete_lower_coverage')
-            if daily.end<=observed:days.clear();empty_days.clear()
+            if daily.end<=observed:pending.add('D1')
             continue
         official=native_daily.get(daily.trading_date)
         # Native provider labels are date labels, not an instruction to anchor
@@ -219,12 +227,39 @@ def build_session_series(raw,calendar,observed,*,coverage=None,observed_at=None)
                            official.close,official.volume,scheduled_close=daily.end)
                 origin='provider_native_verified'
             else:issues['D1']='native_daily_session_mismatch'
+        if 'D1' in pending and days:
+            breaks.setdefault('D1',[]).append(day.time.isoformat())
+        pending.discard('D1')
         days[daily.trading_date]=day
         empty_days.discard(daily.trading_date)
         origins['D1']=origin if origins['D1']==origin else 'session_lower_or_verified_daily'
-    output['H1']=normalize(hourly);output['H4']=normalize(h4);output['D1']=normalize(list(days.values()))
+    # Genuine provider H1 bars need no invented historical session to be
+    # displayed. Retain them only in unknown regimes, with their own original
+    # timestamps. Never substitute native H4/D/W/M for session candles.
+    prefix=[];native_gap=False
+    hourly_times={b.time for b in hourly}
+    for bar in normalize(raw.get('H1',())):
+        if bar.time in hourly_times or bar.time.astimezone(calendar.zone).date() not in unknown_days:
+            continue
+        end=candle_close_time(bar,'H1')
+        if (bar.time<=observed and
+                ((end<=observed and observed_at.get(('H1',bar.time),end)>=end) or
+                 (end>observed and bar.time<=observed_at.get(('H1',bar.time),observed)<=observed))):
+            if native_gap and prefix:breaks.setdefault('H1',[]).append(bar.time.isoformat())
+            native_gap=False
+            prefix.append(bar)
+        elif end<=observed:native_gap=True
+    if prefix:
+        origins['H1']='provider_h1_and_verified_sessions'
+        # Changing source interpretation is a calculation boundary.
+        prior=None
+        for bar,kind in sorted([(b,0) for b in prefix]+[(b,1) for b in hourly],key=lambda row:row[0].time):
+            if prior is not None and prior!=kind:
+                breaks.setdefault('H1',[]).append(bar.time.isoformat())
+            prior=kind
+    output['H1']=normalize(prefix+hourly);output['H4']=normalize(h4);output['D1']=normalize(list(days.values()))
     for tf in ('W1','MN1'):
-        assembled=[]
+        assembled=[];period_gap=False
         periods=sorted({_period(day,tf) for day in days})
         for begin,finish in periods:
             try:
@@ -240,17 +275,24 @@ def build_session_series(raw,calendar,observed,*,coverage=None,observed_at=None)
                 through=min(finish,max(local_day+timedelta(days=1),calendar.trading_date(local_day)))
                 sessions=list(calendar.daily_sessions(begin,through))
             except CalendarUnavailable as exc:
-                issues.setdefault(tf,str(exc));continue
+                issues.setdefault(tf,str(exc));period_gap=True;continue
             needed=[s for s in sessions if s.start<observed and s.trading_date not in empty_days]
             if not needed:continue
             if any(s.trading_date not in days for s in needed):
-                issues.setdefault(tf,'incomplete_daily_coverage');continue
+                issues.setdefault(tf,'incomplete_daily_coverage');period_gap=True;continue
             chunk=[days[s.trading_date] for s in needed]
             if first_session is None or last_session is None:continue
-            assembled.append(_combine(first_session.start,last_session.end,chunk))
+            bar=_combine(first_session.start,last_session.end,chunk)
+            if assembled and any(assembled[-1].time<datetime.fromisoformat(t)<=bar.time
+                                 for t in breaks.get('D1',())):
+                period_gap=True
+            if period_gap and assembled:breaks.setdefault(tf,[]).append(bar.time.isoformat())
+            period_gap=False
+            assembled.append(bar)
         output[tf]=normalize(assembled)
         origins[tf]='session_daily'
     # An incomplete latest source must not masquerade as a current signal
     # from an earlier cached period. Retain historical drawing only when the
     # currently required closed period is present (caller records issues).
-    return SessionSeries({tf:bars for tf,bars in output.items() if bars},issues,origins)
+    return SessionSeries({tf:bars for tf,bars in output.items() if bars},issues,origins,
+                         breaks={tf:sorted(set(rows)) for tf,rows in breaks.items()})

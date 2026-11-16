@@ -32,6 +32,7 @@ class FinamMarketService:
         self.clock = clock or (lambda:datetime.now(timezone.utc))
         self.calendar_factory=calendar_factory or calendar_for
         self.lock = threading.RLock()
+        self._history_locks = {}
         self.latest_stream_at = {}
         self.last_snapshot = {}
         self.analysis_cache = OrderedDict()
@@ -56,6 +57,9 @@ class FinamMarketService:
             db.execute("""CREATE TABLE IF NOT EXISTS finam_history_progress (
                 symbol TEXT NOT NULL,tf TEXT NOT NULL,cursor TEXT NOT NULL,
                 exhausted INTEGER NOT NULL,PRIMARY KEY(symbol,tf))""")
+            db.execute('''CREATE TABLE IF NOT EXISTS full_archive_turns (
+                symbol TEXT NOT NULL,tf TEXT NOT NULL,turns INTEGER NOT NULL,
+                PRIMARY KEY(symbol,tf))''')
             session_store.initialize(db)
 
     def _connection(self):
@@ -123,7 +127,9 @@ class FinamMarketService:
                     'coverage':db.execute('SELECT tf,start,ending FROM candle_source_coverage WHERE symbol=?',(symbol,)).fetchall(),
                     'observations':db.execute('SELECT tf,ts,observed_at FROM candle_source_observations WHERE symbol=?',(symbol,)).fetchall(),
                     'moex_progress':db.execute('SELECT cursor,exhausted FROM finam_history_progress WHERE symbol=? AND tf=?',
-                                              (symbol,MOEX_PROGRESS)).fetchone()}
+                                              (symbol,MOEX_PROGRESS)).fetchone(),
+                    'full_archive':bool(db.execute("SELECT 1 FROM finam_history_progress WHERE symbol=? AND tf GLOB 'FULL_ARCHIVE_v2_*' LIMIT 1",
+                                                   (symbol,)).fetchone())}
         series={tf:[] for tf in FRAMES}
         for tf,ts,o,h,l,c,v,ending in rows:
             if tf in series:
