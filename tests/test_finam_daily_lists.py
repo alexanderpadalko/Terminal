@@ -20,7 +20,7 @@ class DailyFuturesListsTest(unittest.TestCase):
         self.cache=FuturesListCache(Path(self.tmp.name))
         self.now=datetime(2026,11,16,9,0,tzinfo=timezone.utc)
         self.us=Item(US_CONTRACTS[0].display,US_CONTRACTS[0].name,
-                     US_FUTURES,"NQZ6@XCME",True,
+                     US_FUTURES,"GCZ6@XCEC",True,
                      "действует до 2026-12-18 · Finam GetAsset")
         self.ru=Item(RU_CONTRACTS[0].display,RU_CONTRACTS[0].name,
                      RU_FUTURES,"SiZ6@RTSX",True,
@@ -40,7 +40,7 @@ class DailyFuturesListsTest(unittest.TestCase):
         self.assertEqual(list(us_rows),[US_FUTURES+":"+US_CONTRACTS[0].display])
         self.assertEqual(list(ru_rows),[RU_FUTURES+":"+RU_CONTRACTS[0].display])
         rows=self.cache.load(now=self.now)
-        self.assertEqual(rows[US_FUTURES+":"+US_CONTRACTS[0].display].symbol,"NQZ6@XCME")
+        self.assertEqual(rows[US_FUTURES+":"+US_CONTRACTS[0].display].symbol,"GCZ6@XCEC")
         self.assertEqual(rows[RU_FUTURES+":"+RU_CONTRACTS[0].display].symbol,"SiZ6@RTSX")
         self.assertIn("сохранённый список",rows[US_FUTURES+":"+US_CONTRACTS[0].display].source)
 
@@ -57,10 +57,10 @@ class DailyFuturesListsTest(unittest.TestCase):
 
     def test_unknown_expiry_and_wrong_market_are_not_restored(self):
         unknown=Item(US_CONTRACTS[1].display,US_CONTRACTS[1].name,
-                     US_FUTURES,"ESZ6@XCME",True,
+                     US_FUTURES,"SIZ6@XCEC",True,
                      "экспирация не подтверждена; автопереход приостановлен")
         wrong=Item(US_CONTRACTS[0].display,US_CONTRACTS[0].name,
-                   US_FUTURES,"NQZ6@RTSX",True,self.us.source)
+                   US_FUTURES,"GCZ6@RTSX",True,self.us.source)
         self.cache.save({US_FUTURES+":"+US_CONTRACTS[1].display:unknown,
                          US_FUTURES+":"+US_CONTRACTS[0].display:wrong},
                         now=self.now)
@@ -112,7 +112,7 @@ class DailyFuturesListsTest(unittest.TestCase):
                                                       self.now.date()))
 
     def test_perpetual_cache_uses_contract_definition(self):
-        contract=RU_CONTRACTS[4]
+        contract=RU_CONTRACTS[3]
         record={"symbol":"USDRUBF@RTSX","label":contract.display,"verified":True,
                 "source":"вечный контракт, без ролловера"}
         self.assertIsNotNone(self.cache._safe_item(contract,record,self.now.date()))
@@ -121,7 +121,7 @@ class DailyFuturesListsTest(unittest.TestCase):
 
     def test_rollover_cache_uses_actual_catalog_mic_local_date(self):
         from dataclasses import replace
-        contract=US_CONTRACTS[2]  # GC may be returned on XCEC or XCME.
+        contract=US_CONTRACTS[0]  # GC may be returned on XCEC or XCME.
         row=Item(contract.display,contract.name,contract.group,"GCZ6@XCME",True,
                  "действует до 2026-12-18 · Finam GetAsset")
         key=contract.group+":"+contract.display
