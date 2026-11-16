@@ -2,6 +2,22 @@
   "mode": "read_only_finam_first_chart_open_from_isolated_copy",
   "production_changed": false,
   "manual_backfill_called": false,
+  "windows_release": {
+    "commit": "aedb71e1b222798c1747c37f0e1f4b891445f5ae",
+    "run_id": 43866180150,
+    "conclusion": "success",
+    "tests": 694,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "tracebacks": 0,
+    "shutdown_exit_seconds": [0.084, 0.068, 0.067],
+    "shutdown_exit_codes": [0, 0, 0],
+    "artifact_id": 14225731590,
+    "signature_status": "UNSIGNED",
+    "zip_bytes": 49445009,
+    "zip_sha256": "67192b7c1f483be0c2e6224a0d63e07c0fbdbc475663b6c2a0a01259d0ada903"
+  },
   "symbols": [
     {
       "symbol": "CRZ6@RTSX",
