@@ -122,5 +122,30 @@ class RetentionTests(unittest.TestCase):
         self.assertTrue(all(b.close==10 for tf in family for b in family[tf]))
         self.assertTrue(detail['verified_archive_blocks'])
 
+    def test_higher_family_boundaries_do_not_replace_independent_hourly_replay(self):
+        import tempfile
+        from pathlib import Path
+        from types import SimpleNamespace
+        from unittest.mock import patch
+        from flowdesk.finam_market import FinamMarketService
+        from flowdesk.provider_candles import NATIVE_HIGHER
+        from flowdesk.history_archive import VERSION
+        from test_nq_session_family import source,SYMBOL
+        raw,obs,coverage,now=source()
+        api=SimpleNamespace(session_candles=True,native_higher_frames=NATIVE_HIGHER,
+                            market_delay_minutes=lambda mic:0)
+        with tempfile.TemporaryDirectory() as folder:
+            service=FinamMarketService(Path(folder)/'data.sqlite',api=api,clock=lambda:now)
+            for tf,rows in raw.items():service._upsert(SYMBOL,tf,rows)
+            service.save_history_progress(SYMBOL,VERSION+'H1',{'cursor':now,'exhausted':False})
+            marker=raw['H1'][4].time.isoformat()
+            family={tf:[raw['D1'][0]] for tf in NATIVE_HIGHER}
+            with (patch('flowdesk.session_store.futures.build_family',return_value=(None,'incomplete_lower_coverage',{})),
+                  patch('flowdesk.session_store.futures.build_verified_archive',return_value=(family,'ready',{'history_breaks':{'H1':[marker],'H4':[marker],'D1':[marker]}}))):
+                result=service.prepare_series(SYMBOL,service._series(SYMBOL),now)
+            self.assertNotIn(marker,result.session_metadata['history_breaks'].get('H1',[]))
+            self.assertNotIn(marker,result.session_metadata['history_breaks'].get('H4',[]))
+            self.assertIn(marker,result.session_metadata['history_breaks']['D1'])
+
 
 if __name__=='__main__':unittest.main()

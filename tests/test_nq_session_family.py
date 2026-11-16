@@ -229,6 +229,7 @@ class TestNQFamily(unittest.TestCase):
             with closing(market._connection()) as db,db:
                 saved=json.loads(db.execute('SELECT payload FROM session_series_cache').fetchone()[0])
                 saved['metadata']['policy']=old_policy
+                saved['metadata']['history_breaks']={'D1':[first['D1'][0].time.isoformat()]}
                 db.execute('UPDATE session_series_cache SET policy=?,payload=?',
                            (old_policy,json.dumps(saved)))
             market.save_history_progress(SYMBOL,VERSION+'MN1',{'cursor':now,'exhausted':False})
@@ -236,6 +237,7 @@ class TestNQFamily(unittest.TestCase):
                   patch('flowdesk.session_store.futures.build_verified_archive',return_value=(None,'incomplete_lower_coverage',{}))):
                 failed=market.prepare_series(SYMBOL,market._series(SYMBOL),now+timedelta(minutes=1))
             self.assertEqual([failed.get(tf) for tf in NATIVE_HIGHER],[first.get(tf) for tf in NATIVE_HIGHER])
+            self.assertEqual(failed.session_metadata['history_breaks']['D1'],[first['D1'][0].time.isoformat()])
 
     def test_bootstrap_budget_persisted_cursor_empty_response_and_cancellation(self):
         calls=[]

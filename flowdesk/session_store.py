@@ -222,7 +222,8 @@ def prepare(service,symbol,raw,observed):
                 # candidate explicitly preserves its unaffected native prefix.
                 built.series.update(candidate)
                 if not ru and detail.get('history_breaks'):
-                    metadata['history_breaks'].update(detail['history_breaks'])
+                    metadata['history_breaks'].update({tf:rows for tf,rows in detail['history_breaks'].items()
+                                                       if tf in NATIVE_HIGHER})
                 metadata['version']=family_policy
                 metadata['origins']={**metadata['origins'],
                     **{tf:origin for tf in NATIVE_HIGHER}}
@@ -243,6 +244,8 @@ def prepare(service,symbol,raw,observed):
                             if (bar:=_candle(row)).scheduled_close<=stamp or bar.scheduled_close>observed]
                             for tf in NATIVE_HIGHER}
                         built.series.update(retained)
+                        metadata['history_breaks'].update({tf:rows for tf,rows in prior_meta.get('history_breaks',{}).items()
+                                                           if tf in NATIVE_HIGHER})
                         metadata['version']=family_policy
                         metadata[snapshot_key]=stamp.isoformat()
                         metadata['origins']={**metadata['origins'],
