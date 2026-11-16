@@ -179,7 +179,7 @@ class FinamWindow(QMainWindow):
         self.screener_timer.timeout.connect(self._start_screener)
         self.history_chart_timer=QTimer(self)
         self.history_chart_timer.setSingleShot(True)
-        self.history_chart_timer.setInterval(5000)
+        self.history_chart_timer.setInterval(30000)
         self.history_chart_timer.timeout.connect(self._history_chart_refresh)
         self.daily_catalog_timer = QTimer(self)
         self.daily_catalog_timer.setInterval(60000)

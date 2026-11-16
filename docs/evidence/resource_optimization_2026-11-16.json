@@ -1,0 +1,232 @@
+{
+  "date": "2026-11-16",
+  "benchmark": "isolated copies of existing SBER/CR archives, same source counts, no historical truncation; headless two-instrument process, not a live application CPU/RAM percentage",
+  "baseline_commit": "1b5ca86862335b91fce98e45868b7849e47a180c",
+  "baseline": [
+    {
+      "symbol": "SBER@MISX",
+      "raw_counts": {
+        "M1": 8507,
+        "M5": 52489,
+        "H1": 472,
+        "H4": 309,
+        "D1": 578,
+        "W1": 301,
+        "MN1": 330
+      },
+      "prepared_counts": {
+        "M1": 8490,
+        "M5": 52319,
+        "H1": 4375,
+        "H4": 1312,
+        "D1": 578,
+        "W1": 301,
+        "MN1": 330
+      },
+      "seconds": {
+        "read": 0.344,
+        "prepare": 0.1411,
+        "cold_analysis": 7.8451,
+        "warm_analysis": 0.0099,
+        "changed_tail_analysis": 4.2422
+      },
+      "memory_before": {
+        "rss_mb": 27.57,
+        "private_mb": 17.5,
+        "peak_rss_mb": 27.57
+      },
+      "memory_after": {
+        "rss_mb": 143.54,
+        "private_mb": 134.2,
+        "peak_rss_mb": 143.54
+      }
+    },
+    {
+      "symbol": "CRZ6@RTSX",
+      "raw_counts": {
+        "M1": 7689,
+        "M5": 5500,
+        "H1": 3252,
+        "H4": 308,
+        "D1": 358,
+        "W1": 75,
+        "MN1": 18
+      },
+      "prepared_counts": {
+        "M1": 7689,
+        "M5": 5500,
+        "H1": 3184,
+        "H4": 835,
+        "D1": 329,
+        "W1": 75,
+        "MN1": 18
+      },
+      "seconds": {
+        "read": 0.1116,
+        "prepare": 0.1735,
+        "cold_analysis": 4.9398,
+        "warm_analysis": 0.0027,
+        "changed_tail_analysis": 2.6833
+      },
+      "memory_before": {
+        "rss_mb": 143.54,
+        "private_mb": 134.2,
+        "peak_rss_mb": 143.54
+      },
+      "memory_after": {
+        "rss_mb": 160.56,
+        "private_mb": 150.47,
+        "peak_rss_mb": 163.38
+      }
+    }
+  ],
+  "optimized": [
+    {
+      "symbol": "SBER@MISX",
+      "raw_counts": {
+        "M1": 8507,
+        "M5": 52489,
+        "H1": 472,
+        "H4": 309,
+        "D1": 578,
+        "W1": 301,
+        "MN1": 330
+      },
+      "prepared_counts": {
+        "M1": 8490,
+        "M5": 52319,
+        "H1": 4375,
+        "H4": 1312,
+        "D1": 578,
+        "W1": 301,
+        "MN1": 330
+      },
+      "seconds": {
+        "read": 0.3408,
+        "prepare": 0.1453,
+        "cold_analysis": 7.7219,
+        "warm_analysis": 0.001,
+        "changed_tail_analysis": 0.2118
+      },
+      "memory_before": {
+        "rss_mb": 27.71,
+        "private_mb": 17.65,
+        "peak_rss_mb": 27.71
+      },
+      "memory_after": {
+        "rss_mb": 108.92,
+        "private_mb": 99.28,
+        "peak_rss_mb": 108.92
+      }
+    },
+    {
+      "symbol": "CRZ6@RTSX",
+      "raw_counts": {
+        "M1": 7689,
+        "M5": 5500,
+        "H1": 3252,
+        "H4": 308,
+        "D1": 358,
+        "W1": 75,
+        "MN1": 18
+      },
+      "prepared_counts": {
+        "M1": 7689,
+        "M5": 5500,
+        "H1": 3184,
+        "H4": 835,
+        "D1": 329,
+        "W1": 75,
+        "MN1": 18
+      },
+      "seconds": {
+        "read": 0.1045,
+        "prepare": 0.0356,
+        "cold_analysis": 5.016,
+        "warm_analysis": 0.0011,
+        "changed_tail_analysis": 0.2033
+      },
+      "memory_before": {
+        "rss_mb": 108.92,
+        "private_mb": 99.28,
+        "peak_rss_mb": 108.92
+      },
+      "memory_after": {
+        "rss_mb": 127.54,
+        "private_mb": 117.81,
+        "peak_rss_mb": 127.54
+      }
+    }
+  ],
+  "full_replay_parity": [
+    {
+      "symbol": "SBER@MISX",
+      "cached_update_seconds": 0.2089,
+      "full_replay_seconds": 4.1625,
+      "speedup": 19.93,
+      "mismatched_fields": [],
+      "raw_counts": {
+        "M1": 8507,
+        "M5": 52489,
+        "H1": 472,
+        "H4": 309,
+        "D1": 578,
+        "W1": 301,
+        "MN1": 330
+      },
+      "prepared_counts": {
+        "M1": 8490,
+        "M5": 52319,
+        "H1": 4375,
+        "H4": 1312,
+        "D1": 578,
+        "W1": 301,
+        "MN1": 330
+      }
+    },
+    {
+      "symbol": "CRZ6@RTSX",
+      "cached_update_seconds": 0.2132,
+      "full_replay_seconds": 2.6558,
+      "speedup": 12.45,
+      "mismatched_fields": [],
+      "raw_counts": {
+        "M1": 7689,
+        "M5": 5500,
+        "H1": 3252,
+        "H4": 308,
+        "D1": 358,
+        "W1": 75,
+        "MN1": 18
+      },
+      "prepared_counts": {
+        "M1": 7689,
+        "M5": 5500,
+        "H1": 3184,
+        "H4": 835,
+        "D1": 329,
+        "W1": 75,
+        "MN1": 18
+      }
+    }
+  ],
+  "cache_limits": {
+    "entries": 12,
+    "units": 250000,
+    "unit_definition": "candles + flows + twice liquidity audit rows; not a fixed byte cap",
+    "active_chart": "pinned; one large active chart may exceed cache budget; disk history is retained"
+  },
+  "archive": {
+    "default_workers": 1,
+    "idle_seconds": "max(0.5,4 * source-window thread CPU seconds), cancellation polled <=0.1s",
+    "note": "roughly <=20% of one core for the archive worker; not a cap on total application CPU"
+  },
+  "tests": {
+    "local_count": 743,
+    "seconds": 47.279,
+    "failures": 0,
+    "skipped": 1
+  },
+  "system_audit": "PASS",
+  "extended_audit": "PASS"
+}

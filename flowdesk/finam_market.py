@@ -22,6 +22,8 @@ from . import moex_trading_family as moex
 TTL_SECONDS = {"M1":60,"M5":300,"H1":300,"H4":900,"D1":1800,"W1":3600,"MN1":14400}
 STREAM_VERIFY_SECONDS = 900
 FULL_VERIFY_SECONDS = 86400
+ANALYSIS_CACHE_ENTRIES = 12
+ANALYSIS_CACHE_UNITS = 250000
 
 class FinamMarketService:
     @property
@@ -36,6 +38,7 @@ class FinamMarketService:
         self.latest_stream_at = {}
         self.last_snapshot = {}
         self.analysis_cache = OrderedDict()
+        self._active_analysis_key = None
         self._pull_locks = {}
         self._analysis_locks = {}
         self._stream_updates = {}
@@ -110,16 +113,20 @@ class FinamMarketService:
             if getattr(self.api,'session_candles',False):
                 observed=self.clock()-timedelta(minutes=self.api.market_delay_minutes(symbol.rsplit('@',1)[1]))
                 session_store.changed(db,symbol,timeframe,bars,observed,replace=changed or source=='http')
-            if changed:
-                for key in list(self.analysis_cache):
-                    if key[0]==symbol:self.analysis_cache.pop(key,None)
+            # Fingerprints validate corrections on the next calculation.
+            # Keep unchanged TF/block results available for selective reuse.
             return changed
 
     def _series(self,symbol):
+        series={tf:[] for tf in FRAMES}
         with closing(self._connection()) as db:
             db.execute('BEGIN')
             rows=db.execute("""SELECT tf,ts,o,h,l,c,v,closes_at FROM candles
-                WHERE symbol=? ORDER BY ts""",(symbol,)).fetchall()
+                WHERE symbol=? ORDER BY ts""",(symbol,))
+            for tf,ts,o,h,l,c,v,ending in rows:
+                if tf in series:
+                    series[tf].append(Candle(datetime.fromisoformat(ts),o,h,l,c,v,
+                        datetime.fromisoformat(ending) if ending else None))
             state=None
             if getattr(self.api,'session_candles',False):
                 row=db.execute('SELECT revision FROM candle_source_revisions WHERE symbol=?',(symbol,)).fetchone()
@@ -130,11 +137,6 @@ class FinamMarketService:
                                               (symbol,MOEX_PROGRESS)).fetchone(),
                     'full_archive':bool(db.execute("SELECT 1 FROM finam_history_progress WHERE symbol=? AND tf GLOB 'FULL_ARCHIVE_v2_*' LIMIT 1",
                                                    (symbol,)).fetchone())}
-        series={tf:[] for tf in FRAMES}
-        for tf,ts,o,h,l,c,v,ending in rows:
-            if tf in series:
-                series[tf].append(Candle(datetime.fromisoformat(ts),o,h,l,c,v,
-                    datetime.fromisoformat(ending) if ending else None))
         result={tf:normalize(bars) for tf,bars in series.items() if bars}
         return session_store.SourceSeries(result,state) if state is not None else result
 
@@ -306,9 +308,12 @@ class FinamMarketService:
         lock=self._key_lock(self._analysis_locks,(symbol,timeframe))
         with lock:
             # All OHLCV and scheduled closes participate, including historical corrections.
+            needed=set(('H1','H4','D1','W1','MN1'))
+            if timeframe in ('M1','M5'):needed.add('M5')
+            if timeframe=='M1':needed.add('M1')
             fingerprint=tuple((tf,tuple(bars),sum(b.time<=observed for b in bars),
                                sum(candle_close_time(b,tf)<=observed for b in bars))
-                              for tf,bars in sorted(series.items()))
+                              for tf,bars in sorted(series.items()) if tf in needed)
             session_meta=getattr(series,'session_metadata',{})
             key=(settings.calculation_key(),fingerprint,repr(session_meta))
             cache_id=(symbol,timeframe)
@@ -325,12 +330,34 @@ class FinamMarketService:
                         native=session_meta.get('origins',{}).get(tf)=='finam_native'
                         provenance[tf]['mode']='FINAM_NATIVE_CANDLES' if native else 'SESSION_CANDLES'
                         provenance[tf]['native_higher']=native
-            result=analyze_timeframes(series,timeframe,asof=observed,settings=settings,provenance=provenance)
+            previous=None
+            if (cached and cached[0][0]==key[0] and
+                    getattr(cached[1][0],'session_info',{}).get('history_breaks',{})==session_meta.get('history_breaks',{})):
+                previous={cached[1][0].timeframe:cached[1][0],**cached[1][1]}
+            result=analyze_timeframes(series,timeframe,asof=observed,settings=settings,
+                                      provenance=provenance,cached=previous)
             with self.lock:
                 self.analysis_cache[cache_id]=(key,result)
                 self.analysis_cache.move_to_end(cache_id)
-                while len(self.analysis_cache)>48:self.analysis_cache.popitem(last=False)
+                self._trim_analysis_cache()
             return result
+
+    def _trim_analysis_cache(self):
+        """Bound retained calculation objects, never trim stored/chart candles."""
+        def units(result):
+            pending=[result[0],*result[1].values()];seen=set();total=0
+            while pending:
+                item=pending.pop()
+                if id(item) in seen:continue
+                seen.add(id(item))
+                total+=len(item.candles)+len(getattr(item,'flows',()))+2*len(getattr(item,'liquidity_audit',()))
+                pending.extend(getattr(item,'summary_sources',{}).values())
+            return total
+        sizes={key:units(value[1]) for key,value in self.analysis_cache.items()}
+        while len(sizes)>ANALYSIS_CACHE_ENTRIES or sum(sizes.values())>ANALYSIS_CACHE_UNITS:
+            victim=next((key for key in sizes if key!=self._active_analysis_key),None)
+            if victim is None:break  # One active large chart still retains its entire history.
+            self.analysis_cache.pop(victim,None);sizes.pop(victim)
 
     def load_history_progress(self):
         with closing(self._connection()) as db:
@@ -346,6 +373,7 @@ class FinamMarketService:
              progress=None,cancelled=lambda:False,**ignored):
         symbol=symbol_name(ticker,mic)
         if timeframe not in FRAMES:raise ValueError("Неизвестный таймфрейм Finam")
+        with self.lock:self._active_analysis_key=(symbol,timeframe)
         settings=settings or IndicatorSettings()
         progress=progress or (lambda message:None)
         errors={}

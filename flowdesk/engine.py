@@ -595,6 +595,8 @@ class Analysis:
     summary_sources: dict = field(default_factory=dict)
     reference_version: str = ''
     minimum_tick: float = .01
+    # Reusable display replay blocks; no numeric engine state or history cap.
+    history_blocks: list = field(default_factory=list, repr=False, compare=False)
 
     def is_confirmed(self, i: int) -> bool:
         return self.asof is None or candle_close_time(self.candles[i], self.timeframe) <= self.asof

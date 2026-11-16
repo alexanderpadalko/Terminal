@@ -328,11 +328,11 @@ def scan_one(service, ticker, mic, settings, *, cancelled=lambda:False,
         return unknown(symbol,"h1_unavailable",
                        reasons=tuple(fetch_problems.get(tf,"H1 недоступен")
                                      for tf in TIMEFRAMES))
-    series=exclude_stock_closing_auction(service._series(symbol),mic)
     delay=service.api.market_delay_minutes(mic)
     observed=service.clock()-timedelta(minutes=delay or 0)
     prepare=getattr(service,'prepare_series',None)
-    if callable(prepare):series=prepare(symbol,service._series(symbol),observed)
+    if callable(prepare):series=prepare(symbol,series,observed)
+    else:series=exclude_stock_closing_auction(series,mic)
     analysis_tf=next((tf for tf in TIMEFRAMES if series.get(tf)),None)
     if (not series.get('H1') and not native_higher_enabled(service.api)) or analysis_tf is None:
         return unknown(symbol,'h1_unavailable')

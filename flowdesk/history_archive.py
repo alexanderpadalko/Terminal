@@ -10,6 +10,7 @@ from datetime import datetime, timedelta, timezone
 from contextlib import closing
 import concurrent.futures
 import threading
+import time
 
 from PySide6.QtCore import QThread, Signal
 
@@ -110,12 +111,13 @@ class HistoryArchiveWorker(QThread):
     """All selected instruments; price refresh and charts retain priority."""
     changed = Signal(str)
 
-    def __init__(self, services, instruments, parent=None, *, max_workers=3):
+    def __init__(self, services, instruments, parent=None, *, max_workers=1, pace=True):
         super().__init__(parent)
         self.services = services
         self.symbols = tuple(dict.fromkeys(item.symbol.upper() for item in instruments
                             if item.verified and '@' in item.symbol))
         self.max_workers = max_workers
+        self.pace=pace
 
     def run(self):
         prepare_asyncio_runtime()
@@ -123,10 +125,19 @@ class HistoryArchiveWorker(QThread):
         blocked={symbol:set() for symbol in self.symbols}
         cancelled = lambda: self.isInterruptionRequested() or stop.is_set()
         def one(symbol):
+            started=time.thread_time()
             service = (self.services.for_market(symbol.rsplit('@', 1)[1])
                        if callable(getattr(self.services, 'for_market', None)) else self.services)
-            return backfill_window(service, symbol, cancelled=cancelled,
+            result=backfill_window(service, symbol, cancelled=cancelled,
                                    excluded_frames=blocked[symbol])
+            if result is not None and self.pace:
+                # Archive CPU gets at most roughly one fifth of one core.
+                # Network wait does not increase the CPU budget. The request
+                # and SQLite locks have already been released before yielding.
+                deadline=time.monotonic()+max(.5,4*(time.thread_time()-started))
+                while not cancelled() and time.monotonic()<deadline:
+                    stop.wait(min(.1,max(0,deadline-time.monotonic())))
+            return result
         pool = concurrent.futures.ThreadPoolExecutor(max_workers=self.max_workers,
                                                       thread_name_prefix='FlowDeskArchive')
         active = list(self.symbols)

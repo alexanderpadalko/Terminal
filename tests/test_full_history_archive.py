@@ -143,7 +143,7 @@ class FullArchiveTests(unittest.TestCase):
             calls.append((service.path.name,symbol))
             return None
         with patch('flowdesk.history_archive.backfill_window',side_effect=bounded):
-            HistoryArchiveWorker(routing,entries).run()
+            HistoryArchiveWorker(routing,entries,pace=False).run()
         self.assertEqual(set(calls),{('finam.sqlite',self.symbol),('binance.sqlite','BTCUSDT@BINANCE'),
                                      ('binance.sqlite','ETHUSDT@BINANCE')})
 
@@ -151,7 +151,7 @@ class FullArchiveTests(unittest.TestCase):
         entries=[SimpleNamespace(symbol=f'CR{i}@RTSX',verified=True) for i in range(3)]
         def limited(*args,**kwargs):raise FinamAPIError('private',http_status=429)
         with patch('flowdesk.history_archive.backfill_window',side_effect=limited) as call:
-            HistoryArchiveWorker(self.service,entries,max_workers=1).run()
+            HistoryArchiveWorker(self.service,entries,max_workers=1,pace=False).run()
         self.assertEqual(call.call_count,1)
 
     def test_failed_timeframe_does_not_starve_other_frames_or_move_its_cursor(self):
@@ -165,7 +165,7 @@ class FullArchiveTests(unittest.TestCase):
             calls.append(symbol)
             return None
         with patch('flowdesk.history_archive.backfill_window',side_effect=bounded):
-            HistoryArchiveWorker(self.service,entries,max_workers=1).run()
+            HistoryArchiveWorker(self.service,entries,max_workers=1,pace=False).run()
         self.assertEqual(calls,[self.symbol])
         self.assertEqual(self.service.load_history_progress(),{})
 
@@ -177,7 +177,7 @@ class FullArchiveTests(unittest.TestCase):
             calls[symbol]=calls.get(symbol,0)+1
             return {'changed':False} if calls[symbol]<=7 else None
         with patch('flowdesk.history_archive.backfill_window',side_effect=bounded):
-            HistoryArchiveWorker(self.service,entries).run()
+            HistoryArchiveWorker(self.service,entries,pace=False).run()
         self.assertEqual(len(calls),30)
         self.assertEqual(set(calls.values()),{8})
 
