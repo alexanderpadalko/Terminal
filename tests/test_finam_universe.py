@@ -1,4 +1,4 @@
-"""The only visible FlowDesk universe is the user's 8+10+10+2 shortlist."""
+"""The visible FlowDesk universe is the screenshot shortlist plus ten ranked stocks."""
 import json
 import unittest
 from pathlib import Path
@@ -17,39 +17,34 @@ class FakeWatchlist:
 
 
 class TestCuratedFinamUniverse(unittest.TestCase):
-    def test_exact_eight_plus_ten_plus_ten_plus_crypto_only(self):
+    def test_exact_screenshot_shortlist_and_unchanged_stock_ranking(self):
         universe,status=compose_universe()
         self.assertEqual(tuple(universe),(US_FUTURES,RU_STOCKS,RU_FUTURES,CRYPTO))
-        self.assertEqual(len(universe[US_FUTURES]),8)
+        self.assertEqual([x.label for x in universe[US_FUTURES]],
+                         ["GCZ2026","SIZ2026","NGZ2026","BRNF2027"])
+        self.assertEqual([x.label for x in universe[RU_FUTURES]],
+                         ["SIZ2026","CRZ2026","EUZ2026","USDRUB.P",
+                          "CNYRUB.P","EURRUB.P","MXZ2026"])
+        self.assertEqual([x.label for x in universe[CRYPTO]],["BTCUSDT.P"])
         self.assertEqual(len(universe[RU_STOCKS]),10)
-        self.assertEqual(len(universe[RU_FUTURES]),10)
-        self.assertEqual([row.label for row in universe[CRYPTO]],["BTCUSDT.P","ETHUSDT.P"])
-        self.assertEqual(
-            [x.label for x in universe[US_FUTURES]],
-            ["NQZ2026","ESZ2026","GCZ2026","SIZ2026",
-             "PLF2027","PAZ2026","NGZ2026","BRNF2027"])
-        self.assertEqual(
-            [x.label for x in universe[RU_FUTURES]],
-            ["SIZ2026","CRZ2026","EUZ2026","EDZ2026",
-             "USDRUB.P","CNYRUB.P","EURRUB.P","MIXZ2026","RIZ2026","IRUS.P"])
-        self.assertFalse(any(x.label in ("TSLA","AAPL","IBM")
-                             for rows in universe.values() for x in rows))
+        self.assertEqual(sum(map(len,universe.values())),22)
+        self.assertFalse(is_in_universe("ETHUSDT@BINANCE",universe))
         self.assertTrue(status)
 
     def test_futures_do_not_invent_venue_or_tenor(self):
-        nq=US_CONTRACTS[0]
+        gold=US_CONTRACTS[0]
         rows=[
-            {"ticker":"NQZ6","mic":"RTSX","symbol":"NQZ6@RTSX"},
-            {"ticker":"NQH27","mic":"XCME","symbol":"NQH27@XCME"},
-            {"ticker":"NQZ26","mic":"XCME","symbol":"NQZ26@XCME","is_archived":True},
+            {"ticker":"GCZ6","mic":"RTSX","symbol":"GCZ6@RTSX"},
+            {"ticker":"GCH27","mic":"XCEC","symbol":"GCH27@XCEC"},
+            {"ticker":"GCZ26","mic":"XCEC","symbol":"GCZ26@XCEC","is_archived":True},
         ]
-        self.assertEqual(match_contract(nq,rows),"")
-        self.assertEqual(match_contract(nq,rows+[{
-            "ticker":"NQZ6","mic":"XCME","symbol":"NQZ6@XCME","type":"TYPE_FUTURE",
-        }]),"NQZ6@XCME")
-        self.assertEqual(match_contract(nq,rows+[
-            {"ticker":"NQZ6","mic":"XCME","symbol":"NQZ6@XCME"},
-            {"ticker":"NQZ26","mic":"XCME","symbol":"NQZ26@XCME"}
+        self.assertEqual(match_contract(gold,rows),"")
+        self.assertEqual(match_contract(gold,rows+[{
+            "ticker":"GCZ6","mic":"XCEC","symbol":"GCZ6@XCEC","type":"TYPE_FUTURE",
+        }]),"GCZ6@XCEC")
+        self.assertEqual(match_contract(gold,rows+[
+            {"ticker":"GCZ6","mic":"XCEC","symbol":"GCZ6@XCEC"},
+            {"ticker":"GCZ26","mic":"XCEC","symbol":"GCZ26@XCEC"}
         ]),"")  # ambiguous: never guess which Finam instrument
 
     def test_distinguish_silver_SI_on_comex_and_ruble_SI_on_rtsx(self):
@@ -61,7 +56,7 @@ class TestCuratedFinamUniverse(unittest.TestCase):
         self.assertEqual(match_contract(ru,[row_us,row_ru]),"SIZ6@RTSX")
 
     def test_russian_futures_aliases_include_mx_not_only_mix(self):
-        mx=[x for x in RU_CONTRACTS if x.display=="MIXZ2026"][0]
+        mx=[x for x in RU_CONTRACTS if x.display=="MXZ2026"][0]
         result=match_contract(mx,[{"ticker":"MXZ6","mic":"RTSX","symbol":"MXZ6@RTSX"}])
         self.assertEqual(result,"MXZ6@RTSX")
 
@@ -69,8 +64,7 @@ class TestCuratedFinamUniverse(unittest.TestCase):
         contracts=[c for c in RU_CONTRACTS if c.display.endswith(".P")]
         matches=[{"ticker":"USDRUBF","mic":"RTSX","symbol":"USDRUBF@RTSX"},
                  {"ticker":"CNYRUBF","mic":"RTSX","symbol":"CNYRUBF@RTSX"},
-                 {"ticker":"EURRUBF","mic":"RTSX","symbol":"EURRUBF@RTSX"},
-                 {"ticker":"IMOEXF","mic":"RTSX","symbol":"IMOEXF@RTSX"}]
+                 {"ticker":"EURRUBF","mic":"RTSX","symbol":"EURRUBF@RTSX"}]
         self.assertEqual([match_contract(c,matches) for c in contracts],
                          [r["symbol"] for r in matches])
 
@@ -110,10 +104,10 @@ class TestCuratedFinamUniverse(unittest.TestCase):
         self.assertEqual(len(saved["instruments"]),40)
 
     def test_catalog_only_enables_verified_future(self):
-        assets=[{"ticker":"NQZ6","mic":"XCME","symbol":"NQZ6@XCME"}]
+        assets=[{"ticker":"GCZ6","mic":"XCME","symbol":"GCZ6@XCEC"}]
         groups,_=compose_universe(assets)
-        self.assertTrue(is_in_universe("NQZ6@XCME",groups))
-        self.assertFalse(is_in_universe("NQH27@XCME",groups))
+        self.assertTrue(is_in_universe("GCZ6@XCEC",groups))
+        self.assertFalse(is_in_universe("GCH27@XCEC",groups))
         self.assertFalse(is_in_universe("AAPL@XNGS",groups))
 
     def test_normalized_currency_symbols_keep_exact_contract_and_venue(self):

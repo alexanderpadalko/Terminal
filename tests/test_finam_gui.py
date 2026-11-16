@@ -309,7 +309,7 @@ class TestFinamGui(unittest.TestCase):
 
     def test_fixed_universe_has_four_groups_including_crypto_without_old_demo_assets(self):
         rows=[self.window.examples.item(i).text() for i in range(self.window.examples.count())]
-        self.assertEqual(len(rows),8+10+10+2+4)
+        self.assertEqual(len(rows),4+10+7+1+4)
         self.assertFalse(self.window.symbol_edit.isVisible())
         self.assertFalse(self.window.mic.isVisible())
         self.assertFalse(any("AAPL" in s for s in rows))
@@ -331,14 +331,14 @@ class TestFinamGui(unittest.TestCase):
         original_stocks=list(self.window.universe[RU_STOCKS])
         verified={
             US_FUTURES+":"+US_CONTRACTS[0].display:
-                Item("NQZ2026","Nasdaq 100",US_FUTURES,"NQZ6@XCME",True,
+                Item("GCZ2026","Золото",US_FUTURES,"GCZ6@XCEC",True,
                      "действует до 2026-12-18 · Finam GetAsset"),
             RU_FUTURES+":"+RU_CONTRACTS[0].display:
                 Item("SIZ2026","Доллар/рубль",RU_FUTURES,"SiZ6@RTSX",True,
                      "действует до 2026-12-17 · Finam GetAsset")
         }
         self.window._futures_ready(verified)
-        self.assertEqual(self.window.universe[US_FUTURES][0].symbol,"NQZ6@XCME")
+        self.assertEqual(self.window.universe[US_FUTURES][0].symbol,"GCZ6@XCEC")
         self.assertEqual(self.window.universe[RU_FUTURES][0].symbol,"SiZ6@RTSX")
         self.assertEqual(self.window.universe[RU_STOCKS],original_stocks)
         self.assertTrue(self.window.daily_catalog_timer.isActive())
@@ -353,8 +353,7 @@ class TestFinamGui(unittest.TestCase):
             CRYPTO, US_FUTURES, RU_FUTURES, RU_STOCKS)])
         self.assertEqual(self.window.examples.item(1).text().split(" · ")[0],
                          "BTCUSDT.P")
-        self.assertEqual(self.window.examples.item(2).text().split(" · ")[0],
-                         "ETHUSDT.P")
+        self.assertEqual(self.window.examples.item(2).text(),GROUP_LABELS[US_FUTURES])
 
     def test_sidebar_has_no_text_search_but_keeps_tf_signal_filters(self):
         from PySide6.QtWidgets import QLineEdit
@@ -363,11 +362,11 @@ class TestFinamGui(unittest.TestCase):
         self.assertFalse(any("Поиск в выбранном списке" in field.placeholderText()
                              for field in self.window.findChildren(QLineEdit)))
         self.assertEqual(set(self.window.screen_buttons), {"H1","H4","D","W","M"})
-        self.assertEqual(self.window.examples.count(),34)
+        self.assertEqual(self.window.examples.count(),26)
         self.window.screen_buttons["H1"].setChecked(True)
-        self.assertLessEqual(self.window.examples.count(),35)
+        self.assertLessEqual(self.window.examples.count(),27)
         self.window.screen_buttons["H1"].setChecked(False)
-        self.assertEqual(self.window.examples.count(),34)
+        self.assertEqual(self.window.examples.count(),26)
 
     def test_crypto_chart_opens_without_a_finam_token_and_uses_utc(self):
         with patch.object(self.window,"_start_stream") as start, \
@@ -612,7 +611,7 @@ class TestFinamGui(unittest.TestCase):
                             if not row.isHidden()))
         self.window.screen_buttons["H1"].setChecked(False)
         self.window.screen_buttons["W"].setChecked(False)
-        self.assertEqual(self.window.examples.count(),34)
+        self.assertEqual(self.window.examples.count(),26)
         self.assertIs(self.window.chart.analysis,analysis)
 
     def test_scanner_missing_history_stays_neutral_not_short(self):
@@ -702,7 +701,7 @@ class TestFinamGui(unittest.TestCase):
         self.window._populate_universe()
         self.assertFalse(any(button.isChecked() for button in
                              self.window.screen_buttons.values()))
-        self.assertEqual(self.window.examples.count(),34)
+        self.assertEqual(self.window.examples.count(),26)
         row=next(self.window.examples.item(i) for i in
                  range(self.window.examples.count())
                  if self.window.examples.item(i).text().startswith("SBER ·"))
@@ -763,7 +762,7 @@ class TestFinamGui(unittest.TestCase):
         from flowdesk.finam_universe import US_FUTURES, Item
         original=self.window.universe[US_FUTURES][0]
         entry=Item(original.label,original.name,original.group,
-                   "NQZ26@XCME",True,"Finam GetAsset")
+                   "GCZ26@XCEC",True,"Finam GetAsset")
         self.window.universe[US_FUTURES][0]=entry
         self.window.screen_results[entry.symbol]=ScanResult(
             entry.symbol,(1,0,1,None,None),
@@ -789,12 +788,12 @@ class TestFinamGui(unittest.TestCase):
         from flowdesk.finam_universe import Item, US_FUTURES
         entry=self.window.universe[US_FUTURES][0]
         self.window.universe[US_FUTURES][0]=Item(
-            entry.label,entry.name,entry.group,"NQZ26@XCME",True,
+            entry.label,entry.name,entry.group,"GCZ26@XCEC",True,
             "действует до 2026-12-18 · Finam GetAsset")
         self.window._populate_universe()
         labels=[self.window.examples.item(i).text()
                 for i in range(self.window.examples.count())]
-        self.assertTrue(any("NQZ2026" in label and "до 18.12" in label
+        self.assertTrue(any("GCZ2026" in label and "до 18.12" in label
                             for label in labels))
 
     def test_unlisted_stock_cannot_replace_selected_chart(self):
@@ -807,13 +806,13 @@ class TestFinamGui(unittest.TestCase):
 
     def test_catalog_enables_only_exact_matching_future(self):
         from PySide6.QtCore import Qt
-        rows=[{"symbol":"NQZ6@XCME","ticker":"NQZ6","mic":"XCME",
+        rows=[{"symbol":"GCZ6@XCEC","ticker":"GCZ6","mic":"XCEC",
                "type":"TYPE_FUTURE","is_archived":False}]
         self.window._catalog_loaded(rows)
         cells=[self.window.examples.item(i) for i in range(self.window.examples.count())]
-        found=[row for row in cells if row.text().startswith("NQZ2026 ·")]
+        found=[row for row in cells if row.text().startswith("GCZ2026 ·")]
         self.assertEqual(len(found),1)
-        self.assertEqual(found[0].data(Qt.ItemDataRole.UserRole),"NQZ6@XCME")
+        self.assertEqual(found[0].data(Qt.ItemDataRole.UserRole),"GCZ6@XCEC")
         blocked=[row for row in cells if row.text().startswith("BRNF2027 ·")]
         self.assertEqual(blocked[0].data(Qt.ItemDataRole.UserRole),"")
 

@@ -470,7 +470,7 @@ class FinamWindow(QMainWindow):
         self.examples.setItemWidget(row,widget)
 
     def _populate_universe(self):
-        """30 fixed instruments; filter by selected working FVG only."""
+        """Curated instruments; filter by selected working FVG only."""
         selected=self._selected_screen_timeframes()
         current_item=self.examples.currentItem()
         selected_symbol=(current_item.data(Qt.ItemDataRole.UserRole)

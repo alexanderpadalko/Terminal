@@ -360,7 +360,7 @@ def resolve_contract(contract, assets, api, *, today, now, saved="", cancelled=l
 
 def resolve_futures(assets,api,*,today=None,now=None,previous=None,cancelled=lambda:False,
                     progress=lambda msg:None):
-    """Resolve 8 US + 10 RU rows using each exchange's local calendar date.
+    """Resolve the curated US/RU rows using each exchange's local calendar date.
 
     Only Finam dates authorize rolling. No external expiry or liquidity feed.
     """
@@ -391,7 +391,7 @@ def resolve_futures(assets,api,*,today=None,now=None,previous=None,cancelled=lam
         if result.state_symbol:
             persisted[key]=result.state_symbol
         diagnostics.append(contract.display+": "+result.reason)
-        progress("Проверка экспирации фьючерсов "+str(len(diagnostics))+"/18")
+        progress("Проверка экспирации фьючерсов "+str(len(diagnostics))+"/"+str(len(US_CONTRACTS)+len(RU_CONTRACTS)))
     return overrides,persisted,diagnostics
 
 

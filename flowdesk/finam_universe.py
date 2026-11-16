@@ -44,12 +44,8 @@ def _ru(display,name,root,month='Z',year=2026):
 
 
 US_CONTRACTS=(
-    _us("NQZ2026","Nasdaq 100","NQ","Z",2026,("XCME",)),
-    _us("ESZ2026","S&P 500","ES","Z",2026,("XCME",)),
     _us("GCZ2026","Золото","GC","Z",2026,("XCEC","XCME")),
     _us("SIZ2026","Серебро","SI","Z",2026,("XCEC","XCME")),
-    _us("PLF2027","Платина","PL","F",2027,("XNYM","XCME")),
-    _us("PAZ2026","Палладий","PA","Z",2026,("XNYM","XCME")),
     _us("NGZ2026","Природный газ","NG","Z",2026,("XNYM","XCME")),
     _us("BRNF2027","Brent","BRN","F",2027,("IFEU","XICE","XNYM")),
 )
@@ -57,22 +53,19 @@ RU_CONTRACTS=(
     _ru("SIZ2026","Доллар / рубль","SI"),
     _ru("CRZ2026","Юань / рубль","CR"),
     _ru("EUZ2026","Евро / рубль","EU"),
-    _ru("EDZ2026","Евро / доллар","ED"),
     Contract("USDRUB.P","Вечный USD/RUB",RU_FUTURES,("USDRUBF","USDRUB.P"),("RTSX",)),
     Contract("CNYRUB.P","Вечный CNY/RUB",RU_FUTURES,("CNYRUBF","CNYRUB.P"),("RTSX",)),
     Contract("EURRUB.P","Вечный EUR/RUB",RU_FUTURES,("EURRUBF","EURRUB.P"),("RTSX",)),
-    Contract("MIXZ2026","Индекс Мосбиржи",RU_FUTURES,
+    Contract("MXZ2026","Индекс Мосбиржи",RU_FUTURES,
              _expires("MX","Z",2026)+_expires("MIX","Z",2026),("RTSX",)),
-    _ru("RIZ2026","Индекс РТС","RI"),
-    Contract("IRUS.P","Вечный индекс Мосбиржи",RU_FUTURES,("IMOEXF","IRUS.P"),("RTSX",)),
 )
-assert len(US_CONTRACTS)==8 and len(RU_CONTRACTS)==10
+assert len(US_CONTRACTS)==4 and len(RU_CONTRACTS)==7
 
 GROUP_LABELS={
     CRYPTO:"КРИПТА",
-    US_FUTURES:"ФЬЮЧЕРСЫ США · 8",
+    US_FUTURES:"ФЬЮЧЕРСЫ США · 4",
     RU_STOCKS:"АКЦИИ РФ · ТОП-10 ПО ОБОРОТУ",
-    RU_FUTURES:"ФЬЮЧЕРСЫ РФ · 10",
+    RU_FUTURES:"ФЬЮЧЕРСЫ РФ · 7",
 }
 
 
@@ -137,7 +130,7 @@ def cached_top10(*, watchlist=None):
 
 
 def compose_universe(assets=(),*,watchlist=None):
-    """Exactly 8 US futures, up to 10 ranked shares, 10 Russian futures."""
+    """Four US futures, up to ten ranked shares, seven Russian futures."""
     def contracts(items):
         rows=[]
         for c in items:
@@ -148,7 +141,7 @@ def compose_universe(assets=(),*,watchlist=None):
     return {US_FUTURES:contracts(US_CONTRACTS),RU_STOCKS:stocks,
             RU_FUTURES:contracts(RU_CONTRACTS),
             CRYPTO:[Item(ticker+".P",name,CRYPTO,ticker+"@BINANCE",True,"Binance · USDT бессрочный")
-                    for ticker,name in (("BTCUSDT","Bitcoin"),("ETHUSDT","Ethereum"))]},status
+                    for ticker,name in (("BTCUSDT","Bitcoin"),)]},status
 
 
 def is_in_universe(symbol, universe):
