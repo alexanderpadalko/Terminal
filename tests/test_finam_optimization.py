@@ -234,8 +234,7 @@ class TestParallelScanner(unittest.TestCase):
 
 class TestFinamOnlyExpiry(unittest.TestCase):
     def test_startup_reads_only_selected_card_until_its_roll_day(self):
-        from test_moex_startup_roll import row
-        from flowdesk.finam_universe import US_CONTRACTS
+        from test_moex_startup_roll import row, NQ_ROLLOVER_CONTRACT
         from flowdesk.finam_rotation import resolve_contract
         calls=[]
         class API:
@@ -243,7 +242,7 @@ class TestFinamOnlyExpiry(unittest.TestCase):
                 calls.append(symbol)
                 return {"expiration_date":{"year":2026,"month":12,"day":18}}
         rows=[row("NQZ6","XCME"),row("NQH7","XCME"),row("NQM7","XCME")]
-        result=resolve_contract(US_CONTRACTS[0],rows,API(),today=NOW.date(),now=NOW)
+        result=resolve_contract(NQ_ROLLOVER_CONTRACT,rows,API(),today=NOW.date(),now=NOW)
         self.assertEqual(result.item.symbol,"NQZ6@XCME")
         self.assertEqual(calls,["NQZ6@XCME"])
 
