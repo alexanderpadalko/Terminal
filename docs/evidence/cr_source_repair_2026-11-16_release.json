@@ -1,0 +1,88 @@
+{
+  "code_sha": "2dbfa837f85b1a18a478a2ecd84bf46211eb22f0",
+  "workflow_run_id": 43928202548,
+  "job_id": 133513239615,
+  "conclusion": "success",
+  "windows_tests": {
+    "count": 752,
+    "seconds": 103.499,
+    "errors": 0,
+    "skips": 0,
+    "tracebacks": 0
+  },
+  "validations": [
+    "system audit",
+    "extended dual-provider/theme/fault audit",
+    "dependency constraints",
+    "compile",
+    "four DPI layouts",
+    "Finam no-token Qt smoke",
+    "portable EXE build",
+    "packaged clean exit",
+    "frozen Finam runtime"
+  ],
+  "packaged_exit": [
+    {
+      "close_after_seconds": 0,
+      "exit_seconds": 0.094,
+      "code": 0
+    },
+    {
+      "close_after_seconds": 0.8,
+      "exit_seconds": 0.105,
+      "code": 0
+    },
+    {
+      "close_after_seconds": 3,
+      "exit_seconds": 0.105,
+      "code": 0
+    }
+  ],
+  "artifacts": [
+    {
+      "id": 14257881876,
+      "name": "FlowDesk-0.2.26-Finam-Windows-x64-UNSIGNED",
+      "size_in_bytes": 49473405,
+      "url": "https://api.github.com/repos/alexanderpadalko/Terminal/actions/artifacts/14257881876",
+      "archive_download_url": "https://api.github.com/repos/alexanderpadalko/Terminal/actions/artifacts/14257881876/zip",
+      "expired": false,
+      "created_at": "2026-11-16T18:28:01Z",
+      "expires_at": "2026-12-16T18:27:55Z",
+      "updated_at": "2026-11-16T18:28:01Z",
+      "digest": "sha256:069ce346192897e30f1928b06ae32737a4103290750eb79b66dd51fb95fb586f",
+      "workflow_run": {
+        "id": 43928202548,
+        "repository_id": 1452983732,
+        "head_repository_id": 1452983732,
+        "head_branch": "main",
+        "head_sha": "2dbfa837f85b1a18a478a2ecd84bf46211eb22f0"
+      }
+    },
+    {
+      "id": 14257747241,
+      "name": "FlowDesk-0.2.26-Finam-Test-Evidence",
+      "size_in_bytes": 2700,
+      "url": "https://api.github.com/repos/alexanderpadalko/Terminal/actions/artifacts/14257747241",
+      "archive_download_url": "https://api.github.com/repos/alexanderpadalko/Terminal/actions/artifacts/14257747241/zip",
+      "expired": false,
+      "created_at": "2026-11-16T18:28:03Z",
+      "expires_at": "2026-12-16T18:28:02Z",
+      "updated_at": "2026-11-16T18:28:03Z",
+      "digest": "sha256:955d80d5a64bc94a35f2188b2c8575335b07fdef04edf9d12bc281f2faf66221",
+      "workflow_run": {
+        "id": 43928202548,
+        "repository_id": 1452983732,
+        "head_repository_id": 1452983732,
+        "head_branch": "main",
+        "head_sha": "2dbfa837f85b1a18a478a2ecd84bf46211eb22f0"
+      }
+    }
+  ],
+  "production_evidence": "cr_source_repair_2026-11-16_production.json",
+  "limitations": [
+    "Installed EXE not replaced automatically",
+    "Post-repair live UI not observed",
+    "Signature configuration absent; UNSIGNED artifact",
+    "Full archive remains progressive"
+  ]
+}

@@ -1,0 +1,24 @@
+{
+  "symbol": "CRZ6@RTSX",
+  "scope": "working cache, actual bounded Finam HTTP; installed EXE unchanged",
+  "verified_at": "2026-11-16T18:26:34.880275+00:00",
+  "repaired": true,
+  "http_requests": [
+    {
+      "timeframe": "H1",
+      "start": "2026-10-14T13:00:00+00:00",
+      "end": "2026-10-16T16:00:00+00:00"
+    }
+  ],
+  "confirmed_before": 0,
+  "confirmed_after": 37,
+  "raw_prices_unchanged": true,
+  "target_source_sha256_before": "1e3cb013c1b27fe5743a80e61119bb4733732ef99da0505566ded12d5b8ec262",
+  "target_source_sha256_after": "1e3cb013c1b27fe5743a80e61119bb4733732ef99da0505566ded12d5b8ec262",
+  "before_h1_count": 2915,
+  "after_h1_count": 2952,
+  "restored_h1_count": 37,
+  "reset_before": true,
+  "reset_after": false,
+  "h4_reset_after": false
+}
