@@ -47,9 +47,11 @@ CLOSED_HOLIDAYS_2025 = _dates(
     (6, 12), (11, 4), (12, 31),
 )
 CLOSED_WEEKENDS_2025 = _ranges(
+    # Later amendments also excluded Aug 9/10 and Nov 22/23:
+    # https://fs.moex.com/f/23333/dec-25-jan-26-rus-eng.pdf
     2025, (3, 8, 9), (3, 22, 23), (4, 19, 20), (5, 24, 25),
     (6, 21, 22), (8, 2, 3), (9, 20, 21), (10, 25, 26),
-    (11, 2, 2), (12, 6, 7),
+    (8, 9, 10), (11, 2, 2), (11, 22, 23), (12, 6, 7),
 )
 WORKING_SATURDAYS_2025 = _dates(2025, (11, 1))
 

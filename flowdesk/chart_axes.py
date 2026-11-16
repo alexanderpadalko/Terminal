@@ -166,13 +166,14 @@ def time_axis_ticks(candles, first, last, left_edge, pixels_per_bar,
          if candidate[2] >= desired_seconds),
         _TIME_INTERVALS[-1],
     )
-    prev = (localize(candles[first - 1].time) if first > 0 else None)
+    from .chart_time import candle_label_time
+    prev = (candle_label_time(candles[first - 1],localize) if first > 0 else None)
     previous_bucket = _calendar_bucket(prev, kind, step) if prev else None
     ticks = []
     previous_x = float("-inf")
     previous_label_time = prev
     for index in range(first, last):
-        current = localize(candles[index].time)
+        current = candle_label_time(candles[index],localize)
         bucket = _calendar_bucket(current, kind, step)
         if bucket != previous_bucket:
             position = (index - left_edge + 0.5) * pixels_per_bar
@@ -186,6 +187,6 @@ def time_axis_ticks(candles, first, last, left_edge, pixels_per_bar,
         # Very small or heavily gapped windows still deserve one readable
         # date/time label; it must correspond to a real observed candle.
         midpoint = (first + last - 1) // 2
-        middle = localize(candles[midpoint].time)
+        middle = candle_label_time(candles[midpoint],localize)
         ticks.append((midpoint, _calendar_label(middle, kind, prev)))
     return ticks

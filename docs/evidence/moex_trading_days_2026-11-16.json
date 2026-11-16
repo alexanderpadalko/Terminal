@@ -1,0 +1,276 @@
+{
+  "mode": "live_read_only_finam_isolated_copy",
+  "production_changed": false,
+  "policy": "moex-trading-date-1",
+  "checked_at_utc": "2026-11-16T10:02:44.228874+00:00",
+  "passed": true,
+  "consumer_scope": "frozen live-data snapshots; quote stub, not real-time freshness validation",
+  "daily_checked": 7219,
+  "counts": {
+    "D1": 7345,
+    "W1": 4110,
+    "MN1": 2284
+  },
+  "symbols": [
+    {
+      "symbol": "GAZP@MISX",
+      "status": "PASS",
+      "daily_checked": 435,
+      "raw_unchanged": true,
+      "counts": {
+        "D1": 440,
+        "W1": 301,
+        "MN1": 251
+      },
+      "latest_daily_date": "2026-11-16",
+      "consumer": "PASS"
+    },
+    {
+      "symbol": "VKCO@MISX",
+      "status": "PASS",
+      "daily_checked": 435,
+      "raw_unchanged": true,
+      "counts": {
+        "D1": 440,
+        "W1": 255,
+        "MN1": 77
+      },
+      "latest_daily_date": "2026-11-16",
+      "consumer": "PASS"
+    },
+    {
+      "symbol": "SBER@MISX",
+      "status": "PASS",
+      "daily_checked": 435,
+      "raw_unchanged": true,
+      "counts": {
+        "D1": 440,
+        "W1": 301,
+        "MN1": 330
+      },
+      "latest_daily_date": "2026-11-16",
+      "consumer": "PASS"
+    },
+    {
+      "symbol": "LKOH@MISX",
+      "status": "PASS",
+      "daily_checked": 435,
+      "raw_unchanged": true,
+      "counts": {
+        "D1": 440,
+        "W1": 301,
+        "MN1": 355
+      },
+      "latest_daily_date": "2026-11-16",
+      "consumer": "PASS"
+    },
+    {
+      "symbol": "VTBR@MISX",
+      "status": "PASS",
+      "daily_checked": 435,
+      "raw_unchanged": true,
+      "counts": {
+        "D1": 440,
+        "W1": 259,
+        "MN1": 235
+      },
+      "latest_daily_date": "2026-11-16",
+      "consumer": "PASS"
+    },
+    {
+      "symbol": "T@MISX",
+      "status": "PASS",
+      "daily_checked": 431,
+      "raw_unchanged": true,
+      "counts": {
+        "D1": 436,
+        "W1": 301,
+        "MN1": 86
+      },
+      "latest_daily_date": "2026-11-16",
+      "consumer": "PASS"
+    },
+    {
+      "symbol": "SMLT@MISX",
+      "status": "PASS",
+      "daily_checked": 435,
+      "raw_unchanged": true,
+      "counts": {
+        "D1": 440,
+        "W1": 258,
+        "MN1": 74
+      },
+      "latest_daily_date": "2026-11-16",
+      "consumer": "PASS"
+    },
+    {
+      "symbol": "OZON@MISX",
+      "status": "PASS",
+      "daily_checked": 400,
+      "raw_unchanged": true,
+      "counts": {
+        "D1": 405,
+        "W1": 301,
+        "MN1": 72
+      },
+      "latest_daily_date": "2026-11-16",
+      "consumer": "PASS"
+    },
+    {
+      "symbol": "PLZL@MISX",
+      "status": "PASS",
+      "daily_checked": 432,
+      "raw_unchanged": true,
+      "counts": {
+        "D1": 437,
+        "W1": 259,
+        "MN1": 247
+      },
+      "latest_daily_date": "2026-11-16",
+      "consumer": "PASS"
+    },
+    {
+      "symbol": "NVTK@MISX",
+      "status": "PASS",
+      "daily_checked": 435,
+      "raw_unchanged": true,
+      "counts": {
+        "D1": 440,
+        "W1": 259,
+        "MN1": 244
+      },
+      "latest_daily_date": "2026-11-16",
+      "consumer": "PASS"
+    },
+    {
+      "symbol": "SIZ6@RTSX",
+      "status": "PASS",
+      "daily_checked": 318,
+      "raw_unchanged": true,
+      "counts": {
+        "D1": 329,
+        "W1": 100,
+        "MN1": 24
+      },
+      "latest_daily_date": "2026-11-16",
+      "consumer": "PASS"
+    },
+    {
+      "symbol": "CRZ6@RTSX",
+      "status": "PASS",
+      "daily_checked": 318,
+      "raw_unchanged": true,
+      "counts": {
+        "D1": 329,
+        "W1": 75,
+        "MN1": 18
+      },
+      "latest_daily_date": "2026-11-16",
+      "consumer": "PASS"
+    },
+    {
+      "symbol": "EUZ6@RTSX",
+      "status": "PASS",
+      "daily_checked": 255,
+      "raw_unchanged": true,
+      "counts": {
+        "D1": 261,
+        "W1": 67,
+        "MN1": 16
+      },
+      "latest_daily_date": "2026-11-16",
+      "consumer": "PASS"
+    },
+    {
+      "symbol": "EDZ6@RTSX",
+      "status": "PASS",
+      "daily_checked": 203,
+      "raw_unchanged": true,
+      "counts": {
+        "D1": 203,
+        "W1": 47,
+        "MN1": 12
+      },
+      "latest_daily_date": "2026-11-16",
+      "consumer": "PASS"
+    },
+    {
+      "symbol": "USDRUBF@RTSX",
+      "status": "PASS",
+      "daily_checked": 318,
+      "raw_unchanged": true,
+      "counts": {
+        "D1": 329,
+        "W1": 239,
+        "MN1": 56
+      },
+      "latest_daily_date": "2026-11-16",
+      "consumer": "PASS"
+    },
+    {
+      "symbol": "CNYRUBF@RTSX",
+      "status": "PASS",
+      "daily_checked": 318,
+      "raw_unchanged": true,
+      "counts": {
+        "D1": 329,
+        "W1": 239,
+        "MN1": 56
+      },
+      "latest_daily_date": "2026-11-16",
+      "consumer": "PASS"
+    },
+    {
+      "symbol": "EURRUBF@RTSX",
+      "status": "PASS",
+      "daily_checked": 318,
+      "raw_unchanged": true,
+      "counts": {
+        "D1": 329,
+        "W1": 239,
+        "MN1": 56
+      },
+      "latest_daily_date": "2026-11-16",
+      "consumer": "PASS"
+    },
+    {
+      "symbol": "MXZ6@RTSX",
+      "status": "PASS",
+      "daily_checked": 271,
+      "raw_unchanged": true,
+      "counts": {
+        "D1": 271,
+        "W1": 61,
+        "MN1": 15
+      },
+      "latest_daily_date": "2026-11-16",
+      "consumer": "PASS"
+    },
+    {
+      "symbol": "RIZ6@RTSX",
+      "status": "PASS",
+      "daily_checked": 274,
+      "raw_unchanged": true,
+      "counts": {
+        "D1": 278,
+        "W1": 90,
+        "MN1": 23
+      },
+      "latest_daily_date": "2026-11-16",
+      "consumer": "PASS"
+    },
+    {
+      "symbol": "IMOEXF@RTSX",
+      "status": "PASS",
+      "daily_checked": 318,
+      "raw_unchanged": true,
+      "counts": {
+        "D1": 329,
+        "W1": 158,
+        "MN1": 37
+      },
+      "latest_daily_date": "2026-11-16",
+      "consumer": "PASS"
+    }
+  ]
+}

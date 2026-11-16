@@ -26,7 +26,7 @@ from . import __version__
 from .app_icon import application_icon, set_windows_application_id
 from .chart_view import ChartView, inside_mother_bars, time_axis_zoom_factor
 from .chart_axes import price_axis_ticks, time_axis_ticks
-from .chart_time import candle_time_text
+from .chart_time import candle_time_text, candle_label_time
 from .exchange_time import LEGACY_MOSCOW_CLOCK, exchange_clock
 from .fvg_display import DisplaySettings, select_fvg_display
 from .flow_display import select_flow_display
@@ -880,7 +880,7 @@ class CandleChart(QWidget):
         hover_i = self.cursor_index()
         header_bar = candles[hover_i] if hover_i is not None else latest
         p.drawText(QRectF(self.x0, 0, max(150, self.width() - 120), 23), 0,
-                   f"{self.instrument_header}   ·   {self.analysis.timeframe}   {self.exchange.format(header_bar.time)}   O {self.format_price(header_bar.open)}   H {self.format_price(header_bar.high)}   L {self.format_price(header_bar.low)}   C {self.format_price(header_bar.close)}")
+                   f"{self.instrument_header}   ·   {self.analysis.timeframe}   {self.exchange.format(candle_label_time(header_bar,self.exchange.local))}   O {self.format_price(header_bar.open)}   H {self.format_price(header_bar.high)}   L {self.format_price(header_bar.low)}   C {self.format_price(header_bar.close)}")
         if self.cursor_x is not None and self.x0 <= self.cursor_x <= self.x1 and self.top <= self.cursor_y <= self.bottom:
             pen = QPen(colors["crosshair"], 0.85, Qt.PenStyle.DashLine)
             p.setPen(pen)

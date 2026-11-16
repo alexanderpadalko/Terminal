@@ -74,6 +74,9 @@ class Candle:
     # Exchange settlement is a reference close, not necessarily a traded
     # price inside the session range (notably on illiquid deferred futures).
     settlement_close: bool = False
+    # Logical MOEX trading period. ``time`` remains the first available
+    # physical source timestamp, so weekend drafts are visible before Monday.
+    trading_date: date | None = None
 
     def __post_init__(self):
         if self.time.tzinfo is None or self.time.utcoffset() is None:
@@ -87,6 +90,8 @@ class Candle:
             raise ValueError("OHLCV содержит NaN/Inf")
         if type(self.settlement_close) is not bool:
             raise ValueError('Invalid settlement close flag')
+        if self.trading_date is not None and type(self.trading_date) is not date:
+            raise ValueError('Invalid trading date')
         prices=(self.open,self.low,self.high) if self.settlement_close else (self.open,self.close,self.low,self.high)
         if self.high < max(prices) or self.low > min(prices):
             raise ValueError(f"Неверный OHLC: {self.time}")
@@ -101,7 +106,8 @@ def serialize_candle(c: Candle) -> dict:
     return {"time": c.time.isoformat(), "open": c.open, "high": c.high,
             "low": c.low, "close": c.close, "volume": c.volume,
             **({"scheduled_close": c.scheduled_close.isoformat()} if c.scheduled_close else {}),
-            **({"settlement_close":True} if c.settlement_close else {})}
+            **({"settlement_close":True} if c.settlement_close else {}),
+            **({"trading_date":c.trading_date.isoformat()} if c.trading_date else {})}
 
 
 def parse_time(value: str) -> datetime:

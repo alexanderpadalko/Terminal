@@ -3,6 +3,7 @@ from .market_data import MOSCOW
 from .exchange_time import ExchangeClock
 from .publication import chart_cutoff,published_state
 from .fvg_summary import summary_fvg_side
+from .chart_time import candle_label_time
 
 
 def period_key(dt,anchor,*,exchange: ExchangeClock | None=None):
@@ -34,14 +35,15 @@ def vwap_series(candles,anchor='Session',source='hlc3',*,exchange: ExchangeClock
         # midnight and skip the 17:00–18:00 halt. US equity Session
         # remains 04:00–20:00 ET (pre/core/postmarket).
         # Week/Month/other anchors still use the exchange-local calendar.
-        next_key=period_key(bar.time,anchor,exchange=exchange)
+        label=candle_label_time(bar,lambda dt:dt.astimezone(zone))
+        next_key=period_key(label,anchor,exchange=exchange)
         if anchor=='Session' and next_key is None:
             values.append(None)
             continue
         reset=key!=next_key
         if i and anchor in ('Decade','Century'):
-            current_year=bar.time.astimezone(zone).year
-            prior_year=candles[i-1].time.astimezone(zone).year
+            current_year=label.year
+            prior_year=candle_label_time(candles[i-1],lambda dt:dt.astimezone(zone)).year
             reset=current_year!=prior_year and current_year%(10 if anchor=='Decade' else 100)==0
         if i==0 or reset:
             if key is not None and previous_close is not None:

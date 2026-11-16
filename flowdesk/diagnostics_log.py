@@ -173,9 +173,9 @@ def log_candle_policy(*,symbol='',profile='',issues=None,counts=None,path=None,
         'lower_history_unavailable','incomplete_lower_coverage',
         'native_daily_session_mismatch','incomplete_daily_coverage',
         'native_period_session_mismatch','native_snapshot_unconfirmed','control_source_invalid',
-        'settlement_snapshot_unconfirmed','settlement_outside_session_range'}
+        'settlement_snapshot_unconfirmed','settlement_outside_session_range','calendar_source_conflict'}
     fields=[('event','candle_policy'),('symbol',_safe_symbol(symbol)),
-            ('algorithm',policy if policy in ('session-ohlcv-1','finam-native-dwm-1','nq-session-settlement-1','nq-session-last-trade-1','us-futures-last-trade-1') else '-'),
+            ('algorithm',policy if policy in ('session-ohlcv-1','finam-native-dwm-1','nq-session-settlement-1','nq-session-last-trade-1','us-futures-last-trade-1','moex-trading-date-1') else '-'),
             ('profile',profile if profile in profiles else '-')]
     for tf in ('H4','D1','W1','MN1'):
         issue=(issues or {}).get(tf)

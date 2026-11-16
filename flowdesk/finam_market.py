@@ -16,6 +16,7 @@ from . import session_store
 from .trading_calendar import calendar_for
 from .provider_candles import native_higher_enabled, NATIVE_HIGHER
 from .us_futures_family import product as session_future
+from .moex_trading_family import enabled as moex_trading, PROGRESS as MOEX_PROGRESS
 
 TTL_SECONDS = {"M1":60,"M5":300,"H1":300,"H4":900,"D1":1800,"W1":3600,"MN1":14400}
 STREAM_VERIFY_SECONDS = 900
@@ -119,7 +120,9 @@ class FinamMarketService:
                 row=db.execute('SELECT revision FROM candle_source_revisions WHERE symbol=?',(symbol,)).fetchone()
                 state={'revision':row[0] if row else 0,
                     'coverage':db.execute('SELECT tf,start,ending FROM candle_source_coverage WHERE symbol=?',(symbol,)).fetchall(),
-                    'observations':db.execute('SELECT tf,ts,observed_at FROM candle_source_observations WHERE symbol=?',(symbol,)).fetchall()}
+                    'observations':db.execute('SELECT tf,ts,observed_at FROM candle_source_observations WHERE symbol=?',(symbol,)).fetchall(),
+                    'moex_progress':db.execute('SELECT cursor,exhausted FROM finam_history_progress WHERE symbol=? AND tf=?',
+                                              (symbol,MOEX_PROGRESS)).fetchone()}
         series={tf:[] for tf in FRAMES}
         for tf,ts,o,h,l,c,v,ending in rows:
             if tf in series:
@@ -203,7 +206,8 @@ class FinamMarketService:
             for frame in frames:
                 if native_higher_enabled(self.api):
                     sources=(('H1','M5') if frame=='H4' else
-                             ('H1',frame) if session_future(symbol) and frame in NATIVE_HIGHER else (frame,))
+                             ('H1',frame) if session_future(symbol) and frame in NATIVE_HIGHER else
+                             ('D1',frame) if moex_trading(symbol) and frame in NATIVE_HIGHER else (frame,))
                 else:
                     sources=('H1','M5','D1') if frame in ('H4',*NATIVE_HIGHER) else (frame,)
                 for item in sources:

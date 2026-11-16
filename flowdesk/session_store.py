@@ -1,6 +1,6 @@
 """Versioned derived families beside untouched, separately stored provider bars."""
 from contextlib import closing
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 import hashlib
 import json
 
@@ -10,6 +10,7 @@ from .provider_candles import (NATIVE_HIGHER, NATIVE_POLICY_VERSION, native_high
                                native_higher_series, control_issues)
 from .trading_calendar import CalendarUnavailable, calendar_for
 from . import us_futures_family as futures
+from . import moex_trading_family as moex
 
 
 class PreparedSeries(dict):
@@ -98,13 +99,15 @@ def record_response(service,symbol,tf,bars,start,end,observed):
 def _candle(row):
     return Candle(datetime.fromisoformat(row['time']),*(row[k] for k in ('open','high','low','close','volume')),
         scheduled_close=datetime.fromisoformat(row['scheduled_close']) if row.get('scheduled_close') else None,
-        settlement_close=row.get('settlement_close',False))
+        settlement_close=row.get('settlement_close',False),
+        trading_date=date.fromisoformat(row['trading_date']) if row.get('trading_date') else None)
 
 
 def prepare(service,symbol,raw,observed):
     if not getattr(service.api,'session_candles',False):return raw
     primary_native=native_higher_enabled(service.api)
     pilot_requested=primary_native and bool(futures.product(symbol))
+    ru=primary_native and moex.enabled(symbol)
     state=getattr(raw,'source_state',None)
     snapshots=state['observations'] if state else []
     observed_at={(tf,datetime.fromisoformat(ts)):datetime.fromisoformat(stamp) for tf,ts,stamp in snapshots}
@@ -116,19 +119,21 @@ def prepare(service,symbol,raw,observed):
             raise CalendarUnavailable('instrument_calendar_unknown')
     except CalendarUnavailable:
         result={tf:bars for tf,bars in raw.items() if tf not in ('H4',*NATIVE_HIGHER)}
-        if not pilot_requested:result.update(native)
+        if not (pilot_requested or ru):result.update(native)
         issues={tf:'instrument_calendar_unknown' for tf in ('H4',*NATIVE_HIGHER)}
-        if primary_native and not pilot_requested:
+        if primary_native and not (pilot_requested or ru):
             issues={**{'H4':'instrument_calendar_unknown'},**native_issues}
         return PreparedSeries(result,
-            {'version':futures.POLICY if pilot_requested else NATIVE_POLICY_VERSION if primary_native else AGGREGATION_VERSION,
+            {'version':moex.POLICY if ru else futures.POLICY if pilot_requested else NATIVE_POLICY_VERSION if primary_native else AGGREGATION_VERSION,
              'profile':'unknown','issues':issues,
-             'origins':{tf:'finam_native' for tf in NATIVE_HIGHER} if primary_native and not pilot_requested else {},
+             'origins':{tf:'finam_native' for tf in NATIVE_HIGHER} if primary_native and not (pilot_requested or ru) else {},
              'control_issues':{tf:'instrument_calendar_unknown' for tf in NATIVE_HIGHER} if primary_native else {}})
     pilot=primary_native and futures.enabled(symbol,calendar)
     if pilot:calendar=futures.calendar_for_family(calendar)
     versions=(AGGREGATION_VERSION,calendar.revision,NATIVE_POLICY_VERSION if primary_native else None)
     if pilot:versions+=(futures.POLICY,)
+    ru_progress=state.get('moex_progress') if state else None
+    if ru:versions+=(moex.POLICY,moex.REVISION,ru_progress)
     policy=hashlib.sha256(repr(versions).encode()).hexdigest()
     with closing(service._connection()) as db:
         revision=state['revision'] if state else -1
@@ -173,29 +178,38 @@ def prepare(service,symbol,raw,observed):
         metadata['origins']={**built.origins,**{tf:'finam_native' for tf in NATIVE_HIGHER}}
         built.series={tf:bars for tf,bars in built.series.items() if tf not in NATIVE_HIGHER}
         built.series.update(native)
-        if pilot:
-            # US futures never fall back to differently bounded
-            # native D/W/M while its session history is pending or unavailable.
+        if pilot or ru:
+            # A selected trading-day family never falls back to differently
+            # grouped native D/W/M while its source history is unavailable.
             for tf in NATIVE_HIGHER:built.series.pop(tf,None)
-            metadata['version']=futures.POLICY
+            family_policy=moex.POLICY if ru else futures.POLICY
+            origin='finam_moex_trading_day' if ru else 'us_futures_session_last_trade'
+            snapshot_key='moex_snapshot_at' if ru else 'futures_snapshot_at'
+            metadata['version']=family_policy
             metadata['issues']={tf:value for tf,value in metadata['issues'].items() if tf not in NATIVE_HIGHER}
             metadata['origins']={tf:value for tf,value in metadata['origins'].items() if tf not in NATIVE_HIGHER}
             metadata['control_issues']={}
             try:
-                candidate,status,detail=futures.build_family(raw,calendar,observed,
-                    coverage=coverage,observations=observed_at)
+                if ru:
+                    verified=bool(ru_progress and ru_progress[1] and
+                        datetime.fromisoformat(ru_progress[0]).date()<=moex.archive_start(raw,symbol))
+                    candidate,status,detail=moex.build_family(raw,symbol,observed,
+                        observations=observed_at,archive_verified=verified)
+                else:
+                    candidate,status,detail=futures.build_family(raw,calendar,observed,
+                        coverage=coverage,observations=observed_at)
             except (ValueError,OverflowError):
-                candidate,status,detail=None,'control_source_invalid',{'policy':futures.POLICY}
-            metadata['futures_staging']={**detail,'status':status}
+                candidate,status,detail=None,'control_source_invalid',{'policy':family_policy}
+            metadata['moex_staging' if ru else 'futures_staging']={**detail,'status':status}
             if candidate is not None:
-                # Publish all three frames from one source snapshot. Never
-                # append a rebuilt recent month to an older native prefix.
+                # Publish all three frames from one source snapshot. The RU
+                # candidate explicitly preserves its unaffected native prefix.
                 built.series.update(candidate)
-                metadata['version']=futures.POLICY
+                metadata['version']=family_policy
                 metadata['origins']={**metadata['origins'],
-                    **{tf:'us_futures_session_last_trade' for tf in NATIVE_HIGHER}}
+                    **{tf:origin for tf in NATIVE_HIGHER}}
                 metadata['control_issues']={}
-                metadata['futures_snapshot_at']=observed.isoformat()
+                metadata[snapshot_key]=observed.isoformat()
             else:
                 metadata['issues'].update({tf:status for tf in NATIVE_HIGHER})
                 # Once promoted, a transient missing source must not switch
@@ -205,16 +219,16 @@ def prepare(service,symbol,raw,observed):
                 try:
                     previous=json.loads(saved[3]) if saved and saved[0]==policy else {}
                     prior_meta=previous.get('metadata',{})
-                    stamp=datetime.fromisoformat(prior_meta['futures_snapshot_at'])
-                    if prior_meta.get('version')==futures.POLICY and stamp<=observed:
+                    stamp=datetime.fromisoformat(prior_meta[snapshot_key])
+                    if prior_meta.get('version')==family_policy and stamp<=observed:
                         retained={tf:[bar for row in previous['derived'].get(tf,())
                             if (bar:=_candle(row)).scheduled_close<=stamp or bar.scheduled_close>observed]
                             for tf in NATIVE_HIGHER}
                         built.series.update(retained)
-                        metadata['version']=futures.POLICY
-                        metadata['futures_snapshot_at']=stamp.isoformat()
+                        metadata['version']=family_policy
+                        metadata[snapshot_key]=stamp.isoformat()
                         metadata['origins']={**metadata['origins'],
-                            **{tf:'us_futures_session_last_trade' for tf in NATIVE_HIGHER}}
+                            **{tf:origin for tf in NATIVE_HIGHER}}
                         metadata['issues']={**metadata['issues'],**{tf:status for tf in NATIVE_HIGHER}}
                 except (ValueError,KeyError,TypeError,AttributeError):pass
     from .diagnostics_log import log_candle_policy
@@ -245,6 +259,9 @@ def backfill(service,symbol,now,*,cancelled=lambda:False):
     except CalendarUnavailable:return {'H4':'нет подтверждённого календаря инструмента'}
     if native_higher_enabled(service.api) and futures.enabled(symbol,calendar):
         return futures.backfill(service,symbol,now,cancelled=cancelled)
+    if native_higher_enabled(service.api) and moex.enabled(symbol):
+        result=moex.backfill(service,symbol,now,cancelled=cancelled)
+        if result:return result
     tf='M5' if calendar.profile in ('US_EQUITY_RTH','MOEX_STOCK_FULL') else 'H1'
     raw=service._series(symbol)
     bars=raw.get(tf,[])
