@@ -104,7 +104,7 @@ class TestCuratedFinamUniverse(unittest.TestCase):
         self.assertEqual(len(saved["instruments"]),40)
 
     def test_catalog_only_enables_verified_future(self):
-        assets=[{"ticker":"GCZ6","mic":"XCME","symbol":"GCZ6@XCEC"}]
+        assets=[{"ticker":"GCZ6","mic":"XCEC","symbol":"GCZ6@XCEC"}]
         groups,_=compose_universe(assets)
         self.assertTrue(is_in_universe("GCZ6@XCEC",groups))
         self.assertFalse(is_in_universe("GCH27@XCEC",groups))
