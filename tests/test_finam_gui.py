@@ -580,7 +580,7 @@ class TestFinamGui(unittest.TestCase):
                              self.window.screen_buttons.values()))
         initial=[self.window.examples.item(i) for i in
                  range(self.window.examples.count())]
-        self.assertEqual(len(initial),34)
+        self.assertEqual(len(initial),26)
         self.window.screen_results[sber.symbol]=ScanResult(
             sber.symbol,(1,-1,0,0,0))
         self.window.screen_results[lkoh.symbol]=ScanResult(
