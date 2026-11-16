@@ -6,7 +6,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import sqlite3
 import threading
-from .finam_api import FinamAPI, FRAMES, DEPTH_DAYS, parse_instant
+from .finam_api import FinamAPI, FinamAPIError, FRAMES, DEPTH_DAYS, parse_instant
 from .market_symbols import symbol_name
 from .market_data import Candle, normalize, candle_close_time
 from .pipeline import analyze_timeframes
@@ -17,6 +17,7 @@ from .trading_calendar import calendar_for
 from .provider_candles import native_higher_enabled, NATIVE_HIGHER
 from .us_futures_family import product as session_future
 from .moex_trading_family import enabled as moex_trading, PROGRESS as MOEX_PROGRESS
+from . import moex_trading_family as moex
 
 TTL_SECONDS = {"M1":60,"M5":300,"H1":300,"H4":900,"D1":1800,"W1":3600,"MN1":14400}
 STREAM_VERIFY_SECONDS = 900
@@ -349,11 +350,36 @@ class FinamMarketService:
                 errors.update(self.refresh_series(symbol,(tf for tf in FRAMES if tf!=timeframe),cancelled=cancelled))
         delay=self.api.market_delay_minutes(mic)
         observed=self.clock()-timedelta(minutes=delay)
-        series=self.prepare_series(symbol,self._series(symbol),observed)
+        raw=self._series(symbol)
+        if (allow_http and timeframe in NATIVE_HIGHER and native_higher_enabled(self.api)
+                and moex_trading(symbol) and not moex.archive_ready(raw,symbol)):
+            # This runs in the selected chart's cancellable worker at chart
+            # priority. First opening must not depend on a 30-symbol scanner
+            # finishing before its low-priority archive pass even starts.
+            progress('Finam: подготовка дневной истории торговых дней')
+            try:moex.backfill(self,symbol,self.clock(),cancelled=cancelled)
+            except InterruptedError:raise
+            except Exception as exc:
+                code=getattr(exc,'http_status',None)
+                reason={401:'нужно обновить авторизацию Финама',403:'нет доступа к дневной истории Финама',
+                        404:'контракт не найден Финамом',429:'достигнут лимит запросов Финама'}.get(
+                            code if type(code) is int else None,'не удалось подготовить дневную историю Финама')
+                raise FinamAPIError(reason,http_status=code if type(code) is int and 100<=code<=599 else None) from None
+            raw=self._series(symbol)
+            observed=self.clock()-timedelta(minutes=delay)
+        series=self.prepare_series(symbol,raw,observed)
         if not series.get(timeframe):
             issue=getattr(series,'session_metadata',{}).get('issues',{}).get(timeframe)
             reason=("нет полных исходных свечей или подтверждённого календаря сессии" if issue
                     else errors.get(timeframe,"нет сохранённых свечей. Разрешите HTTP для первоначальной загрузки"))
+            if moex_trading(symbol):
+                reason={
+                    'incomplete_daily_coverage':('подготовка дневной истории Финама ещё не завершена'
+                        if not moex.archive_ready(raw,symbol) else 'дневная история Финама не покрывает нужные периоды'),
+                    'native_snapshot_unconfirmed':'Финам ещё не подтвердил снимок исходной свечи',
+                    'calendar_history_unknown':'нет подтверждённого календаря для дат исходной истории',
+                    'calendar_source_conflict':'дата исходной свечи противоречит календарю торгов',
+                }.get(issue,reason)
             raise RuntimeError(f"{self.provider_name} · {symbol} · {timeframe}: {reason}")
         progress("Finam: расчёт потоков v2.11")
         main,parents=self.analyze_cached(symbol,timeframe,series,settings,observed)

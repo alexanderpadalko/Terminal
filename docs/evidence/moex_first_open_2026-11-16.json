@@ -1,0 +1,231 @@
+{
+  "mode": "read_only_finam_first_chart_open_from_isolated_copy",
+  "production_changed": false,
+  "manual_backfill_called": false,
+  "symbols": [
+    {
+      "symbol": "CRZ6@RTSX",
+      "status": "PASS",
+      "archive_ready": true,
+      "counts": {
+        "D1": 329,
+        "W1": 75,
+        "MN1": 18
+      },
+      "seconds": 4.765
+    },
+    {
+      "symbol": "VKCO@MISX",
+      "status": "PASS",
+      "archive_ready": true,
+      "counts": {
+        "D1": 440,
+        "W1": 255,
+        "MN1": 77
+      },
+      "seconds": 35.766
+    },
+    {
+      "symbol": "SBER@MISX",
+      "status": "PASS",
+      "archive_ready": true,
+      "counts": {
+        "D1": 440,
+        "W1": 301,
+        "MN1": 330
+      },
+      "seconds": 44.078
+    },
+    {
+      "symbol": "GAZP@MISX",
+      "status": "PASS",
+      "archive_ready": true,
+      "counts": {
+        "D1": 440,
+        "W1": 301,
+        "MN1": 251
+      },
+      "seconds": 45.563
+    },
+    {
+      "symbol": "LKOH@MISX",
+      "status": "PASS",
+      "archive_ready": true,
+      "counts": {
+        "D1": 440,
+        "W1": 301,
+        "MN1": 355
+      },
+      "seconds": 34.094
+    },
+    {
+      "symbol": "VTBR@MISX",
+      "status": "PASS",
+      "archive_ready": true,
+      "counts": {
+        "D1": 440,
+        "W1": 259,
+        "MN1": 235
+      },
+      "seconds": 38.937
+    },
+    {
+      "symbol": "T@MISX",
+      "status": "PASS",
+      "archive_ready": true,
+      "counts": {
+        "D1": 436,
+        "W1": 301,
+        "MN1": 86
+      },
+      "seconds": 39.532
+    },
+    {
+      "symbol": "SMLT@MISX",
+      "status": "PASS",
+      "archive_ready": true,
+      "counts": {
+        "D1": 440,
+        "W1": 258,
+        "MN1": 74
+      },
+      "seconds": 45.484
+    },
+    {
+      "symbol": "OZON@MISX",
+      "status": "PASS",
+      "archive_ready": true,
+      "counts": {
+        "D1": 405,
+        "W1": 301,
+        "MN1": 72
+      },
+      "seconds": 38.672
+    },
+    {
+      "symbol": "PLZL@MISX",
+      "status": "PASS",
+      "archive_ready": true,
+      "counts": {
+        "D1": 437,
+        "W1": 259,
+        "MN1": 247
+      },
+      "seconds": 41.813
+    },
+    {
+      "symbol": "SIZ6@RTSX",
+      "status": "PASS",
+      "archive_ready": true,
+      "counts": {
+        "D1": 329,
+        "W1": 100,
+        "MN1": 24
+      },
+      "seconds": 12.64
+    },
+    {
+      "symbol": "EUZ6@RTSX",
+      "status": "PASS",
+      "archive_ready": true,
+      "counts": {
+        "D1": 261,
+        "W1": 67,
+        "MN1": 16
+      },
+      "seconds": 15.062
+    },
+    {
+      "symbol": "EDZ6@RTSX",
+      "status": "PASS",
+      "archive_ready": true,
+      "counts": {
+        "D1": 203,
+        "W1": 47,
+        "MN1": 12
+      },
+      "seconds": 13.844
+    },
+    {
+      "symbol": "NVTK@MISX",
+      "status": "PASS",
+      "archive_ready": true,
+      "counts": {
+        "D1": 440,
+        "W1": 259,
+        "MN1": 244
+      },
+      "seconds": 39.062
+    },
+    {
+      "symbol": "USDRUBF@RTSX",
+      "status": "PASS",
+      "archive_ready": true,
+      "counts": {
+        "D1": 329,
+        "W1": 239,
+        "MN1": 56
+      },
+      "seconds": 16.672
+    },
+    {
+      "symbol": "CNYRUBF@RTSX",
+      "status": "PASS",
+      "archive_ready": true,
+      "counts": {
+        "D1": 329,
+        "W1": 239,
+        "MN1": 56
+      },
+      "seconds": 14.515
+    },
+    {
+      "symbol": "EURRUBF@RTSX",
+      "status": "PASS",
+      "archive_ready": true,
+      "counts": {
+        "D1": 329,
+        "W1": 239,
+        "MN1": 56
+      },
+      "seconds": 12.703
+    },
+    {
+      "symbol": "MXZ6@RTSX",
+      "status": "PASS",
+      "archive_ready": true,
+      "counts": {
+        "D1": 271,
+        "W1": 61,
+        "MN1": 15
+      },
+      "seconds": 10.953
+    },
+    {
+      "symbol": "RIZ6@RTSX",
+      "status": "PASS",
+      "archive_ready": true,
+      "counts": {
+        "D1": 278,
+        "W1": 90,
+        "MN1": 23
+      },
+      "seconds": 9.734
+    },
+    {
+      "symbol": "IMOEXF@RTSX",
+      "status": "PASS",
+      "archive_ready": true,
+      "counts": {
+        "D1": 329,
+        "W1": 158,
+        "MN1": 37
+      },
+      "seconds": 9.843
+    }
+  ],
+  "checked_at_utc": "2026-11-16T10:56:00.537865+00:00",
+  "passed": true,
+  "request_count": 146,
+  "scope": "FinamMarketService.view(D1, allow_http=True) from an unprepared isolated cache; W1/MN1 then opened with HTTP disabled; no prior scanner or direct backfill call."
+}

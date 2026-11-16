@@ -212,9 +212,7 @@ def _backfill_higher_history(service, symbol, now, series, *,
         return {}
     if native_higher_enabled(service.api):
         from . import moex_trading_family as moex
-        progress=service.load_history_progress().get((symbol,moex.PROGRESS),{})
-        if moex.enabled(symbol) and (not progress.get('exhausted') or
-                progress['cursor'].date()>moex.archive_start(series,symbol)):
+        if moex.enabled(symbol) and not moex.archive_ready(service._series(symbol),symbol):
             return moex.backfill(service,symbol,now,cancelled=cancelled)
     state=getattr(service,"scanner_history_progress",None)
     if state is None:

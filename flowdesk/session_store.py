@@ -191,10 +191,8 @@ def prepare(service,symbol,raw,observed):
             metadata['control_issues']={}
             try:
                 if ru:
-                    verified=bool(ru_progress and ru_progress[1] and
-                        datetime.fromisoformat(ru_progress[0]).date()<=moex.archive_start(raw,symbol))
                     candidate,status,detail=moex.build_family(raw,symbol,observed,
-                        observations=observed_at,archive_verified=verified)
+                        observations=observed_at,archive_verified=moex.archive_ready(raw,symbol))
                 else:
                     candidate,status,detail=futures.build_family(raw,calendar,observed,
                         coverage=coverage,observations=observed_at)

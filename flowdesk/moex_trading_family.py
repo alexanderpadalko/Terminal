@@ -45,6 +45,12 @@ def archive_start(raw,symbol):
     return max(first,min(labels)) if labels else first
 
 
+def archive_ready(raw,symbol):
+    progress=(getattr(raw,'source_state',None) or {}).get('moex_progress')
+    return bool(progress and progress[1] and
+                datetime.fromisoformat(progress[0]).date()<=archive_start(raw,symbol))
+
+
 def _day_end(day,symbol):
     # Price aggregation uses native physical-day D, including its auctions.
     # These deadlines control publication only, never source OHLC selection.
@@ -158,6 +164,15 @@ def build_family(raw,symbol,observed,*,observations,archive_verified):
 
 
 def backfill(service,symbol,now,*,cancelled):
+    # The selected chart and scanner can request this same bootstrap at once.
+    # Serialize only this instrument's bootstrap, never the DB or other charts.
+    lock=service._key_lock(service._pull_locks,(symbol,PROGRESS))
+    service._acquire(lock,cancelled)
+    try:return _backfill(service,symbol,now,cancelled=cancelled)
+    finally:lock.release()
+
+
+def _backfill(service,symbol,now,*,cancelled):
     """Four initial <=180-day D windows, then normal overlapping refreshes.
 
     Explicit old-date requests are supported by Finam; no H1 archive rebuild
@@ -175,7 +190,13 @@ def backfill(service,symbol,now,*,cancelled):
         if cursor<=start:break
         if cancelled():raise InterruptedError()
         left=max(start,cursor-timedelta(days=180))
-        bars=service.api.bars(symbol,'D1',start=left,end=cursor)
+        try:bars=service.api.bars(symbol,'D1',start=left,end=cursor)
+        except InterruptedError:raise
+        except Exception as exc:
+            from .diagnostics_log import log_event
+            log_event('candle_source_unavailable',symbol=symbol,timeframe='D1',
+                      error=exc,stage='candles',outcome='failed')
+            raise
         if cancelled():raise InterruptedError()
         if not bars and any(left<=b.time<cursor for b in raw.get('D1',())):
             return {'D1':'исходное окно Finam не подтверждено'}
