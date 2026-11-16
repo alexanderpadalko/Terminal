@@ -8,7 +8,7 @@ import unittest
 
 from PySide6.QtWidgets import QApplication
 
-from flowdesk.finam_universe import US_CONTRACTS, RU_CONTRACTS
+from flowdesk.finam_universe import US_CONTRACTS, RU_CONTRACTS, Contract, US_FUTURES
 from flowdesk.finam_rotation import (
     RollState, dominates, resolve_contract, resolve_futures, expiry_date,
 )
@@ -17,6 +17,9 @@ from flowdesk.finam_catalog_worker import FinamCatalogWorker
 
 
 NOW=datetime(2026,11,13,14,30,tzinfo=timezone.utc)
+# Keep regression coverage of the NQ rollover engine independently of
+# whether NQ is included in the user-visible curated universe.
+NQ_ROLLOVER_CONTRACT=Contract("NQZ2026","Nasdaq 100",US_FUTURES,("NQZ2026","NQZ26","NQZ6"),("XCME",))
 STAMP="2026-11-13T14:25:00Z"
 
 
@@ -50,7 +53,7 @@ class API:
 
 class TestRollover(unittest.TestCase):
     def test_contract_stays_until_day_before_expiry_without_quote_calls(self):
-        base=US_CONTRACTS[0]
+        base=NQ_ROLLOVER_CONTRACT
         rows=[row("NQZ6","XCME","2026-12-18"),
               row("NQH7","XCME","2027-03-19")]
         api=API(rows)
@@ -66,7 +69,7 @@ class TestRollover(unittest.TestCase):
         self.assertFalse(any(kind=="quote" for kind,_ in api.calls))
 
     def test_next_contract_with_higher_volume_does_not_roll_early(self):
-        base=US_CONTRACTS[0]
+        base=NQ_ROLLOVER_CONTRACT
         rows=[row("NQZ6","XCME","2026-12-18"),
               row("NQH7","XCME","2027-03-19")]
         api=API(rows,{"NQZ6@XCME":quote("NQZ6@XCME",1,1),
@@ -77,7 +80,7 @@ class TestRollover(unittest.TestCase):
 
 
     def test_expired_contract_is_not_selected_even_if_quotes_unavailable(self):
-        base=US_CONTRACTS[0]
+        base=NQ_ROLLOVER_CONTRACT
         rows=[row("NQZ6","XCME","2026-11-12"),
               row("NQH7","XCME","2027-03-19")]
         api=API(rows)
@@ -86,7 +89,7 @@ class TestRollover(unittest.TestCase):
         self.assertTrue(result.item.verified)
 
     def test_unknown_expiry_keeps_exact_active_contract_but_stops_rolling(self):
-        base=US_CONTRACTS[0]
+        base=NQ_ROLLOVER_CONTRACT
         data=[row("NQZ6","XCME"),row("NQH7","XCME","2027-03-19")]
         result=resolve_contract(base,data,API(data),today=NOW.date(),now=NOW)
         self.assertTrue(result.item.verified)
@@ -95,7 +98,7 @@ class TestRollover(unittest.TestCase):
         self.assertEqual(result.state_symbol,"NQZ6@XCME")
 
     def test_unavailable_contract_without_confirmed_expiry_is_disabled(self):
-        base=US_CONTRACTS[0]
+        base=NQ_ROLLOVER_CONTRACT
         data=[row("NQH7","XCME")]
         result=resolve_contract(base,data,API(data),today=NOW.date(),now=NOW)
         self.assertFalse(result.item.verified)
@@ -115,7 +118,7 @@ class TestRollover(unittest.TestCase):
                          date(2026,12,18))
 
     def test_no_quote_or_expiry_fabrication_when_next_date_missing(self):
-        base=US_CONTRACTS[0]
+        base=NQ_ROLLOVER_CONTRACT
         data=[row("NQZ6","XCME","2026-12-18"),row("NQH7","XCME")]
         result=resolve_contract(base,data,API(data),
                                 today=date(2026,12,17),now=NOW)
@@ -123,7 +126,7 @@ class TestRollover(unittest.TestCase):
         self.assertIn("следующий контракт не подтверждён",result.reason)
 
     def test_roll_does_not_choose_mini_micro_or_other_exchange(self):
-        base=US_CONTRACTS[0]
+        base=NQ_ROLLOVER_CONTRACT
         data=[row("NQZ6","XCME","2026-12-18"),
               row("MNQH7","XCME","2027-03-19"),
               row("NQH7","RTSX","2027-03-19")]
@@ -141,7 +144,7 @@ class TestRollover(unittest.TestCase):
                          "SIZ6@RTSX")
 
     def test_no_backward_roll_once_previous_front_remembered(self):
-        base=US_CONTRACTS[0]
+        base=NQ_ROLLOVER_CONTRACT
         rows=[row("NQZ6","XCME","2026-12-18"),
               row("NQH7","XCME","2027-03-19")]
         first=resolve_contract(base,rows,API(rows),today=NOW.date(),now=NOW,
@@ -202,8 +205,8 @@ class TestCatalogStartup(unittest.TestCase):
     def test_startup_refreshes_stocks_and_switches_one_day_before_expiry(self):
         from flowdesk.watchlist import WatchlistService
         base=WatchlistService().cached()
-        rows=[row("NQZ6","XCME","2026-11-14"),
-              row("NQH7","XCME","2027-03-19"),
+        rows=[row("GCZ6","XCME","2026-11-14"),
+              row("GCH7","XCME","2027-03-19"),
               row("SiZ6","RTSX","2026-11-14"),
               row("SiH7","RTSX","2027-03-18")]
         api=API(rows)
@@ -229,9 +232,9 @@ class TestCatalogStartup(unittest.TestCase):
             payload=messages[0]
             self.assertEqual(len(payload["stocks"]),10)
             self.assertTrue(payload["ranking_status"].startswith("2026"))
-            self.assertEqual(payload["futures"]["us:NQZ2026"].symbol,"NQH7@XCME")
+            self.assertEqual(payload["futures"]["us:GCZ2026"].symbol,"GCH7@XCME")
             self.assertEqual(payload["futures"]["ru:SIZ2026"].symbol,"SiH7@RTSX")
-            self.assertEqual(payload["roll_map"]["NQZ6@XCME"],"NQH7@XCME")
+            self.assertEqual(payload["roll_map"]["GCZ6@XCME"],"GCH7@XCME")
             self.assertTrue((Path(directory)/"state.json").exists())
             self.assertFalse(any(kind=="quote" for kind,_ in api.calls))
 
