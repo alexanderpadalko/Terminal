@@ -17,7 +17,7 @@ def analyze_history(bars, tf, *, breaks=(), cached=None, **kwargs):
                        for t in breaks})
     boundaries=[i for i in boundaries if 0<i<len(bars)]
     if not boundaries:
-        return analyze(bars,tf,**kwargs)
+        return analyze(bars,tf,cached=cached,**kwargs)
     results=[];blocks=[]
     previous={block.candles[0].time:(start,end,block)
               for start,end,block in getattr(cached,'history_blocks',()) if block.candles}
@@ -40,7 +40,7 @@ def analyze_history(bars, tf, *, breaks=(), cached=None, **kwargs):
                 result.confirmed_fvg=[replace(z,broken=None) if z.broken==old_end else z for z in result.confirmed_fvg]
             shift=start-old_start
         else:
-            result=analyze(chunk,tf,**kwargs)
+            result=analyze(chunk,tf,cached=old,**kwargs)
             shift=start
         index=lambda i:i+shift if i is not None and i>=0 else i
         def zone(z):

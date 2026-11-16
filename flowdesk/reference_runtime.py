@@ -11,6 +11,7 @@ import ast
 import json
 import math as pymath
 import operator
+import weakref
 from pathlib import Path
 from .v214_working_fvg import patch_program
 from types import SimpleNamespace as NS
@@ -84,14 +85,17 @@ class ReferenceContext:
         self.candles=[]
         self.index=-1
         self.tick=.01
+        # Helpers outlive individual calls, but must not keep their completed
+        # replay/context/candle archive alive until a full Qt-thread GC sweep.
+        context=weakref.proxy(self)
         self._base={
             '__builtins__':{},'na':lambda x:x is None,
             'float':lambda x:None if x is None else float(x),
             'int':lambda x:None if x is None else int(x),
             '_inclusive':inclusive,'_compare':compare,'_binary':binary,
             'math':NS(min=min,max=max,floor=pymath.floor,ceil=pymath.ceil,
-                      abs=abs,round_to_mintick=lambda v:None if v is None else pymath.floor(v/self.tick+.5)*self.tick),
-            'str':NS(tostring=self._text,format_time=self._time),
+                      abs=abs,round_to_mintick=lambda v:None if v is None else pymath.floor(v/context.tick+.5)*context.tick),
+            'str':NS(tostring=lambda *args:context._text(*args),format_time=self._time),
             'format':NS(mintick='mintick'),
             'array':NS(new=lambda *args:[] if not args else [args[1] if len(args)>1 else None]*args[0],
                 size=len,get=lambda xs,i:xs[i],set=self._set,last=lambda xs:xs[-1],
@@ -117,8 +121,9 @@ class ReferenceContext:
         return datetime.fromtimestamp(value/1000,MOSCOW).strftime('%Y-%m-%d %H:%M') if value is not None else 'NaN'
 
     def _helper(self,name):
+        context=weakref.proxy(self)
         def invoke(*args):
-            return self.call(name,*args)
+            return context.call(name,*args)
         return invoke
 
     def __deepcopy__(self,memo):
@@ -174,7 +179,8 @@ class ReferenceContext:
         return namespace.get('_return')
 
     def section(self,name):
+        context=weakref.proxy(self)
         self.env.update(self._base)
-        self.env.update(_has=lambda key:key in self.env,_past=lambda key,ago:self._past(key,ago))
+        self.env.update(_has=lambda key:key in context.env,_past=lambda key,ago:context._past(key,ago))
         exec(program()[2][name],self.env,self.env)
         return self.env

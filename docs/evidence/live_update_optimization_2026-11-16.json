@@ -1,0 +1,252 @@
+{
+  "baseline": [
+    {
+      "symbol": "CRZ6@RTSX",
+      "scenario": "8 changing unfinished H1 updates; fixed real archive, simulated asof",
+      "counts": {
+        "M1": 7818,
+        "M5": 5526,
+        "H1": 2952,
+        "H4": 847,
+        "D1": 329,
+        "W1": 75,
+        "MN1": 18
+      },
+      "cold_seconds": 2.3605480999976862,
+      "median_update_seconds": 0.8454209500014258,
+      "samples_seconds": [
+        0.8457431999995606,
+        0.8292360999985249,
+        0.8993936000042595,
+        0.8310560999962036,
+        0.845098700003291,
+        0.8630852999995113,
+        0.9448007000028156,
+        0.8368263000011211
+      ],
+      "memory_before": {
+        "rss_mb": 78.91,
+        "private_mb": 68.63,
+        "peak_rss_mb": 78.91
+      },
+      "memory_after": {
+        "rss_mb": 84.21,
+        "private_mb": 73.68,
+        "peak_rss_mb": 167.27
+      },
+      "numeric_sha256": [
+        "c0191ad20bc76207062f6e0ad6aa0845d9b558a19cfcd8d96892ded9bd2488ac",
+        "4c78e9e03c62e8d1ffed1e2508d648726c10e3902a21b6b68927c2a06c2acd7a",
+        "fdc0104de3500fb3091f57b17bad47513a71ada7f15ce78bd62276c72a5c442d",
+        "a939518443b01aecefde8b766cf9a4b1d732dc9aead7748017617511abc2e388",
+        "ad790d469092b68b63beae0e97d503cebf013c3e51210b813ee415d2a8094c63",
+        "9c1598f9f88e8a77f28b45b1c3ee093fa400e8699912e59b3beade41a489265f",
+        "c18291d7062abafc9cd30b724a866e9f3fbc435566f439762e5a8b9bebe66a65",
+        "b1da3b977a4b6590df403e99b0574637c6200a8dbdf4ae7f084195a9ca1cc161"
+      ]
+    },
+    {
+      "symbol": "SBER@MISX",
+      "scenario": "8 changing unfinished H1 updates; fixed real archive, simulated asof",
+      "counts": {
+        "M1": 8490,
+        "M5": 52343,
+        "H1": 4377,
+        "H4": 1313,
+        "D1": 578,
+        "W1": 301,
+        "MN1": 330
+      },
+      "cold_seconds": 3.7398265000010724,
+      "median_update_seconds": 0.20232539999778965,
+      "samples_seconds": [
+        0.1954193999990821,
+        0.18744290000176989,
+        0.2122726000015973,
+        0.20823269999527838,
+        0.1964181000003009,
+        0.18797309999354184,
+        0.24043669999809936,
+        0.2540731000044616
+      ],
+      "memory_before": {
+        "rss_mb": 141.63,
+        "private_mb": 132.29,
+        "peak_rss_mb": 167.27
+      },
+      "memory_after": {
+        "rss_mb": 144.62,
+        "private_mb": 134.89,
+        "peak_rss_mb": 281.43
+      },
+      "numeric_sha256": [
+        "572a0ef51ee5f02b0317179add574ecbe2192af28bb9d52194f603b9db6637b0",
+        "01f8ce956035ae9b881a2ea0bbd4d4b0d84bf93d9f5b86e5c9cb9c293b7dfb07",
+        "fab8be3ccde6860c0bde481508565532cd950297e93c7d42b9269f3f6646f290",
+        "94f23296ea8def2e372081a8c283db5fc1b786e82ec7fe37c6ad458e3ebf197b",
+        "2227eddcf3fdbe671e9b71c8cb306d00c34fe825676567059a421b0e420eafa2",
+        "b35a4da8a78e6ffd0d9067698a36a88014c333efbd826bf29900a970bbbb812a",
+        "d91d8a50f4f28546624b31932c49968af2973516a67a64e5a20d2597153a5198",
+        "03dc7c996b7c6adee417d178ff239c698a9fc38c3a21743e329f3274615fb445"
+      ]
+    }
+  ],
+  "optimized": [
+    {
+      "symbol": "CRZ6@RTSX",
+      "scenario": "8 changing unfinished H1 updates; fixed real archive, simulated asof",
+      "counts": {
+        "M1": 7818,
+        "M5": 5526,
+        "H1": 2952,
+        "H4": 847,
+        "D1": 329,
+        "W1": 75,
+        "MN1": 18
+      },
+      "cold_seconds": 2.450155700003961,
+      "median_update_seconds": 0.08158494999952381,
+      "samples_seconds": [
+        0.07143099999666447,
+        0.06903400000010151,
+        0.07810880000033649,
+        0.08506109999871114,
+        0.08723769999778597,
+        0.08906259999639587,
+        0.09674929999891901,
+        0.07667779999610502
+      ],
+      "memory_before": {
+        "rss_mb": 69.94,
+        "private_mb": 59.88,
+        "peak_rss_mb": 69.94
+      },
+      "memory_after": {
+        "rss_mb": 73.79,
+        "private_mb": 64.3,
+        "peak_rss_mb": 156.82
+      },
+      "numeric_sha256": [
+        "c0191ad20bc76207062f6e0ad6aa0845d9b558a19cfcd8d96892ded9bd2488ac",
+        "4c78e9e03c62e8d1ffed1e2508d648726c10e3902a21b6b68927c2a06c2acd7a",
+        "fdc0104de3500fb3091f57b17bad47513a71ada7f15ce78bd62276c72a5c442d",
+        "a939518443b01aecefde8b766cf9a4b1d732dc9aead7748017617511abc2e388",
+        "ad790d469092b68b63beae0e97d503cebf013c3e51210b813ee415d2a8094c63",
+        "9c1598f9f88e8a77f28b45b1c3ee093fa400e8699912e59b3beade41a489265f",
+        "c18291d7062abafc9cd30b724a866e9f3fbc435566f439762e5a8b9bebe66a65",
+        "b1da3b977a4b6590df403e99b0574637c6200a8dbdf4ae7f084195a9ca1cc161"
+      ]
+    },
+    {
+      "symbol": "SBER@MISX",
+      "scenario": "8 changing unfinished H1 updates; fixed real archive, simulated asof",
+      "counts": {
+        "M1": 8490,
+        "M5": 52343,
+        "H1": 4377,
+        "H4": 1313,
+        "D1": 578,
+        "W1": 301,
+        "MN1": 330
+      },
+      "cold_seconds": 5.17113750000135,
+      "median_update_seconds": 0.029524400000809692,
+      "samples_seconds": [
+        0.022018999996362254,
+        0.03777260000060778,
+        0.03165330000047106,
+        0.0426895999989938,
+        0.02937499999825377,
+        0.029673800003365614,
+        0.021549199998844415,
+        0.029073300000163727
+      ],
+      "memory_before": {
+        "rss_mb": 140.77,
+        "private_mb": 131.05,
+        "peak_rss_mb": 156.82
+      },
+      "memory_after": {
+        "rss_mb": 143.63,
+        "private_mb": 133.59,
+        "peak_rss_mb": 280.61
+      },
+      "numeric_sha256": [
+        "572a0ef51ee5f02b0317179add574ecbe2192af28bb9d52194f603b9db6637b0",
+        "01f8ce956035ae9b881a2ea0bbd4d4b0d84bf93d9f5b86e5c9cb9c293b7dfb07",
+        "fab8be3ccde6860c0bde481508565532cd950297e93c7d42b9269f3f6646f290",
+        "94f23296ea8def2e372081a8c283db5fc1b786e82ec7fe37c6ad458e3ebf197b",
+        "2227eddcf3fdbe671e9b71c8cb306d00c34fe825676567059a421b0e420eafa2",
+        "b35a4da8a78e6ffd0d9067698a36a88014c333efbd826bf29900a970bbbb812a",
+        "d91d8a50f4f28546624b31932c49968af2973516a67a64e5a20d2597153a5198",
+        "03dc7c996b7c6adee417d178ff239c698a9fc38c3a21743e329f3274615fb445"
+      ]
+    }
+  ],
+  "metrics": [
+    {
+      "symbol": "CRZ6@RTSX",
+      "before": 0.8454209500014258,
+      "after": 0.08158494999952381,
+      "speedup": 10.362462071820357,
+      "exact_numeric_match": true
+    },
+    {
+      "symbol": "SBER@MISX",
+      "before": 0.20232539999778965,
+      "after": 0.029524400000809692,
+      "speedup": 6.852820040110585,
+      "exact_numeric_match": true
+    }
+  ],
+  "limitations": [
+    "Isolated fixed real CR/SBER archive with synthetic unfinished-tail timing and high changes",
+    "Headless calculation benchmark, not installed application CPU or total RAM",
+    "Complete numeric snapshots/digests compared for all eight updates per symbol",
+    "Cold replay remains necessary on close, correction, settings/source context change or backwards time",
+    "Retained-cache memory stress uses one real payload under 13 artificial keys, not 13 different market instruments or a full GUI process"
+  ],
+  "cache_retention": {
+    "baseline": {
+      "scenario": "13 synthetic cache keys sharing a fixed real CR candle payload; active chart pinned; no network",
+      "cache_entries": 11,
+      "active_retained": true,
+      "memory_before": {
+        "rss_mb": 43.47,
+        "private_mb": 34.0,
+        "peak_rss_mb": 44.71
+      },
+      "memory_after_full_gc": {
+        "rss_mb": 332.7,
+        "private_mb": 323.53,
+        "peak_rss_mb": 332.7
+      }
+    },
+    "optimized": {
+      "scenario": "13 synthetic cache keys sharing a fixed real CR candle payload; active chart pinned; no network",
+      "cache_entries": 4,
+      "active_retained": true,
+      "memory_before": {
+        "rss_mb": 43.59,
+        "private_mb": 34.12,
+        "peak_rss_mb": 44.91
+      },
+      "memory_after_full_gc": {
+        "rss_mb": 165.22,
+        "private_mb": 155.7,
+        "peak_rss_mb": 165.22
+      }
+    }
+  },
+  "local_validation": {
+    "full_tests": 761,
+    "seconds": 48.833,
+    "errors": 0,
+    "expected_local_skip": 1,
+    "final_checkpoint_tests": 10,
+    "windows_expected_tests": 762,
+    "system_audit": "PASS",
+    "extended_audit": "PASS",
+    "compile": "PASS"
+  }
+}

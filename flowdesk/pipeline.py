@@ -56,7 +56,7 @@ def analyze_timeframes(series: dict[str, list[Candle]], display_tf: str,
     minimum_tick=next((data['minimum_tick'] for data in (provenance or {}).values() if data.get('minimum_tick')), .01)
     def replay(bars,tf,*,previous=None,**kwargs):
         boundaries=(provenance or {}).get(tf,{}).get('history_breaks',{}).get(tf,())
-        return analyze_history(bars,tf,breaks=boundaries,cached=previous,**kwargs) if boundaries else analyze(bars,tf,**kwargs)
+        return analyze_history(bars,tf,breaks=boundaries,cached=previous,**kwargs) if boundaries else analyze(bars,tf,cached=previous,**kwargs)
     limited={}
     previous_summary={}
     for saved in (cached or {}).values():

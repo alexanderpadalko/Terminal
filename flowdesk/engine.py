@@ -597,6 +597,7 @@ class Analysis:
     minimum_tick: float = .01
     # Reusable display replay blocks; no numeric engine state or history cap.
     history_blocks: list = field(default_factory=list, repr=False, compare=False)
+    replay_checkpoint: object = field(default=None, repr=False, compare=False)
 
     def is_confirmed(self, i: int) -> bool:
         return self.asof is None or candle_close_time(self.candles[i], self.timeframe) <= self.asof
@@ -709,6 +710,7 @@ def analyze(
     candles: list[Candle], timeframe: str = "H1", exclude_gaps: bool = True,
     *, higher_h1: Analysis | None = None, asof: datetime | None = None,
     higher_liquidity: dict[str, Analysis] | None = None, settings=None, minimum_tick=.01,
+    cached: Analysis | None = None,
 ) -> Analysis:
     """Local structure/FVG; a separate H1 source is mandatory for low-TF flow."""
     if timeframe not in ("M1", "M5", "H1", "H4", "D1", "W1", "MN1"):
@@ -730,18 +732,34 @@ def analyze(
         flow.context.tick=minimum_tick
     else:
         flow = None if low_tf else FlowEngine(timeframe)
+    from .replay_checkpoint import restore,freeze
+    restored=restore(cached,candles,timeframe,asof,settings,minimum_tick,exclude_gaps,higher_liquidity)
+    frozen=None;start=0;pairs=[]
+    if restored is not None:
+        frozen,(structure,fvg,pair,flow),pairs=restored
+        start=len(frozen.candles)
     capture_audit = []
     if not low_tf and higher_liquidity is not None:
         from .liquidity import audit_higher_captures
         consumer = Analysis(candles, [], [], [], [], timeframe, asof=asof,minimum_tick=minimum_tick)
-        capture_audit = audit_higher_captures(consumer, higher_liquidity, asof=asof, settings=settings)
-    pairs = []
+        if restored is not None:
+            from .liquidity import CaptureState,HIGHER_SOURCES
+            capture_audit=list(cached.liquidity_audit[:start])
+            capture_audit.extend(CaptureState(bar.time,candle_close_time(bar,timeframe),
+                {tf:'SOURCE_NOT_CLOSED' for tf in HIGHER_SOURCES[timeframe]},None,0,
+                consumer_tf=timeframe,confirmed=False) for bar in candles[start:])
+        else:
+            capture_audit = audit_higher_captures(consumer, higher_liquidity, asof=asof, settings=settings)
     confirmed_fvg = None
-    for i, bar in enumerate(candles):
+    for i in range(start,len(candles)):
+        bar=candles[i]
         if i%256==0:checkpoint()
         closed_at = candle_close_time(bar, timeframe)
         confirmed = asof is None or closed_at <= asof
         if not confirmed and confirmed_fvg is None:
+            if frozen is None:
+                frozen=freeze(candles,i,timeframe,asof,settings,minimum_tick,exclude_gaps,
+                              higher_liquidity,(structure,fvg,pair,flow),pairs)
             # Live chart zones may change, but must never mutate guards in
             # already published flow snapshots or higher-TF projections.
             confirmed_fvg = fvg.zones
@@ -798,6 +816,7 @@ def analyze(
                       timeframe, timeframe, "LOCAL_PRELIMINARY", "Поток по закрытым свечам; алгоритм ещё не сверен с Pine",
                       asof=asof, confirmed_fvg=confirmed_fvg)
     result.liquidity_audit = capture_audit
+    result.replay_checkpoint=frozen
     result.minimum_tick=minimum_tick
     if settings is not None:
         from .reference_engine import market_state
