@@ -228,5 +228,26 @@
     "skipped": 1
   },
   "system_audit": "PASS",
-  "extended_audit": "PASS"
+  "extended_audit": "PASS",
+  "release": {
+    "code_commit": "4d5cff774af844e30e7620a5f84faa21d3f4022c",
+    "workflow_run": 43919768150,
+    "workflow_job": 133483593112,
+    "conclusion": "success",
+    "tests": 743,
+    "test_seconds": 85.434,
+    "failures": 0,
+    "skipped": 0,
+    "tracebacks": 0,
+    "dpi_scales": [1, 1.25, 1.5, 2],
+    "exit_seconds": [0.094, 0.083, 0.077],
+    "exit_codes": [0, 0, 0],
+    "frozen_runtime": "PASS",
+    "zip_artifact": 14252004281,
+    "zip_size_bytes": 49467271,
+    "zip_sha256": "680c8c308f15874ae1477b2cd0c1abbf0ea63995ff42780a318ee5455c164810",
+    "authenticode": "UNSIGNED",
+    "evidence_artifact": 14252213998,
+    "installed_application": "not changed"
+  }
 }
