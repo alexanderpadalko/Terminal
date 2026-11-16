@@ -306,6 +306,33 @@
     "skipped": 1,
     "home_isolated": true
   },
+  "windows_ci": {
+    "run_id": 43890370516,
+    "job_id": 133379614007,
+    "commit": "3a930ad79701dcb49f9833fe3deb38ed886f277a",
+    "conclusion": "success",
+    "tests": 709,
+    "seconds": 79.109,
+    "errors": 0,
+    "failures": 0,
+    "skipped": 0,
+    "tracebacks": 0,
+    "shutdown_seconds": [
+      0.107,
+      0.087,
+      0.181
+    ],
+    "shutdown_exit_codes": [
+      0,
+      0,
+      0
+    ],
+    "zip_artifact_id": 14235654867,
+    "zip_bytes": 49445974,
+    "zip_sha256": "bf9c65eaf6aad9d34fe5c17a9f1ccc301ca78523f82ab7f875044e592a480c44",
+    "signature": "UNSIGNED",
+    "evidence_artifact_id": 14237750069
+  },
   "totals": {
     "D1": 203,
     "W1": 75,

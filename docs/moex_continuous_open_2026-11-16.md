@@ -26,3 +26,9 @@
 - Evidence: `docs/evidence/moex_continuous_open_2026-11-16.json`. Автоматическая смена установленного EXE/пользовательского кэша не выполнялась. Пакет Windows подтверждается Actions после публикации кода.
 
 Расписание ДСВД: https://www.moex.com/n91270 . Продуктовые котировки/экспирации остаются исключительно Finam; биржевой архив использован только в предыдущей ручной диагностике расхождения Close. Полный паритет всей истории TradingView не заявляется.
+
+## Проверенный Windows-выпуск
+
+Код [3a930ad79701dcb49f9833fe3deb38ed886f277a](https://github.com/alexanderpadalko/Terminal/commit/3a930ad79701dcb49f9833fe3deb38ed886f277a), [CI43890370516](https://github.com/alexanderpadalko/Terminal/actions/runs/43890370516), job133379614007: **709 тестов за79.109 с, без ошибок/пропусков, 0 Traceback**, оба аудита, DPI/compileall/зависимости, окно без ключа, упаковка и frozen runtime успешны. Три закрытия EXE:0.107/0.087/0.181 с, код0.
+
+[ZIP Windows x64 UNSIGNED](https://github.com/alexanderpadalko/Terminal/actions/runs/43890370516/artifacts/14235654867), 49445974байт, SHA-256 `bf9c65eaf6aad9d34fe5c17a9f1ccc301ca78523f82ab7f875044e592a480c44`. [Test Evidence](https://github.com/alexanderpadalko/Terminal/actions/runs/43890370516/artifacts/14237750069). Распаковать всю папку. Автоматической установки не было. Результат сборки записан отдельно от проверенного кода.
