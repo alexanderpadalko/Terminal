@@ -1,6 +1,22 @@
 {
   "mode": "live_read_only_finam_isolated_copies",
   "production_changed": false,
+  "windows_release": {
+    "commit": "a60e249dab9ab2295ee0df7d32c24b6b25eae8fd",
+    "run_id": 43871273156,
+    "conclusion": "success",
+    "tests": 698,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "tracebacks": 0,
+    "shutdown_exit_seconds": [0.081, 0.068, 0.064],
+    "shutdown_exit_codes": [0, 0, 0],
+    "artifact_id": 14227407880,
+    "signature_status": "UNSIGNED",
+    "zip_bytes": 49443776,
+    "zip_sha256": "2dec8e2162b0940eb44776d7d05b04790a38369671d26233d94da84359068aff"
+  },
   "stock_policy": "finam-native-dwm-1",
   "futures_policy": "moex-trading-date-1",
   "stocks": [
