@@ -85,6 +85,18 @@ class TestMoexTradingFamily(unittest.TestCase):
         result,status,_=build([row],NOW+timedelta(days=1))
         self.assertEqual(status,'ready')
 
+    def test_legacy_source_deadline_is_preserved_in_daily_and_higher_publication(self):
+        for stamp in ('2025-08-22','2026-03-20'):
+            row=day(stamp)
+            row=replace(row,scheduled_close=row.time+timedelta(days=1))
+            family,status,_=build([row],symbol='MXZ6@RTSX')
+            self.assertEqual(status,'ready')
+            for tf in NATIVE_HIGHER:
+                self.assertGreaterEqual(family[tf][-1].scheduled_close,row.scheduled_close)
+            now=row.time.replace(hour=23,minute=55)
+            self.assertGreater(family['D1'][-1].scheduled_close,now)
+            self.assertEqual(build([row],now,symbol='MXZ6@RTSX')[0]['D1'][-1].scheduled_close,row.scheduled_close)
+
     def test_legacy_successor_is_allowed_but_unobserved_right_edge_is_not(self):
         rows=[day('2026-11-12'),day('2026-11-13')]
         self.assertEqual(build(rows,observations={})[1],'native_snapshot_unconfirmed')

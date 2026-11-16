@@ -13,7 +13,7 @@ from .session_candles import _period
 from .trading_calendar import CalendarUnavailable, calendar_for
 
 POLICY='moex-trading-date-1'
-REVISION='moex-dsvd-2026-11-16.2'
+REVISION='moex-dsvd-2026-11-16.3'
 PROGRESS='MOEX_DAILY_TRADING_v1'
 UTC=timezone.utc
 
@@ -52,6 +52,12 @@ def _day_end(day,symbol):
     if symbol.upper().endswith('@RTSX') and day in (date(2026,5,1),date(2026,6,12),date(2026,11,4)):
         ending=time(23,50)
     return datetime.combine(day,ending,MOSCOW).astimezone(UTC)
+
+
+def _physical_end(bar,symbol):
+    day=_local_date(bar)
+    legacy=day.year<2026 or (symbol.upper().endswith('@RTSX') and day<date(2026,3,23))
+    return candle_close_time(bar,'D1') if legacy else _day_end(day,symbol)
 
 
 def _period_end(day,tf,symbol):
@@ -105,7 +111,7 @@ def build_family(raw,symbol,observed,*,observations,archive_verified):
             day=_local_date(bar);target=trading_day(day,symbol)
             # Conservative native deadline for older session regimes. This
             # avoids introducing a new pre-ETS/evening policy in this repair.
-            end=_day_end(day,symbol) if day.year==2026 else candle_close_time(bar,'D1')
+            end=_physical_end(bar,symbol)
             known=observations.get(('D1',bar.time),unknown)
             legacy=known==unknown
             successor=index+1<len(daily) and daily[index+1].time<=observed
@@ -114,7 +120,7 @@ def build_family(raw,symbol,observed,*,observations,archive_verified):
             if not valid:return None,'native_snapshot_unconfirmed',detail
             if bar.volume<0:raise ValueError('Invalid native volume')
             groups.setdefault(target,[]).append(bar)
-        days={day:(_combine(parts,day,_day_end(day,symbol)) if day>=launch(symbol)
+        days={day:(_combine(parts,day,max(_day_end(day,symbol),_physical_end(parts[-1],symbol))) if day>=launch(symbol)
                    else replace(parts[0],scheduled_close=candle_close_time(parts[0],'D1')))
               for day,parts in sorted(groups.items())}
         family={'D1':list(days.values())}
@@ -142,7 +148,7 @@ def build_family(raw,symbol,observed,*,observations,archive_verified):
                         values(_combine(source,missing,candle_close_time(source[-1],'D1')))!=values(labels[-1])):
                     return None,'incomplete_daily_coverage',detail
                 detail.setdefault('empty_periods_transferred',[]).append((tf,missing.isoformat()))
-            family[tf]=prefix+[_combine(parts,key,_period_end(key,tf,symbol))
+            family[tf]=prefix+[_combine(parts,key,max(_period_end(key,tf,symbol),parts[-1].scheduled_close))
                               for key,parts in sorted(periods.items())]
     except CalendarUnavailable as exc:
         # Only fixed internal calendar codes leave this module.
