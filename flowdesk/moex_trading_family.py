@@ -8,12 +8,12 @@ from datetime import date, datetime, time, timedelta, timezone
 
 from .market_data import Candle, MOSCOW, candle_close_time, normalize
 from .moex_calendar import CLOSED, EXTRA, REGULAR, stock_session_kind, stock_trading_date
-from .provider_candles import NATIVE_HIGHER, native_higher_series
+from .provider_candles import NATIVE_HIGHER
 from .session_candles import _period
 from .trading_calendar import CalendarUnavailable, calendar_for
 
 POLICY='moex-trading-date-1'
-REVISION='moex-dsvd-2026-11-16.1'
+REVISION='moex-dsvd-2026-11-16.2'
 PROGRESS='MOEX_DAILY_TRADING_v1'
 UTC=timezone.utc
 
@@ -69,6 +69,23 @@ def _combine(parts,label,ending):
                   settlement_close=parts[-1].settlement_close,trading_date=label)
 
 
+def _native_prefix(raw,tf,boundary,observed,observations):
+    """Unused post-launch drafts must never clear the old native archive."""
+    rows=normalize(raw.get(tf,()))
+    unknown=datetime.min.replace(tzinfo=UTC)
+    prefix=[]
+    for index,bar in enumerate(rows):
+        if _period(_local_date(bar),tf)[0]>=boundary:continue
+        if bar.time>observed:continue
+        ending=candle_close_time(bar,tf)
+        known=observations.get((tf,bar.time),unknown)
+        successor=index+1<len(rows) and rows[index+1].time<=observed
+        if ending>observed or not ((known==unknown and successor) or ending<=known<=observed):
+            return None
+        prefix.append(replace(bar,scheduled_close=ending))
+    return prefix
+
+
 def build_family(raw,symbol,observed,*,observations,archive_verified):
     """Atomic higher family, or a fixed failure code. Never publish stale drafts.
 
@@ -101,10 +118,10 @@ def build_family(raw,symbol,observed,*,observations,archive_verified):
                    else replace(parts[0],scheduled_close=candle_close_time(parts[0],'D1')))
               for day,parts in sorted(groups.items())}
         family={'D1':list(days.values())}
-        native,_=native_higher_series(raw,observed,observations)
         for tf in ('W1','MN1'):
             boundary=_period(launch(symbol),tf)[0]
-            prefix=[b for b in native.get(tf,()) if _period(_local_date(b),tf)[0]<boundary]
+            prefix=_native_prefix(raw,tf,boundary,observed,observations)
+            if prefix is None:return None,'native_snapshot_unconfirmed',detail
             periods={}
             for day,bar in days.items():
                 key=_period(day,tf)[0]

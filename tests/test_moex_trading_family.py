@@ -102,6 +102,15 @@ class TestMoexTradingFamily(unittest.TestCase):
         result,status,_=moex.build_family(raw,SYMBOL,NOW,observations={},archive_verified=False)
         self.assertIsNone(result);self.assertEqual(status,'incomplete_daily_coverage')
 
+    def test_unused_stale_native_month_cannot_erase_the_historical_prefix(self):
+        old=replace(day('1999-06-01'),scheduled_close=datetime(1999,7,1,tzinfo=MOSCOW))
+        june=day('2026-06-01');november=day('2026-11-01')
+        rows=[day('2026-06-02'),day('2026-11-13')]
+        known={('D1',b.time):NOW for b in rows}
+        known.update({('MN1',old.time):NOW,('MN1',june.time):NOW.replace(month=6),('MN1',november.time):NOW})
+        family,status,_=build(rows,extra={'MN1':[old,june,november]},observations=known)
+        self.assertEqual(status,'ready');self.assertEqual(family['MN1'][0],old)
+
     def test_sunday_only_week_disappears_when_its_exact_trades_move_to_monday(self):
         sunday=day('2025-11-09',o=298200,h=300150,l=298200,c=300150,v=2)
         native=replace(sunday,time=day('2025-11-03').time)
