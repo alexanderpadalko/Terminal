@@ -14,6 +14,7 @@ from .trading_calendar import TradingCalendar, TradingSession, CalendarUnavailab
 
 UTC=timezone.utc
 POLICY='us-futures-last-trade-1'
+CALENDAR_REVISION='us-futures-sessions-2026-11-16.2'
 PRODUCTS={
     'NQ':('CME_EQUITY',('XCME',)), 'ES':('CME_EQUITY',('XCME',)),
     'GC':('CME_METALS',('XCEC','XCME')), 'SI':('CME_METALS',('XCEC','XCME')),
@@ -33,7 +34,7 @@ HOLIDAYS={date(2026,6,19):date(2026,6,22),
 @dataclass(frozen=True)
 class FuturesCalendar(TradingCalendar):
     @property
-    def revision(self):return (POLICY,super().revision)
+    def revision(self):return (POLICY,CALENDAR_REVISION,super().revision)
 
     def session(self,day):
         if day in dict(self.overrides):return super().session(day)
@@ -46,10 +47,8 @@ class FuturesCalendar(TradingCalendar):
                 closing=(time(13,30) if self.profile!='CME_EQUITY' and
                          day in (date(2026,9,7),date(2026,11,26)) else time(12))
             if day==date(2026,11,27):
-                # Energy/Metals date is not independently verified here.
-                if self.profile!='CME_EQUITY':
-                    raise CalendarUnavailable('product_holiday_hours_unknown')
-                closing=time(12,15)
+                # CME product rows verified directly for GC/SI/PL/PA/NG.
+                closing=time(12,15) if self.profile=='CME_EQUITY' else time(13,45)
             return self._session(day,time(17),closing,previous=True)
         return super().session(day)
 

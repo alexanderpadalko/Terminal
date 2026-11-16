@@ -102,8 +102,40 @@ class TestUSFuturesFamily(unittest.TestCase):
 
     def test_unverified_cme_holiday_is_not_replaced_by_equity_hours(self):
         cal=calendar_for_family(calendar_for('GCZ26@XCEC'))
-        with self.assertRaises(CalendarUnavailable):cal.session(date(2026,11,27))
-        self.assertEqual(calendar_for_family(calendar_for('NQZ26@XCME')).session(date(2026,11,27)).end.minute,15)
+        with self.assertRaises(CalendarUnavailable):cal.session(date(2026,12,24))
+
+    def test_verified_november_27_product_closes_are_distinct(self):
+        for symbol in SYMBOLS[:-1]:
+            with self.subTest(symbol=symbol):
+                cal=calendar_for_family(calendar_for(symbol))
+                session=cal.daily_session(date(2026,11,27))
+                expected=(12,15) if symbol.startswith(('NQ','ES')) else (13,45)
+                closing=session.end.astimezone(cal.zone)
+                self.assertEqual((closing.hour,closing.minute),expected)
+                self.assertEqual(len(session.segments),2)
+                self.assertEqual(session.start,datetime(2026,11,25,23,tzinfo=UTC))
+                self.assertEqual(session.segments[0][1],datetime(2026,11,26,
+                    18 if symbol.startswith(('NQ','ES')) else 19,
+                    0 if symbol.startswith(('NQ','ES')) else 30,tzinfo=UTC))
+
+    def test_november_27_last_partial_hour_is_kept_without_after_close_prices(self):
+        for symbol in SYMBOLS[:-1]:
+            with self.subTest(symbol=symbol):
+                raw,cal,now,obs,coverage=source(symbol,days=(date(2026,11,27),))
+                expected=raw['H1'][:];session=cal.daily_session(date(2026,11,27))
+                self.assertGreater(expected[-1].scheduled_close,session.end)
+                after=expected[-1].scheduled_close
+                poison=Candle(after,9000,9999,8000,9500,99999,scheduled_close=after+timedelta(hours=1))
+                raw['H1'].append(poison);obs[('H1',poison.time)]=now
+                family,status,_=build_family(raw,cal,now,coverage=coverage,observations=obs)
+                self.assertEqual(status,'ready')
+                for tf in NATIVE_HIGHER:
+                    bar=family[tf][-1]
+                    self.assertEqual((bar.open,bar.high,bar.low,bar.close,bar.volume),
+                        (expected[0].open,max(b.high for b in expected),min(b.low for b in expected),
+                         expected[-1].close,sum(b.volume for b in expected)))
+                    self.assertEqual(bar.scheduled_close,session.end if tf!='MN1' else
+                                     cal.daily_session(date(2026,11,30)).end)
 
     def test_cold_cache_never_returns_native_prices_for_any_of_the_eight(self):
         api=SimpleNamespace(session_candles=True,native_higher_frames=NATIVE_HIGHER,market_delay_minutes=lambda mic:0)

@@ -1,0 +1,13 @@
+{
+  "checked_on": "2026-11-16",
+  "source": "https://www.cmegroup.com/trading-hours.html",
+  "method": "Read visible product rows in the CME Globex full calendar after selecting 2026-11-27 and each product separately",
+  "timezone": "America/Chicago",
+  "trade_date": "2026-11-27",
+  "physical_open": "2026-11-26T17:00:00-06:00",
+  "physical_close": "2026-11-27T13:45:00-06:00",
+  "products": ["GC", "SI", "PL", "PA", "NG"],
+  "scope": "Ordinary futures product rows; not TAS, settlement, options or another product inferred by asset group",
+  "calendar_revision": "us-futures-sessions-2026-11-16.2",
+  "limitation": "Published future hours are subject to exchange changes. Other unverified calendar dates remain guarded. No prices or expirations were obtained from CME."
+}
