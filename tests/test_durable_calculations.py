@@ -111,6 +111,17 @@ class DurableCalculationsTests(unittest.TestCase):
         row=replace(self.rows[-1],trading_date=self.rows[-1].time.date())
         self.assertEqual(decode(encode(row)),row)
 
+    def test_cache_preserves_exchange_timezone_rules_and_dst_fold(self):
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+        spring=datetime(2026,3,1,tzinfo=ZoneInfo('America/Chicago'))
+        restored=decode(encode(spring))
+        self.assertEqual(restored.tzinfo.key,spring.tzinfo.key)
+        self.assertEqual(restored.replace(month=4),spring.replace(month=4))
+        autumn=datetime(2026,11,1,1,30,tzinfo=ZoneInfo('America/Chicago'),fold=1)
+        saved=decode(encode(autumn))
+        self.assertEqual((saved.timestamp(),saved.fold),(autumn.timestamp(),1))
+
     def test_verified_tick_is_used_persisted_and_invalidates_older_precision(self):
         service=self.service()
         service.api.cached_tick_size=lambda symbol:.0001

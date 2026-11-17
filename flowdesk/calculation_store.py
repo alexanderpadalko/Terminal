@@ -11,6 +11,7 @@ from functools import lru_cache
 import hashlib
 import json
 from pathlib import Path
+from zoneinfo import ZoneInfo
 import sqlite3
 import sys
 import threading
@@ -60,7 +61,12 @@ def encode(value):
     nodes=[];memo={}
     def put(item):
         if item is None or type(item) in (bool,int,float,str):return item
-        if isinstance(item,datetime):return {'time':item.isoformat()}
+        if isinstance(item,datetime):
+            stamp={'time':item.isoformat()}
+            zone=getattr(item.tzinfo,'key',None)
+            if zone:stamp['zone']=zone
+            if item.fold:stamp['fold']=item.fold
+            return stamp
         if isinstance(item,date):return {'day':item.isoformat()}
         if id(item) in memo:return {'ref':memo[id(item)][0]}
         index=len(nodes);memo[id(item)]=(index,item);nodes.append(None)
@@ -96,10 +102,15 @@ def decode(raw):
         if type(item) is str:return strings.setdefault(item,item)
         if item is None or type(item) in (bool,int,float):return item
         if type(item) is not dict:raise ValueError('Snapshot value')
-        if set(item)=={'time'}:
+        if 'time' in item and set(item)<={'time','zone','fold'}:
             value=item['time']
-            if value not in times:times[value]=datetime.fromisoformat(value)
-            return times[value]
+            key=(value,item.get('zone'),item.get('fold',0))
+            if key not in times:
+                stamp=datetime.fromisoformat(value)
+                if item.get('zone'):stamp=stamp.astimezone(ZoneInfo(item['zone']))
+                if item.get('fold'):stamp=stamp.replace(fold=item['fold'])
+                times[key]=stamp
+            return times[key]
         if set(item)=={'day'}:return date.fromisoformat(item['day'])
         if set(item)!={'ref'} or type(item['ref']) is not int:raise ValueError('Snapshot reference')
         index=item['ref']
