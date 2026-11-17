@@ -171,5 +171,36 @@
     "status": "PASS",
     "elapsed_seconds": 1.046,
     "peak_python_allocations_mb": 17.6
+  },
+  "focused_tests_after_final_guards": {
+    "run": 10,
+    "failures": 0,
+    "errors": 0,
+    "seconds": 0.551
+  },
+  "windows_ci": {
+    "commit": "be85916382c6d77f56a01872ca263af398da6d9b",
+    "run_id": 44159568104,
+    "job_id": 134309406068,
+    "conclusion": "success",
+    "tests": 773,
+    "test_seconds": 110.27,
+    "tracebacks": 0,
+    "frozen_terminal_scope": true,
+    "exe_exit_codes": [
+      0,
+      0,
+      0
+    ],
+    "exe_exit_seconds": [
+      0.079,
+      0.082,
+      0.089
+    ],
+    "artifact_id": 14361634548,
+    "artifact_bytes": 49480006,
+    "artifact_name": "FlowDesk-0.2.26-Finam-Windows-x64-UNSIGNED",
+    "artifact_url": "https://github.com/alexanderpadalko/Terminal/actions/runs/44159568104/artifacts/14361634548",
+    "evidence_artifact_id": 14361794280
   }
 }
