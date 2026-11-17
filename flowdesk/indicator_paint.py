@@ -162,7 +162,7 @@ def draw_overlays(chart,p):
                 p.setFont(font(cfg.currentFvgFontSize if row_index==0 else cfg.currentFlowArrowSize))
                 text={'D1':'D','W1':'W','MN1':'M'}.get(row['timeframe'],row['timeframe']) if row_index==0 else '↑' if side==1 else '↓' if side==-1 else '—'
                 p.drawText(rect,Qt.AlignmentFlag.AlignCenter,text)
-    if cfg.flowDiagnosticEnabled and chart.analysis.flows:
+    if cfg.flowDiagnosticEnabled and chart.analysis.flows and chart.flow_plan.diagnostic:
         text=chart.flow_plan.diagnostic
         p.setFont(font(cfg.flowDiagnosticFont))
         width=min(chart.x1-chart.x0-12,p.fontMetrics().horizontalAdvance(max(text.splitlines(),key=len))+16)

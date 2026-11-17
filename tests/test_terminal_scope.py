@@ -76,6 +76,23 @@ class TerminalScopeTests(unittest.TestCase):
         result=select_flow_display(analyze(bars(5),'M5'),{'H1':analyze(bars(60),'H1')},IndicatorSettings())
         self.assertEqual((result.state,result.levels,result.diagnostic),(None,(),''))
 
+    def test_m5_empty_diagnostic_is_safe_with_legacy_flow_objects(self):
+        from types import SimpleNamespace
+        from PySide6.QtWidgets import QApplication
+        from PySide6.QtGui import QImage, QPainter
+        from flowdesk.indicator_paint import draw_overlays
+        from flowdesk.flow_display import select_flow_display
+        app=QApplication.instance() or QApplication([])
+        settings=IndicatorSettings().changed(flowDiagnosticEnabled=True,currentFvgTableEnabled=False)
+        legacy=analyze(bars(5),'M5')
+        self.assertTrue(legacy.flows)
+        chart=SimpleNamespace(indicator_settings=settings,analysis=legacy,
+                              flow_plan=select_flow_display(legacy,{},settings),terminal=True)
+        surface=QImage(100,100,QImage.Format.Format_ARGB32)
+        painter=QPainter(surface)
+        try:draw_overlays(chart,painter)
+        finally:painter.end()
+
     def test_live_m5_checkpoint_has_no_pair_state_and_matches_full_replay(self):
         from dataclasses import replace
         source=bars(5)
