@@ -1,11 +1,12 @@
 """Native candle storage/reconciliation, instantiated separately per provider."""
 from __future__ import annotations
 from collections import OrderedDict
-from contextlib import closing, nullcontext
+from contextlib import closing, nullcontext, contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import sqlite3
 import threading
+import math
 from .finam_api import FinamAPI, FinamAPIError, FRAMES, DEPTH_DAYS, parse_instant
 from .terminal_policy import DISPLAY_TIMEFRAMES, SOURCE_TIMEFRAMES, FLOW_TIMEFRAMES, POLICY_VERSION
 from .market_symbols import symbol_name
@@ -19,6 +20,7 @@ from .provider_candles import native_higher_enabled, NATIVE_HIGHER
 from .us_futures_family import product as session_future
 from .moex_trading_family import enabled as moex_trading, PROGRESS as MOEX_PROGRESS
 from . import moex_trading_family as moex
+from .calculation_store import CalculationStore
 
 TTL_SECONDS = {"M1":60,"M5":300,"H1":300,"H4":900,"D1":1800,"W1":3600,"MN1":14400}
 STREAM_VERIFY_SECONDS = 900
@@ -39,6 +41,7 @@ class FinamMarketService:
         self.latest_stream_at = {}
         self.last_snapshot = {}
         self.analysis_cache = OrderedDict()
+        self.calculations=CalculationStore(self.path.with_name(self.path.stem+'_analysis_v1.sqlite3'))
         self._active_analysis_key = None
         self._source_repair_attempts = {}
         self._source_repair_checked = {}
@@ -50,6 +53,7 @@ class FinamMarketService:
         self._failures = {}
         self._repair_tried = {}
         self._generation = 0
+        self._scan_local=threading.local()
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with closing(sqlite3.connect(self.path,timeout=30)) as db, db:
             db.execute("PRAGMA journal_mode=WAL")
@@ -141,7 +145,22 @@ class FinamMarketService:
                     'full_archive':bool(db.execute("SELECT 1 FROM finam_history_progress WHERE symbol=? AND tf GLOB 'FULL_ARCHIVE_v2_*' LIMIT 1",
                                                    (symbol,)).fetchone())}
         result={tf:normalize(bars) for tf,bars in series.items() if bars}
+        snapshot=getattr(self._scan_local,'snapshot',None)
+        if snapshot is not None:
+            # HTTP responses own the refreshed suffix even if a selected-chart
+            # WebSocket update arrived in the shared DB during this scan.
+            for (name,tf),(start,bars) in snapshot.items():
+                if name!=symbol:continue
+                prior=[b for b in result.get(tf,()) if start is not None and b.time<start]
+                result[tf]=normalize([*prior,*bars])
         return session_store.SourceSeries(result,state) if state is not None else result
+
+    @contextmanager
+    def http_scan(self):
+        previous=getattr(self._scan_local,'snapshot',None)
+        self._scan_local.snapshot={}
+        try:yield
+        finally:self._scan_local.snapshot=previous
 
     def prepare_series(self,symbol,raw,observed):
         cleaned=exclude_stock_closing_auction(raw,symbol.rsplit('@',1)[1])
@@ -246,7 +265,8 @@ class FinamMarketService:
                     row=db.execute("SELECT pulled,full_due FROM finam_pulls WHERE symbol=? AND tf=?",key).fetchone()
                 pulled,full_due=(tuple(datetime.fromisoformat(v) for v in row) if row
                                  else (None,now+timedelta(seconds=FULL_VERIFY_SECONDS)))
-                healthy=self._stream_fresh(symbol,tf,bars,now)
+                snapshot=getattr(self._scan_local,'snapshot',None)
+                healthy=snapshot is None and self._stream_fresh(symbol,tf,bars,now)
                 ttl=max(TTL_SECONDS[tf],STREAM_VERIFY_SECONDS) if healthy else TTL_SECONDS[tf]
                 with self.lock:
                     repair=key in self._repair
@@ -259,7 +279,7 @@ class FinamMarketService:
                     errors[tf]=failure[1]
                     continue
                 if repair and tried and 0<=(now-tried).total_seconds()<30:continue
-                if pulled and not repair and not (policy and not covered) and 0<=(now-pulled).total_seconds()<ttl:
+                if snapshot is None and pulled and not repair and not (policy and not covered) and 0<=(now-pulled).total_seconds()<ttl:
                     if not bars:errors[tf]="Finam не вернул свечи"
                     continue
                 full=not bars or now>=full_due or (policy and not covered)
@@ -276,6 +296,9 @@ class FinamMarketService:
                 try:
                     with scope(priority=priority,cancelled=cancelled) if scope else nullcontext():
                         fetched=self.api.bars(symbol,tf,**kwargs)
+                    if snapshot is not None:
+                        beginning=kwargs.get('start') or min((b.time for b in fetched),default=None)
+                        snapshot[(symbol,tf)]=(beginning,tuple(fetched))
                     if cancelled():raise InterruptedError()
                     with self.lock:
                         if generation!=self._generation:raise InterruptedError()
@@ -307,7 +330,7 @@ class FinamMarketService:
         now=self.clock()
         with self.lock:
             cached=self._quotes.get(symbol)
-            if cached and 0<=(now-cached[0]).total_seconds()<30:return cached[1]
+            if getattr(self._scan_local,'snapshot',None) is None and cached and 0<=(now-cached[0]).total_seconds()<30:return cached[1]
         if cancelled():raise InterruptedError()
         scope=getattr(self.api,"request_scope",None)
         with scope(priority=10,cancelled=cancelled) if scope else nullcontext():
@@ -329,14 +352,28 @@ class FinamMarketService:
                                sum(candle_close_time(b,tf)<=observed for b in bars))
                               for tf,bars in sorted(series.items()) if tf in needed)
             session_meta=getattr(series,'session_metadata',{})
-            key=(settings.calculation_key(),fingerprint,repr(session_meta),POLICY_VERSION if terminal else 'reference')
             cache_id=(symbol,timeframe)
             with self.lock:cached=self.analysis_cache.get(cache_id)
-            if cached and cached[0]==key and cached[1][0].asof<=observed:return cached[1]
+            if cached is None and terminal:
+                cached=self.calculations.load(symbol,timeframe)
+            getter=getattr(self.api,'cached_tick_size',None)
+            try:tick=getter(symbol) if callable(getter) else None
+            except Exception:tick=None  # Metadata failure cannot hide price history.
+            if not isinstance(tick,(int,float)) or isinstance(tick,bool) or not math.isfinite(tick) or tick<=0:
+                tick=getattr(cached[1][0],'minimum_tick',.01) if cached else .01
+            key=(settings.calculation_key(),fingerprint,repr(session_meta),
+                 (POLICY_VERSION if terminal else 'reference',float(tick)))
+            if cached and cached[0]==key and cached[1][0].asof<=observed:
+                with self.lock:
+                    self.analysis_cache[cache_id]=cached
+                    self.analysis_cache.move_to_end(cache_id)
+                    self._trim_analysis_cache()
+                return cached[1]
             mic=symbol.rsplit("@",1)[1]
             delay=self.api.market_delay_minutes(mic)
             provenance={tf:{"mode":getattr(self.api,"provenance_mode","FINAM_NATIVE_CANDLES"),"symbol":symbol,"market":mic,
-                "native_higher":tf in ("D1","W1","MN1"),"feed_delay_seconds":delay*60} for tf in series}
+                "native_higher":tf in ("D1","W1","MN1"),"feed_delay_seconds":delay*60,
+                "minimum_tick":float(tick)} for tf in series}
             if session_meta:
                 for tf in provenance:
                     provenance[tf].update(session_meta)
@@ -354,6 +391,7 @@ class FinamMarketService:
                 self.analysis_cache[cache_id]=(key,result)
                 self.analysis_cache.move_to_end(cache_id)
                 self._trim_analysis_cache()
+            if terminal:self.calculations.save(symbol,timeframe,key,result)
             return result
 
     def _trim_analysis_cache(self):

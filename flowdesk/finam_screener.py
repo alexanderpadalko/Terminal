@@ -299,6 +299,13 @@ def _backfill_higher_history(service, symbol, now, series, *,
 
 def scan_one(service, ticker, mic, settings, *, cancelled=lambda:False,
              time_sleep=time.sleep):
+    scope=getattr(service,'http_scan',None)
+    with scope() if callable(scope) else nullcontext():
+        return _scan_one(service,ticker,mic,settings,cancelled=cancelled,time_sleep=time_sleep)
+
+
+def _scan_one(service, ticker, mic, settings, *, cancelled=lambda:False,
+              time_sleep=time.sleep):
     """Read only Finam REST and the same local SQLite store as the terminal.
 
     Historical candles are fetched only at each TF's refresh deadline, never
@@ -308,6 +315,11 @@ def scan_one(service, ticker, mic, settings, *, cancelled=lambda:False,
     symbol=symbol_name(ticker,mic)
     if cancelled():
         raise InterruptedError()
+    getter=getattr(service.api,'asset_tick_size',None)
+    if callable(getter):
+        try:getter(symbol)
+        except InterruptedError:raise
+        except Exception:pass
     now=service.clock()
     price=None
     origin=""
@@ -371,7 +383,7 @@ class FinamScreenerWorker(QThread):
     finished_pass=Signal()
 
     def __init__(self, service, instruments, settings, parent=None, *,
-                 evaluate=scan_one,max_workers=3,backfill=True):
+                 evaluate=scan_one,max_workers=3,backfill=False):
         super().__init__(parent)
         self.service=service
         self.instruments=tuple(instruments)

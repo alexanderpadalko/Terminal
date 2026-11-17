@@ -33,6 +33,7 @@ jobs:
         run: |
           python tools/build_v211_reference.py
           python tools/build_v211_settings.py
+          python tools/build_calculation_model.py
           python -m unittest discover -s tests -v
       - name: Audit analytical terminal under synthetic multi-instrument load
         shell: pwsh

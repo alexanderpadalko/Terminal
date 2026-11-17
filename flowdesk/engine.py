@@ -710,7 +710,7 @@ def analyze(
     candles: list[Candle], timeframe: str = "H1", exclude_gaps: bool = True,
     *, higher_h1: Analysis | None = None, asof: datetime | None = None,
     higher_liquidity: dict[str, Analysis] | None = None, settings=None, minimum_tick=.01,
-    cached: Analysis | None = None, market_structure=True, low_tf_flow=True,
+    cached: Analysis | None = None, market_structure=True, low_tf_flow=True, incremental=False,
 ) -> Analysis:
     """Local structure/FVG; a separate H1 source is mandatory for low-TF flow."""
     if timeframe not in ("M1", "M5", "H1", "H4", "D1", "W1", "MN1"):
@@ -735,16 +735,18 @@ def analyze(
     from .replay_checkpoint import restore,freeze
     compatible=(cached is None or not low_tf or
                 (cached.flow_status=='DISABLED') == (not low_tf_flow))
-    restored=restore(cached if compatible else None,candles,timeframe,asof,settings,minimum_tick,exclude_gaps,higher_liquidity)
+    restored=restore(cached if compatible else None,candles,timeframe,asof,settings,minimum_tick,exclude_gaps,higher_liquidity,extend=incremental)
     frozen=None;start=0;pairs=[]
     if restored is not None:
         frozen,(structure,fvg,pair,flow),pairs=restored
         start=len(frozen.candles)
+        if incremental and any(candle_close_time(bar,timeframe)<=asof for bar in candles[start:]):
+            frozen=None  # Publish a new prefix after advancing through closed candles.
     capture_audit = []
     if not low_tf and higher_liquidity is not None:
         from .liquidity import audit_higher_captures
         consumer = Analysis(candles, [], [], [], [], timeframe, asof=asof,minimum_tick=minimum_tick)
-        if restored is not None:
+        if restored is not None and frozen is not None:
             from .liquidity import CaptureState,HIGHER_SOURCES
             capture_audit=list(cached.liquidity_audit[:start])
             capture_audit.extend(CaptureState(bar.time,candle_close_time(bar,timeframe),
@@ -821,6 +823,9 @@ def analyze(
         result = Analysis(candles, structure.current_segments(), fvg.zones, flow.history, pairs,
                       timeframe, timeframe, "LOCAL_PRELIMINARY", "Поток по закрытым свечам; алгоритм ещё не сверен с Pine",
                       asof=asof, confirmed_fvg=confirmed_fvg)
+    if incremental and frozen is None and candles and (asof is None or candle_close_time(candles[-1],timeframe)<=asof):
+        frozen=freeze(candles,len(candles),timeframe,asof,settings,minimum_tick,exclude_gaps,
+                      higher_liquidity,(structure,fvg,pair,flow),pairs)
     result.liquidity_audit = capture_audit
     result.replay_checkpoint=frozen
     result.minimum_tick=minimum_tick

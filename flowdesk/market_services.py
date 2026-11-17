@@ -2,17 +2,17 @@
 from pathlib import Path
 import threading
 from .finam_market import FinamMarketService
-from .binance_api import BinanceAPI
 from .market_symbols import BINANCE
 from .storage_safety import backup_if_due
 from .diagnostics_log import log_event
 
 
 class MarketServices:
-    def __init__(self,*,finam=None,crypto=None,directory=None):
+    def __init__(self,*,finam=None,crypto=None,directory=None,legacy_crypto=False):
         self.finam=finam or FinamMarketService()
         self.api=self.finam.api  # Finam catalog/auth stay with Finam only.
         self.crypto=crypto
+        self.legacy_crypto=legacy_crypto
         self.directory=Path(directory or Path.home()/".flowdesk")
         self._lock=threading.Lock()
         self._backup_lock=threading.Lock()
@@ -48,8 +48,10 @@ class MarketServices:
 
     def for_market(self,venue):
         if venue!=BINANCE:return self.finam
+        if not self.legacy_crypto:raise ValueError('Криптовалюты исключены из терминала')
         with self._lock:
             if self.crypto is None:
+                from .binance_api import BinanceAPI
                 self.crypto=FinamMarketService(self.directory/"binance_candles_v1.sqlite3",api=BinanceAPI())
             return self.crypto
 

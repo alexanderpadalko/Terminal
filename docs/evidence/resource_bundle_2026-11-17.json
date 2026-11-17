@@ -1,0 +1,184 @@
+{
+  "date": "2026-11-17",
+  "version": "0.2.26",
+  "base_commit": "8addb57cd19b553f1751e846f5a288113dbda495",
+  "scope": {
+    "provider": "Finam",
+    "instruments": 22,
+    "us_futures": 4,
+    "ru_futures": 8,
+    "stocks": 10,
+    "crypto": false,
+    "ranking": "startup only, persisted Moscow calendar day",
+    "screener": "HTTP only, 300 seconds, no second archive scan",
+    "websocket": "selected symbol only, close previous before starting new",
+    "persistent_calculations": "bounded whitelisted JSON/zlib SQLite with model and input validation"
+  },
+  "live_ed": {
+    "symbol": "EDZ6@RTSX",
+    "catalog_match": "EDZ6@RTSX",
+    "expiry": "2026-12-17",
+    "tick": 0.0001,
+    "h1_bars": 34,
+    "first": "2026-11-16T04:00:00+00:00",
+    "last": "2026-11-17T20:00:00+00:00",
+    "credentials_exposed": false
+  },
+  "local_tests": {
+    "count": 796,
+    "seconds": 47.484,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 1
+  },
+  "dpi": [
+    1,
+    1.25,
+    1.5,
+    2
+  ],
+  "pip_check": "PASS",
+  "compileall": "PASS",
+  "system_audit": {
+    "audit_schema": 1,
+    "network": "offline_synthetic_only",
+    "credentials": "not_loaded",
+    "version": "0.2.26",
+    "sqlite_stress": {
+      "instruments": 22,
+      "timeframes": 6,
+      "candles": 5280,
+      "overlap_corrections": 132,
+      "elapsed_seconds": 1.764,
+      "sqlite_integrity": "ok",
+      "sqlite_journal": "wal"
+    },
+    "safety": {
+      "trade_account_calls_blocked": 3,
+      "stale_quote_rejected": true,
+      "market_scope_isolation": true,
+      "safe_permissions": true
+    },
+    "gui": {
+      "offscreen_layouts": [
+        {
+          "width": 1040,
+          "height": 650,
+          "list_viewport": 374
+        },
+        {
+          "width": 1280,
+          "height": 720,
+          "list_viewport": 432
+        },
+        {
+          "width": 1600,
+          "height": 900,
+          "list_viewport": 432
+        }
+      ],
+      "read_only_ui": true
+    },
+    "duration_seconds": 1.926,
+    "status": "PASS"
+  },
+  "extended_audit": {
+    "audit_schema": 1,
+    "mode": "offline_synthetic",
+    "external_requests": false,
+    "secrets_used": false,
+    "coverage": "22 Finam instruments, including ED; 6 source frames, 5 chart frames",
+    "provider_isolation": {
+      "status": "PASS",
+      "providers": [
+        "Finam"
+      ],
+      "frames": 6,
+      "ed_source": "Finam",
+      "retired_crypto_connection_rejected": true,
+      "retired_crypto_database_created": false
+    },
+    "theme_fvg": {
+      "status": "PASS",
+      "single_theme": "user",
+      "settings_persisted": true,
+      "fvg_rendered": [
+        {
+          "setting": "fvgBullColor",
+          "hex": "#A11B00BF",
+          "measured_rgb": [
+            125,
+            26,
+            8
+          ],
+          "expected_rgb": [
+            125,
+            26,
+            8
+          ]
+        },
+        {
+          "setting": "fvgBearColor",
+          "hex": "#2244CC80",
+          "measured_rgb": [
+            25,
+            46,
+            118
+          ],
+          "expected_rgb": [
+            25,
+            46,
+            118
+          ]
+        },
+        {
+          "setting": "fvgFilledColor",
+          "hex": "#80EC2040",
+          "measured_rgb": [
+            44,
+            77,
+            32
+          ],
+          "expected_rgb": [
+            44,
+            77,
+            32
+          ]
+        }
+      ],
+      "canvas_background": "#101820FF"
+    },
+    "failure_modes": {
+      "status": "PASS",
+      "invalid_preferences": "defaults_with_warning",
+      "invalid_preferences_original_preserved": true,
+      "corrupt_sqlite": "detected_without_deletion",
+      "verified_backup_restored_to_new_file": true,
+      "recovery_requires_manual_selection": true
+    },
+    "status": "PASS",
+    "elapsed_seconds": 0.816,
+    "peak_python_allocations_mb": 17.83
+  },
+  "component_benchmark": {
+    "mode": "offline_synthetic_component_single_run",
+    "model": "88f6b46052d7ce4328bd61902a1ca92df9d6d1b9600c4de94cb7866747e5bb9f",
+    "bars": 1500,
+    "cold_cpu_seconds_including_snapshot_write": 0.734375,
+    "restart_cpu_seconds": 0.234375,
+    "restart_numeric_equal": true,
+    "new_closed_calculation_cpu_seconds_without_snapshot_write": 0.28125,
+    "new_closed_engine_steps": 1002,
+    "fresh_new_closed_cpu_seconds_without_snapshot_write": 0.484375,
+    "fresh_engine_steps": 2501,
+    "new_closed_numeric_equal": true,
+    "rolling_context_limit": 1000,
+    "full_exe_resources_measured": false
+  },
+  "limitations": [
+    "Full EXE CPU/RAM not measured",
+    "Limited rolling contexts replay when their starting point changes",
+    "Very large or incompatible derived snapshots fall back to source replay",
+    "Correct Finam min_step can change earlier one-tick tolerance based on default 0.01"
+  ]
+}

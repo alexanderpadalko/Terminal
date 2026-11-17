@@ -112,7 +112,7 @@ class DailyFuturesListsTest(unittest.TestCase):
                                                       self.now.date()))
 
     def test_perpetual_cache_uses_contract_definition(self):
-        contract=RU_CONTRACTS[3]
+        contract=next(c for c in RU_CONTRACTS if c.display=="USDRUB.P")
         record={"symbol":"USDRUBF@RTSX","label":contract.display,"verified":True,
                 "source":"вечный контракт, без ролловера"}
         self.assertIsNotNone(self.cache._safe_item(contract,record,self.now.date()))

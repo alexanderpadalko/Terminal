@@ -424,6 +424,10 @@ class FinamAPI:
             self._asset_ticks[key] = tick
         return tick
 
+    def cached_tick_size(self,symbol):
+        """Read verified cached metadata without a network request."""
+        with self._lock:return self._asset_ticks.get(symbol.upper())
+
     def bars(self, symbol, timeframe, *, now=None, start=None, end=None):
         """Fetch a bounded historical interval, within Finam's documented depth.
 

@@ -58,7 +58,7 @@ def analyze_timeframes(series: dict[str, list[Candle]], display_tf: str,
     minimum_tick=next((data['minimum_tick'] for data in (provenance or {}).values() if data.get('minimum_tick')), .01)
     def replay(bars,tf,*,previous=None,**kwargs):
         if terminal:
-            kwargs.update(market_structure=False, low_tf_flow=False)
+            kwargs.update(market_structure=False, low_tf_flow=False, incremental=True)
         boundaries=(provenance or {}).get(tf,{}).get('history_breaks',{}).get(tf,())
         return analyze_history(bars,tf,breaks=boundaries,cached=previous,**kwargs) if boundaries else analyze(bars,tf,cached=previous,**kwargs)
     limited={}
@@ -78,7 +78,7 @@ def analyze_timeframes(series: dict[str, list[Candle]], display_tf: str,
                 dependency_changed=bool(set(HIGHER_SOURCES.get(tf,()))&changed_contexts)
                 result=None if dependency_changed else _reuse(old,bars,tf,asof)
                 limited[tf]=result or replay(bars,tf,asof=asof,higher_liquidity=limited,
-                                             previous=None if dependency_changed else old,
+                                             previous=old if terminal else None if dependency_changed else old,
                                              settings=settings,minimum_tick=minimum_tick)
                 if dependency_changed or not _same_closed(old,limited[tf]):changed_contexts.add(tf)
     reused=set()
@@ -94,8 +94,12 @@ def analyze_timeframes(series: dict[str, list[Candle]], display_tf: str,
             analyses[tf] = result
             reused.add(tf)
             continue
-        result = replay(bars, tf, asof=asof,
-                         previous=None if dependency_changed else saved,
+        # The limited context is already the exact full calculation when
+        # its complete input fits the configured window. Clone the Analysis
+        # container so summary links cannot create cycles through contexts.
+        exact=limited.get(tf) if terminal else None
+        result = replace(exact) if exact is not None and exact.candles==bars else replay(bars, tf, asof=asof,
+                         previous=saved if terminal else None if dependency_changed else saved,
                          higher_h1=analyses.get("H1"),
                          higher_liquidity=(limited if settings is not None else analyses) if tf in ("H1", "H4", "D1", "W1", "MN1") else None,
                          settings=settings,minimum_tick=minimum_tick)

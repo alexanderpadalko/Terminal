@@ -309,7 +309,7 @@ class TestSignalLogic(unittest.TestCase):
         now=datetime(2026,11,13,16,tzinfo=timezone.utc)
         class FakeApi:
             def __init__(self):self.calls=[]
-            def bars(self,symbol,tf):
+            def bars(self,symbol,tf,**kwargs):
                 self.calls.append((symbol,tf))
                 t=now-timedelta(minutes=5)
                 return [Candle(t,99,101,98,100,30)]
@@ -336,7 +336,7 @@ class TestSignalLogic(unittest.TestCase):
         self.assertEqual(result.price,100)
         requested=[tf for _,tf in service.api.calls if tf!="quote"]
         self.assertEqual(set(requested),{"H4","D1","W1","MN1"})
-        self.assertEqual(len(requested),4)
+        self.assertEqual(len(requested),8)
         self.assertEqual(again.price_origin,"finam_last")
         self.assertNotIn("M5",requested)
 

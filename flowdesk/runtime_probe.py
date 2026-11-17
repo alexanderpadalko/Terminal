@@ -10,7 +10,6 @@ from types import SimpleNamespace
 from .finam_stream import FinamStreamWorker
 from .finam_requests import RequestCoordinator
 from .finam_screener import FinamScreenerWorker, ScanResult
-from .binance_stream import interpret_packet as binance_packet
 from datetime import date,datetime,timedelta,timezone
 
 
@@ -36,9 +35,6 @@ def check_finam_runtime(output):
         scanner.row.connect(rows.append)
         scanner.run()
         result["scanner_rows"]=len(rows)
-        crypto=binance_packet({"data":{"e":"aggTrade","s":"BTCUSDT",
-            "p":"100","T":1794736800000}},"BTCUSDT",1,datetime.now(timezone.utc))
-        result["binance_decoder"]=crypto is not None and crypto.board=="BINANCE"
         from .trading_calendar import calendar_for
         from .market_data import Candle
         from .session_candles import build_session_series
@@ -97,13 +93,26 @@ def check_finam_runtime(output):
         result['terminal_scope']=bool(not chart.flows and not chart.pairs and not chart.market
             and set(parents)==set(FLOW_TIMEFRAMES) and set(chart.summary_sources)==set(FLOW_TIMEFRAMES)
             and all(not item.market for item in parents.values()))
+        import tempfile
+        from .finam_market import FinamMarketService
+        from .settings import IndicatorSettings
+        with tempfile.TemporaryDirectory(prefix='flowdesk-calculation-probe-') as folder:
+            database=Path(folder)/'source.sqlite'
+            api=SimpleNamespace(market_delay_minutes=lambda mic:0)
+            initial=FinamMarketService(database,api=api)
+            settings=IndicatorSettings()
+            first=initial.analyze_cached('EDZ6@RTSX','H4',terminal_sources,settings,observed)
+            reopened=FinamMarketService(database,api=api)
+            saved=reopened.calculations.load('EDZ6@RTSX','H4')
+            again=reopened.analyze_cached('EDZ6@RTSX','H4',terminal_sources,settings,observed)
+            result['persistent_calculations']=bool(saved is not None and first==again)
         result["ok"] = (result.get("executor_callable") and
                         result.get("thread_result") == 17 and result.get("localhost_resolved")
                         and result.get("scheduler_result")==23 and result.get("scanner_rows")==3
-                        and result.get("binance_decoder") and result.get('session_candles')
+                        and result.get('session_candles')
                         and result.get('native_dwm') and result.get('nq_session_family')
                         and result.get('nq_session_last_trade') and result.get('us_futures_session_last_trade')
-                        and result.get('terminal_scope'))
+                        and result.get('terminal_scope') and result.get('persistent_calculations'))
     except Exception as exc:
         result["error_type"] = type(exc).__name__
     Path(output).write_text(json.dumps(result, indent=2), encoding="utf-8")

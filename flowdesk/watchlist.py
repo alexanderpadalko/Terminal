@@ -201,7 +201,7 @@ class WatchlistService:
         RFUD roll_futures must never block updating the stock ranking.
         """
         now = self.clock()
-        slot = slot_date(now)
+        slot = now.astimezone(MOSCOW).date() if stocks_only else slot_date(now)
         cutoff = slot - timedelta(days=1)
         old = self.cached() or {}
         history = self.history(old)
@@ -246,6 +246,7 @@ class WatchlistService:
             'window': days, 'history': history, 'instruments': [asdict(r) for r in stocks + futures],
             'rule': ('TQBR shares: 20 completed sessions, exact VALUE; futures preserved for Finam' if stocks_only
                      else 'TQBR ordinary/preferred, 20 completed sessions; fixed 6 term + 4 perpetual; roll at expiry 06 MSK')})
+        if stocks_only:value['ranking_day']=now.astimezone(MOSCOW).date().isoformat()
         self.path.parent.mkdir(parents=True, exist_ok=True)
         temp = self.path.with_suffix('.tmp')
         temp.write_text(json.dumps(value, ensure_ascii=False), encoding='utf-8')

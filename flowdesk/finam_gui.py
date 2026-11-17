@@ -1,4 +1,4 @@
-"""FlowDesk: Finam and two public Binance perpetuals, no order APIs."""
+"""FlowDesk: Finam market data only, no order APIs."""
 from __future__ import annotations
 
 from datetime import datetime, timezone
@@ -9,6 +9,7 @@ from pathlib import Path
 import sqlite3
 import re
 import sys
+from time import monotonic
 
 from PySide6.QtCore import QSettings, QThread, QTimer, Qt, Signal, QSize
 from PySide6.QtWidgets import (
@@ -23,10 +24,9 @@ from .app_icon import application_icon, set_windows_application_id
 from .finam_api import read_secret, save_secret, delete_secret, parse_instant
 from .market_symbols import symbol_name,BINANCE
 from .market_services import MarketServices
-from .binance_stream import BinanceStreamWorker
 from .exchange_time import exchange_clock
 from .finam_universe import (
-    US_FUTURES, RU_STOCKS, RU_FUTURES, CRYPTO, GROUP_LABELS,
+    US_FUTURES, RU_STOCKS, RU_FUTURES, GROUP_LABELS,
     US_CONTRACTS, RU_CONTRACTS,
     compose_universe, cached_top10, is_in_universe
 )
@@ -96,6 +96,11 @@ class FinamLoadWorker(QThread):
                 self.service.ingest_stream(self.ticker,self.mic,self.events)
             if self.isInterruptionRequested():
                 return
+            getter=getattr(getattr(self.service,'api',None),'asset_tick_size',None)
+            step=None
+            if callable(getter):
+                try:step=getter(symbol_name(self.ticker,self.mic))
+                except Exception:pass
             result = self.service.view(self.ticker,self.mic,self.timeframe,
                 allow_http=self.allow_http,refresh=self.refresh,
                 settings=self.settings,progress=self.progress.emit,
@@ -104,15 +109,9 @@ class FinamLoadWorker(QThread):
                 return
             # Asset metadata is read-only and independent of the HTTP *candle*
             # checkbox. Resolve its true tick size in the worker, never on Qt.
-            getter = getattr(getattr(self.service, "api", None), "asset_tick_size", None)
-            if callable(getter):
-                try:
-                    step = getter(symbol_name(self.ticker,self.mic))
-                except Exception:
-                    step = None  # Price data may still load from the local cache.
-                if step is not None:
-                    analysis,parents,info=result
-                    result=(analysis,parents,{**info,"price_tick_size":step})
+            if step is not None:
+                analysis,parents,info=result
+                result=(analysis,parents,{**info,"price_tick_size":step})
             if not self.isInterruptionRequested():
                 self.loaded.emit(*result)
         except Exception as exc:
@@ -124,7 +123,7 @@ class FinamWindow(QMainWindow):
     def __init__(self, *, service=None, stream_factory=None, settings_store=None):
         super().__init__()
         install_gui_gc(QApplication.instance())
-        self.setWindowTitle(f"FlowDesk {__version__} · Finam Trade API + Binance · только данные")
+        self.setWindowTitle(f"FlowDesk {__version__} · Finam Trade API · только данные")
         self.setWindowIcon(application_icon())
         self.resize(1420,840)
         self.setMinimumSize(1040,650)
@@ -157,10 +156,13 @@ class FinamWindow(QMainWindow):
         self.history_worker = None
         self._history_dirty=set()
         self.screener_rescan_requested = False
+        self._screener_next_at=0.0
         self.screener_pending = set()
         self.futures_list_cache = FuturesListCache()
         self._catalog_success_slot = None
         self._catalog_attempt_at = None
+        self._ranking_attempted=False
+        self._pending_stream=False
         self.universe, self.ranking_status = compose_universe()
         cached_futures = self.futures_list_cache.load()
         for group in (US_FUTURES, RU_FUTURES):
@@ -195,6 +197,10 @@ class FinamWindow(QMainWindow):
         QTimer.singleShot(1500,self._backup_stores)
         ticker=str(self.ui_prefs.value("ticker","SBER"))
         mic=str(self.ui_prefs.value("mic","MISX"))
+        if mic==BINANCE:
+            ticker,mic='SBER','MISX'
+            self.ui_prefs.setValue('ticker',ticker)
+            self.ui_prefs.setValue('mic',mic)
         self._pending_restore=ticker.upper()+"@"+mic.upper()
         # Migrate only the four previously incorrect built-in examples. Never
         # guess a different venue for arbitrary user-entered instruments.
@@ -292,7 +298,7 @@ class FinamWindow(QMainWindow):
         self.symbol_edit.hide()
         self.mic=QComboBox(side)
         self.mic.setEditable(True)
-        self.mic.addItems(("MISX","RTSX","XCME","XCEC","XNYM","IFEU",BINANCE))
+        self.mic.addItems(("MISX","RTSX","XCME","XCEC","XNYM","IFEU"))
         self.mic.hide()
         self.open_button=QPushButton("Открыть инструмент",side)
         self.open_button.clicked.connect(self._select)
@@ -369,12 +375,10 @@ class FinamWindow(QMainWindow):
                  not self.catalog_error and group!=RU_STOCKS)
         state=(" · поиск Finam…" if pending else
                " · каталог недоступен" if self.catalog_error and
-               group not in (RU_STOCKS,CRYPTO) else
+               group!=RU_STOCKS else
                " · не подтверждён Finam" if not entry.verified else "")
         if entry.verified and "сохранённый список; сверка Finam" in entry.source:
             state+=" · кэш"
-        if group==CRYPTO:
-            state+=" · Binance"
         if entry.verified and "экспирация не подтверждена" in entry.source:
             state+=" · эксп. ?"
         elif entry.verified and group!=RU_STOCKS:
@@ -482,7 +486,7 @@ class FinamWindow(QMainWindow):
         self.examples.clear()
         self._sections=[]
         no_data=[]
-        for group in (CRYPTO,US_FUTURES,RU_FUTURES,RU_STOCKS):
+        for group in (US_FUTURES,RU_FUTURES,RU_STOCKS):
             header=QListWidgetItem(GROUP_LABELS[group])
             header.setFlags(Qt.ItemFlag.NoItemFlags)
             header.setForeground(Qt.GlobalColor.gray)
@@ -541,13 +545,15 @@ class FinamWindow(QMainWindow):
 
     def _start_screener(self):
         finam_enabled=bool(read_secret())
-        crypto_selected=self.mic.currentText()==BINANCE
         if (self.closing or self.screener_worker is not None or
-                (not self.catalog_ready and not crypto_selected) or
-                (not finam_enabled and not crypto_selected)):
+                not self.catalog_ready or not finam_enabled):
             return
-        entries=tuple(row for group in (US_FUTURES,RU_STOCKS,RU_FUTURES,CRYPTO)
-                      for row in self.universe[group] if finam_enabled or group==CRYPTO)
+        remaining=self._screener_next_at-monotonic()
+        if remaining>0:
+            self.screener_timer.start(max(1,int(remaining*1000)+1))
+            return
+        entries=tuple(row for group in (US_FUTURES,RU_STOCKS,RU_FUTURES)
+                      for row in self.universe[group])
         # Si and Eu appeared indefinitely as pending because a full 38x6
         # sequential REST scan reached Russian futures last. Prioritise those
         # two verified contracts, preserving the order of all other rows.
@@ -556,6 +562,8 @@ class FinamWindow(QMainWindow):
             priority.get(item.label,2) if item.group==RU_FUTURES else 2)))
         if not entries:
             return
+        self._screener_next_at=monotonic()+300
+        self.screener_timer.start(300000)
         self.screener_rescan_requested=False
         self.screener_pending={entry.symbol.upper() for entry in entries
                                if entry.verified and entry.symbol}
@@ -572,8 +580,9 @@ class FinamWindow(QMainWindow):
         if self.closing:
             return
         finam_enabled=bool(read_secret())
-        entries=tuple(row for group in (US_FUTURES,RU_STOCKS,RU_FUTURES,CRYPTO)
-                      for row in self.universe[group] if finam_enabled or group==CRYPTO)
+        if not finam_enabled:return
+        entries=tuple(row for group in (US_FUTURES,RU_STOCKS,RU_FUTURES)
+                      for row in self.universe[group])
         symbols=tuple(dict.fromkeys(row.symbol.upper() for row in entries if row.verified and '@' in row.symbol))
         if self.history_worker is not None:
             if set(self.history_worker.symbols)!=set(symbols):
@@ -671,7 +680,8 @@ class FinamWindow(QMainWindow):
             return
         self._catalog_attempt_at=now
         self.catalog_error=""
-        self.catalog_worker=FinamCatalogWorker(self.service.api,self)
+        self.catalog_worker=FinamCatalogWorker(self.service.api,self,refresh_ranking=not self._ranking_attempted)
+        self._ranking_attempted=True
         self.catalog_worker.futures_ready.connect(self._futures_ready)
         self.catalog_worker.loaded.connect(self._catalog_loaded)
         self.catalog_worker.failed.connect(self._catalog_failed)
@@ -698,7 +708,7 @@ class FinamWindow(QMainWindow):
         self.catalog_error=payload.get("finam_error","")
         raw=payload.get("assets",assets if isinstance(assets,list) else [])
         self.universe,self.ranking_status=compose_universe(raw)
-        if isinstance(payload.get("stocks"),list) and len(payload["stocks"])==20:
+        if isinstance(payload.get("stocks"),list) and len(payload["stocks"])==10:
             self.universe[RU_STOCKS]=payload["stocks"]
             self.ranking_status=payload.get("ranking_status",self.ranking_status)
         fallback=self.futures_list_cache.load()
@@ -788,6 +798,7 @@ class FinamWindow(QMainWindow):
         dialog.exec()
 
     def _apply_settings(self,indicator,application):
+        recalculate=self.indicator_settings.calculation_key()!=indicator.calculation_key()
         self.indicator_settings=indicator
         # Both transports remain enabled even when importing older settings.
         self.app_settings=replace(application,auto_updates=True,allow_http=True)
@@ -797,8 +808,11 @@ class FinamWindow(QMainWindow):
         self.http_timer.setInterval(self.app_settings.refresh_seconds*1000)
         self._schedule_http()
         self._start_stream()
-        self._load(refresh=False)
-        self._request_screener_scan()
+        if recalculate:
+            self.screen_results.clear()
+            self._populate_universe()
+            self._load(refresh=False)
+            self._request_screener_scan()
 
     def _token_dialog(self,parent=None):
         token, ok=QInputDialog.getText(parent or self,"Finam Trade API",
@@ -833,13 +847,6 @@ class FinamWindow(QMainWindow):
 
     def _startup(self):
         if not read_secret():
-            if self.mic.currentText()==BINANCE:
-                self._load(refresh=True)
-                self._start_stream()
-                self._schedule_http()
-                self._request_screener_scan()
-                self.screener_timer.start()
-                return
             self.status.setText("Токен Finam не введён. Откройте настройки (⚙).")
             self._indicator()
             return
@@ -877,9 +884,6 @@ class FinamWindow(QMainWindow):
         self._load(refresh=False)
         self._start_stream()
         self._schedule_http()
-        if mic==BINANCE and not read_secret():
-            self._start_screener()
-            self.screener_timer.start()
 
     @staticmethod
     def _exchange_time(value, mic, *, seconds=False):
@@ -943,9 +947,8 @@ class FinamWindow(QMainWindow):
                     and self.chart.analysis is not None else None)
         self.analysis,self.parents=main,parents
         self.displayed_view=self.current_view
-        provider=info.get("provider","Binance" if info["board"]==BINANCE else "Finam")
-        self.chart.instrument_header=(info["symbol"]+".P · Binance" if info["board"]==BINANCE
-                                      else info["symbol"]+"@"+info["board"]+" · "+provider)
+        provider="Finam"
+        self.chart.instrument_header=info["symbol"]+"@"+info["board"]+" · "+provider
         self.chart.set_exchange(info["board"],info["symbol"])
         # Unknown step must never silently inherit the previous instrument's.
         self.chart.set_price_tick(info.get("price_tick_size"))
@@ -972,10 +975,6 @@ class FinamWindow(QMainWindow):
                           self._exchange_time(info["asof"],info["board"]) +
                           " · "+delay_label+str(delay)+" мин · только чтение")
         self._indicator()
-        # New Binance storage is created lazily. An additional delayed check
-        # snapshots it after the first successful data download.
-        if info["board"]==BINANCE:
-            QTimer.singleShot(5000,self._backup_stores)
 
     def _current_load_signal(self):
         worker=self.sender()
@@ -1020,13 +1019,10 @@ class FinamWindow(QMainWindow):
         self._indicator()
 
     def _make_stream(self,ticker,mic):
-        if mic==BINANCE:
-            market=self.service.for_market(mic)
-            return BinanceStreamWorker(ticker,api=market.api)
         return FinamStreamWorker(ticker,mic,api=self.service.api)
 
     def _start_stream(self):
-        if self.closing or (self.mic.currentText()!=BINANCE and not read_secret()):
+        if self.closing or not read_secret():
             self._indicator();return
         try:
             ticker,mic=symbol_name(self.symbol_edit.text(),self.mic.currentText()).split("@")
@@ -1035,15 +1031,19 @@ class FinamWindow(QMainWindow):
         if self.stream is not None and (self.stream.ticker,self.stream.mic)==(ticker,mic):
             return
         self._stop_stream()
+        if getattr(self,'_retiring',()):
+            self._pending_stream=True
+            return  # Finish closing the previous instrument before connecting.
+        self._pending_stream=False
         try:
             self.stream=self.stream_factory(ticker,mic)
         except sqlite3.DatabaseError:
-            # Binance store is lazily opened here. Never swallow an SQLite
+            # Never swallow an SQLite
             # failure as a silent failed WebSocket connection.
             self.stream=None
             self.stream_state="Ошибка локальной базы данных"
             self.status.setText(
-                "SQLite: повреждена база "+("Binance" if mic==BINANCE else "Finam")+
+                "SQLite: повреждена база Finam"+
                 ". Исходный файл сохранён; используйте резервную копию.")
             self._indicator()
             return
@@ -1058,21 +1058,25 @@ class FinamWindow(QMainWindow):
     def _stop_stream(self):
         if self.stream is not None:
             old,self.stream=self.stream,None
-            old.stop()
             # Prevent a QThread deletion while transport closes.
             self._retiring=getattr(self,"_retiring",[])
             self._retiring.append(old)
             old.finished.connect(partial(self._retired,old))
+            old.stop()
+            finished=getattr(old,'isFinished',None)
+            if callable(finished) and finished():self._retired(old)
         self.stream_ready=False
         self.pending_bars.clear()
         self.feed_timer.stop()
 
     def _retired(self,worker):
-        if worker in self._retiring:
-            self._retiring.remove(worker)
+        if worker not in self._retiring:return
+        self._retiring.remove(worker)
         worker.deleteLater()
         if self.closing:
             self._finish_close()
+        elif self._pending_stream and not self._retiring:
+            self._start_stream()
 
     def _stream_finished(self):
         thread=self.sender()
@@ -1124,7 +1128,7 @@ class FinamWindow(QMainWindow):
                 instant=q.get("timestamp")
                 stamp=(self._exchange_time(instant,event.board,seconds=True)
                        if instant is not None else "время сделки не указано")
-                provider="Binance" if event.board==BINANCE else "Finam"
+                provider="Finam"
                 self.feed.setText(f"{provider} WebSocket · {event.symbol}@{event.board} · цена {last} · "+stamp)
         elif event.kind=="candles":
             for c in event.candles:
@@ -1143,11 +1147,11 @@ class FinamWindow(QMainWindow):
         self._load(refresh=False,events=events)
 
     def _http_refresh(self):
-        if self.loader is None and not self.closing and (self.mic.currentText()==BINANCE or read_secret()):
+        if self.loader is None and not self.closing and read_secret():
             self._load(refresh=True)
 
     def _schedule_http(self):
-        if not self.closing and (self.mic.currentText()==BINANCE or read_secret()):
+        if not self.closing and read_secret():
             if not self.http_timer.isActive():
                 self.http_timer.start()
         else:
@@ -1156,14 +1160,14 @@ class FinamWindow(QMainWindow):
     def _indicator(self):
         if not hasattr(self,"channel"):
             return
-        provider="BINANCE" if self.mic.currentText()==BINANCE else "FINAM"
+        provider="FINAM"
         if self.stream_ready:
             label,color="FINAM · ПОТОК","#22553b"
         elif self.stream_state=="reconnecting":
             label,color="FINAM · ПЕРЕПОДКЛ.","#5b492b"
         elif self.stream is not None:
             label,color="FINAM · ПОДКЛ.","#52452e"
-        elif provider!="BINANCE" and not read_secret():
+        elif not read_secret():
             label,color="FINAM · НЕТ ТОКЕНА","#4a3434"
         else:
             label,color="FINAM · НЕТ ПОТОКА","#493131"
@@ -1173,7 +1177,7 @@ class FinamWindow(QMainWindow):
         self.channel.setText(label)
         self.channel.setStyleSheet(f"background:{color};border:1px solid #555;"
                                    "border-radius:5px;color:#f0f0f0;padding:8px;font-weight:700")
-        self.channel.setToolTip("Поставщик: "+("Binance Futures" if provider=="BINANCE" else "Finam Trade API")+
+        self.channel.setToolTip("Поставщик: Finam Trade API"+
             "; WebSocket и HTTP включены"+
             ("\nПоследняя ошибка: "+self.stream_error if self.stream_error else ""))
 

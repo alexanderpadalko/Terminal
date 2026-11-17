@@ -88,16 +88,16 @@ class TestFinamGui(unittest.TestCase):
                 entries.append(entry)
         return entries
 
-    def test_corrupt_binance_store_reports_safe_error_not_qt_slot_exception(self):
+    def test_corrupt_finam_store_reports_safe_error_not_qt_slot_exception(self):
         import sqlite3
-        self.window.symbol_edit.setText("BTCUSDT")
-        self.window.mic.setCurrentText("BINANCE")
-        with patch.object(self.window,"stream_factory",
-                          side_effect=sqlite3.DatabaseError("corrupt local store")):
+        self.window.symbol_edit.setText("SBER")
+        self.window.mic.setCurrentText("MISX")
+        with patch("flowdesk.finam_gui.read_secret",return_value="test"), patch.object(
+                self.window,"stream_factory",side_effect=sqlite3.DatabaseError("corrupt local store")):
             self.window._start_stream()
         self.assertIsNone(self.window.stream)
         self.assertIn("SQLite",self.window.status.text())
-        self.assertIn("Binance",self.window.status.text())
+        self.assertIn("Finam",self.window.status.text())
         self.assertNotIn("corrupt local store",self.window.status.text())
 
     def test_failed_new_symbol_clears_previous_chart_and_labels_requested_symbol(self):
@@ -307,9 +307,9 @@ class TestFinamGui(unittest.TestCase):
         self.assertNotIn("GAZP",self.window.status.text())
 
 
-    def test_fixed_universe_has_four_groups_including_crypto_without_old_demo_assets(self):
+    def test_fixed_universe_has_three_finam_groups_without_old_demo_assets(self):
         rows=[self.window.examples.item(i).text() for i in range(self.window.examples.count())]
-        self.assertEqual(len(rows),4+10+7+1+4)
+        self.assertEqual(len(rows),4+10+8+3)
         self.assertFalse(self.window.symbol_edit.isVisible())
         self.assertFalse(self.window.mic.isVisible())
         self.assertFalse(any("AAPL" in s for s in rows))
@@ -343,17 +343,12 @@ class TestFinamGui(unittest.TestCase):
         self.assertEqual(self.window.universe[RU_STOCKS],original_stocks)
         self.assertTrue(self.window.daily_catalog_timer.isActive())
 
-    def test_sidebar_starts_with_crypto_then_futures_then_top_ten_stocks(self):
-        from flowdesk.finam_universe import (
-            CRYPTO, US_FUTURES, RU_FUTURES, RU_STOCKS, GROUP_LABELS)
-        headings=[self.window.examples.item(i).text()
-                  for i in range(self.window.examples.count())
+    def test_sidebar_starts_with_futures_then_top_ten_stocks(self):
+        from flowdesk.finam_universe import US_FUTURES,RU_FUTURES,RU_STOCKS,GROUP_LABELS
+        headings=[self.window.examples.item(i).text() for i in range(self.window.examples.count())
                   if self.window.examples.item(i).text() in GROUP_LABELS.values()]
-        self.assertEqual(headings,[GROUP_LABELS[group] for group in (
-            CRYPTO, US_FUTURES, RU_FUTURES, RU_STOCKS)])
-        self.assertEqual(self.window.examples.item(1).text().split(" · ")[0],
-                         "BTCUSDT.P")
-        self.assertEqual(self.window.examples.item(2).text(),GROUP_LABELS[US_FUTURES])
+        self.assertEqual(headings,[GROUP_LABELS[g] for g in (US_FUTURES,RU_FUTURES,RU_STOCKS)])
+        self.assertEqual(self.window.examples.item(1).text().split(" · ")[0],"GCZ2026")
 
     def test_sidebar_has_no_text_search_but_keeps_tf_signal_filters(self):
         from PySide6.QtWidgets import QLineEdit
@@ -362,30 +357,24 @@ class TestFinamGui(unittest.TestCase):
         self.assertFalse(any("Поиск в выбранном списке" in field.placeholderText()
                              for field in self.window.findChildren(QLineEdit)))
         self.assertEqual(set(self.window.screen_buttons), {"H4","D","W","M"})
-        self.assertEqual(self.window.examples.count(),26)
+        self.assertEqual(self.window.examples.count(),25)
         self.window.screen_buttons["H4"].setChecked(True)
-        self.assertLessEqual(self.window.examples.count(),27)
+        self.assertLessEqual(self.window.examples.count(),26)
         self.window.screen_buttons["H4"].setChecked(False)
-        self.assertEqual(self.window.examples.count(),26)
+        self.assertEqual(self.window.examples.count(),25)
 
-    def test_crypto_chart_opens_without_a_finam_token_and_uses_utc(self):
-        with patch.object(self.window,"_start_stream") as start, \
-             patch.object(self.window,"_start_screener"):
-            self.select("BTCUSDT","BINANCE");self.settle()
-        start.assert_called_once()
-        self.assertEqual(self.window.displayed_view,("BTCUSDT","BINANCE","H4"))
-        self.assertEqual(self.window.chart.instrument_header,"BTCUSDT.P · Binance")
-        self.assertEqual(self.window.chart.exchange.zone.key,"UTC")
-        self.assertTrue(self.window.http_timer.isActive())
-        self.assertNotIn("ТОКЕН",self.window.channel.text())
+    def test_crypto_selection_cannot_start_a_network_connection(self):
+        self.assertNotIn("BINANCE",[self.window.mic.itemText(i) for i in range(self.window.mic.count())])
+        with patch.object(self.window,"_start_stream") as start:
+            self.select("BTCUSDT","BINANCE")
+        start.assert_not_called()
+        self.assertIsNone(self.window.displayed_view)
 
-    def test_finam_catalog_outage_does_not_disable_crypto_rows(self):
+    def test_catalog_outage_does_not_restore_retired_crypto_rows(self):
         self.window.catalog_error="Каталог Finam недоступен"
         self.window._populate_universe()
-        rows=[self.window.examples.item(i) for i in range(self.window.examples.count())
-              if "BTCUSDT.P" in self.window.examples.item(i).text()]
-        self.assertEqual(len(rows),1)
-        self.assertNotIn("недоступен",rows[0].text())
+        rows=[self.window.examples.item(i).text() for i in range(self.window.examples.count())]
+        self.assertFalse(any("BTC" in text or "КРИПТА" in text for text in rows))
 
     def test_manual_selection_cancels_deferred_saved_contract(self):
         self.window._pending_restore="TSLA@XNGS"
@@ -580,7 +569,7 @@ class TestFinamGui(unittest.TestCase):
                              self.window.screen_buttons.values()))
         initial=[self.window.examples.item(i) for i in
                  range(self.window.examples.count())]
-        self.assertEqual(len(initial),26)
+        self.assertEqual(len(initial),25)
         self.window.screen_results[sber.symbol]=ScanResult(
             sber.symbol,(1,0,0,0))
         self.window.screen_results[lkoh.symbol]=ScanResult(
@@ -611,7 +600,7 @@ class TestFinamGui(unittest.TestCase):
                             if not row.isHidden()))
         self.window.screen_buttons["H4"].setChecked(False)
         self.window.screen_buttons["W"].setChecked(False)
-        self.assertEqual(self.window.examples.count(),26)
+        self.assertEqual(self.window.examples.count(),25)
         self.assertIs(self.window.chart.analysis,analysis)
 
     def test_scanner_missing_history_stays_neutral_not_short(self):
@@ -701,7 +690,7 @@ class TestFinamGui(unittest.TestCase):
         self.window._populate_universe()
         self.assertFalse(any(button.isChecked() for button in
                              self.window.screen_buttons.values()))
-        self.assertEqual(self.window.examples.count(),26)
+        self.assertEqual(self.window.examples.count(),25)
         row=next(self.window.examples.item(i) for i in
                  range(self.window.examples.count())
                  if self.window.examples.item(i).text().startswith("SBER ·"))
@@ -846,3 +835,76 @@ class TestFinamGui(unittest.TestCase):
             finally:
                 other.close()
                 other.deleteLater()
+
+    def test_saved_crypto_preference_migrates_to_a_finam_stock(self):
+        self.window.ui_prefs.setValue('ticker','BTCUSDT')
+        self.window.ui_prefs.setValue('mic','BINANCE')
+        other=FinamWindow(service=self.market,settings_store=self.window.settings_store)
+        try:
+            self.assertEqual(other.symbol_edit.text(),'SBER')
+            self.assertEqual(other.mic.currentText(),'MISX')
+            self.assertNotIn('Binance',other.windowTitle())
+        finally:
+            other.close();other.deleteLater()
+
+    def test_catalog_can_update_finam_without_repeating_moex_ranking(self):
+        from unittest.mock import MagicMock
+        self.market.api=MagicMock()
+        created=[]
+        def make(*args,**kwargs):
+            created.append(kwargs['refresh_ranking'])
+            return MagicMock()
+        with patch('flowdesk.finam_gui.read_secret',return_value='test'), \
+             patch('flowdesk.finam_gui.FinamCatalogWorker',side_effect=make):
+            self.window._refresh_catalog(force=True)
+            self.window.catalog_worker=None
+            self.window._refresh_catalog(force=True)
+            self.window.catalog_worker=None
+        self.assertEqual(created,[True,False])
+        self.assertEqual(self.window.screener_timer.interval(),300000)
+
+    def test_switching_instruments_waits_until_the_old_socket_has_closed(self):
+        from PySide6.QtCore import QObject,Signal
+        class Stream(QObject):
+            event=Signal(object)
+            finished=Signal()
+            def __init__(self,ticker,mic):
+                super().__init__();self.ticker=ticker;self.mic=mic;self.stopped=False
+            def start(self):pass
+            def stop(self):self.stopped=True
+        created=[]
+        def make(ticker,mic):
+            result=Stream(ticker,mic);created.append(result);return result
+        with patch('flowdesk.finam_gui.read_secret',return_value='test'):
+            self.window.stream_factory=make
+            self.window.symbol_edit.setText('SBER');self.window.mic.setCurrentText('MISX')
+            self.window._start_stream()
+            old=created[0]
+            self.window.symbol_edit.setText('LKOH')
+            self.window._start_stream()
+            self.assertTrue(old.stopped)
+            self.assertEqual(len(created),1)
+            self.assertIsNone(self.window.stream)
+            old.finished.emit()
+            self.assertEqual(len(created),2)
+            self.assertEqual(self.window.stream.ticker,'LKOH')
+            last=self.window.stream;self.window._stop_stream();last.finished.emit()
+
+    def test_screener_requests_are_coalesced_to_five_minutes(self):
+        from unittest.mock import MagicMock
+        self.window.catalog_ready=True
+        with patch('flowdesk.finam_gui.read_secret',return_value='test'), \
+             patch('flowdesk.finam_gui.FinamScreenerWorker',return_value=MagicMock()) as make, \
+             patch('flowdesk.finam_gui.monotonic',return_value=100) as clock:
+            self.window._start_screener()
+            self.assertEqual(make.call_count,1)
+            self.window.screener_worker=None
+            clock.return_value=200
+            self.window._start_screener()
+            self.assertEqual(make.call_count,1)
+            self.assertGreaterEqual(self.window.screener_timer.interval(),200000)
+            clock.return_value=401
+            self.window._start_screener()
+            self.assertEqual(make.call_count,2)
+            self.assertEqual(self.window.screener_timer.interval(),300000)
+            self.window.screener_worker=None

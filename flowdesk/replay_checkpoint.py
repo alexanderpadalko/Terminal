@@ -46,12 +46,13 @@ def clone_engines(engines):
     return deepcopy(engines,memo)
 
 
-def restore(previous,candles,tf,asof,settings,minimum_tick,exclude_gaps,higher):
+def restore(previous,candles,tf,asof,settings,minimum_tick,exclude_gaps,higher,*,extend=False):
     saved=getattr(previous,'replay_checkpoint',None)
     if saved is None or asof is None or saved.observed is None or asof<saved.observed:return None
     count=len(saved.candles)
-    if not count or count>=len(candles):return None
-    if bisect_right(candles,asof,key=lambda b:candle_close_time(b,tf))!=count:return None
+    if not count or count>len(candles) or (not extend and count==len(candles)):return None
+    closed=bisect_right(candles,asof,key=lambda b:candle_close_time(b,tf))
+    if closed<count or (not extend and closed!=count):return None
     if tuple(candles[:count])!=saved.candles:return None
     edge=candle_close_time(candles[count-1],tf)
     if saved.key!=context_key(tf,settings,minimum_tick,exclude_gaps,higher,edge):return None

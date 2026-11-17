@@ -53,19 +53,19 @@ RU_CONTRACTS=(
     _ru("SIZ2026","Доллар / рубль","SI"),
     _ru("CRZ2026","Юань / рубль","CR"),
     _ru("EUZ2026","Евро / рубль","EU"),
+    _ru("EDZ2026","Евро / доллар","ED"),
     Contract("USDRUB.P","Вечный USD/RUB",RU_FUTURES,("USDRUBF","USDRUB.P"),("RTSX",)),
     Contract("CNYRUB.P","Вечный CNY/RUB",RU_FUTURES,("CNYRUBF","CNYRUB.P"),("RTSX",)),
     Contract("EURRUB.P","Вечный EUR/RUB",RU_FUTURES,("EURRUBF","EURRUB.P"),("RTSX",)),
     Contract("MXZ2026","Индекс Мосбиржи",RU_FUTURES,
              _expires("MX","Z",2026)+_expires("MIX","Z",2026),("RTSX",)),
 )
-assert len(US_CONTRACTS)==4 and len(RU_CONTRACTS)==7
+assert len(US_CONTRACTS)==4 and len(RU_CONTRACTS)==8
 
 GROUP_LABELS={
-    CRYPTO:"КРИПТА",
     US_FUTURES:"ФЬЮЧЕРСЫ США · 4",
     RU_STOCKS:"АКЦИИ РФ · ТОП-10 ПО ОБОРОТУ",
-    RU_FUTURES:"ФЬЮЧЕРСЫ РФ · 7",
+    RU_FUTURES:"ФЬЮЧЕРСЫ РФ · 8",
 }
 
 
@@ -130,7 +130,7 @@ def cached_top10(*, watchlist=None):
 
 
 def compose_universe(assets=(),*,watchlist=None):
-    """Four US futures, up to ten ranked shares, seven Russian futures."""
+    """Four US futures, up to ten ranked shares, eight Russian futures."""
     def contracts(items):
         rows=[]
         for c in items:
@@ -139,9 +139,7 @@ def compose_universe(assets=(),*,watchlist=None):
         return rows
     stocks,status=cached_top10(watchlist=watchlist)
     return {US_FUTURES:contracts(US_CONTRACTS),RU_STOCKS:stocks,
-            RU_FUTURES:contracts(RU_CONTRACTS),
-            CRYPTO:[Item(ticker+".P",name,CRYPTO,ticker+"@BINANCE",True,"Binance · USDT бессрочный")
-                    for ticker,name in (("BTCUSDT","Bitcoin"),)]},status
+            RU_FUTURES:contracts(RU_CONTRACTS)},status
 
 
 def is_in_universe(symbol, universe):

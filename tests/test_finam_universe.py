@@ -19,13 +19,13 @@ class FakeWatchlist:
 class TestCuratedFinamUniverse(unittest.TestCase):
     def test_exact_screenshot_shortlist_and_unchanged_stock_ranking(self):
         universe,status=compose_universe()
-        self.assertEqual(tuple(universe),(US_FUTURES,RU_STOCKS,RU_FUTURES,CRYPTO))
+        self.assertEqual(tuple(universe),(US_FUTURES,RU_STOCKS,RU_FUTURES))
         self.assertEqual([x.label for x in universe[US_FUTURES]],
                          ["GCZ2026","SIZ2026","NGZ2026","BRNF2027"])
         self.assertEqual([x.label for x in universe[RU_FUTURES]],
-                         ["SIZ2026","CRZ2026","EUZ2026","USDRUB.P",
+                         ["SIZ2026","CRZ2026","EUZ2026","EDZ2026","USDRUB.P",
                           "CNYRUB.P","EURRUB.P","MXZ2026"])
-        self.assertEqual([x.label for x in universe[CRYPTO]],["BTCUSDT.P"])
+        self.assertNotIn(CRYPTO,universe)
         self.assertEqual(len(universe[RU_STOCKS]),10)
         self.assertEqual(sum(map(len,universe.values())),22)
         self.assertFalse(is_in_universe("ETHUSDT@BINANCE",universe))

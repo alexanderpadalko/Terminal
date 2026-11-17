@@ -156,7 +156,7 @@ class TestBinance(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             finam=FinamMarketService(Path(temp)/"finam.sqlite3",api=SimpleNamespace())
             crypto=FinamMarketService(Path(temp)/"binance.sqlite3",api=self.api(opener=Mock()))
-            services=MarketServices(finam=finam,crypto=crypto,directory=temp)
+            services=MarketServices(finam=finam,crypto=crypto,directory=temp,legacy_crypto=True)
             bar=Candle(NOW,100,110,90,105,25)
             crypto._upsert("BTCUSDT@BINANCE","H1",[bar])
             self.assertFalse(finam._series("BTCUSDT@BINANCE"))

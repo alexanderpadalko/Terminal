@@ -146,7 +146,7 @@ def gui_geometry():
     from PySide6.QtWidgets import QApplication
     from PySide6.QtCore import QSettings
     from flowdesk.finam_gui import FinamWindow
-    from flowdesk.finam_universe import CRYPTO, US_FUTURES, RU_FUTURES, RU_STOCKS, GROUP_LABELS
+    from flowdesk.finam_universe import US_FUTURES, RU_FUTURES, RU_STOCKS, GROUP_LABELS
     app = QApplication.instance() or QApplication([])
     app.setQuitOnLastWindowClosed(False)
     with tempfile.TemporaryDirectory(prefix="flowdesk-gui-audit-") as temp, \
@@ -165,8 +165,7 @@ def gui_geometry():
                 headings = [window.examples.item(i).text()
                             for i in range(window.examples.count())
                             if window.examples.item(i).text() in GROUP_LABELS.values()]
-                check(headings == [GROUP_LABELS[CRYPTO],
-                                   GROUP_LABELS[US_FUTURES],
+                check(headings == [GROUP_LABELS[US_FUTURES],
                                    GROUP_LABELS[RU_FUTURES],
                                    GROUP_LABELS[RU_STOCKS]],
                       "wrong market group order")

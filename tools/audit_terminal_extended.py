@@ -32,76 +32,24 @@ def require(condition, description):
 
 
 def provider_isolation(root):
-    from flowdesk.binance_api import BinanceAPI
     from flowdesk.finam_market import FinamMarketService
     from flowdesk.market_services import MarketServices
     from flowdesk.market_data import Candle
-
-    start = datetime(2025, 1, 1, tzinfo=timezone.utc)
-    finam_path = root / "finam_candles_v1.sqlite3"
-    crypto_path = root / "binance_candles_v1.sqlite3"
-    finam = FinamMarketService(finam_path)
-    crypto = FinamMarketService(crypto_path, api=BinanceAPI())
-    routed = MarketServices(finam=finam, crypto=crypto, directory=root)
-    from flowdesk.finam_universe import compose_universe, CRYPTO
-    symbols = tuple(item.symbol for item in compose_universe()[0][CRYPTO])
-    per_frame = 80
-    t0 = time.perf_counter()
-
-    def write(symbol):
-        for tf in FRAMES:
-            duration = timedelta(minutes=STEPS[tf])
-            bars = [Candle(start + duration*i, 100+i/100, 102+i/100,
-                           99+i/100, 101+i/100, 10+i,
-                           scheduled_close=start+duration*(i+1))
-                    for i in range(per_frame)]
-            require(routed.for_symbol(symbol) is crypto, "crypto routed to Finam")
-            crypto._upsert(symbol,tf,bars)
-            # New provider candles may revise their most recent kline values.
-            corrected = bars[5]
-            crypto._upsert(symbol,tf,[Candle(
-                corrected.time, corrected.open, corrected.high+1,
-                corrected.low, corrected.close, corrected.volume,
-                scheduled_close=corrected.scheduled_close)])
-        return symbol
-
-    with ThreadPoolExecutor(max_workers=2) as pool:
-        require(tuple(pool.map(write,symbols))==symbols, "worker lost crypto symbol")
-    finam._upsert("SBER@MISX","H1",[Candle(start,10,11,9,10,5)])
-    require(routed.for_symbol("SBER@MISX") is finam, "Finam routed to Binance")
-    require(not finam._series("BTCUSDT@BINANCE"), "crypto candle polluted Finam DB")
-    require(not crypto._series("SBER@MISX"), "Finam candle polluted crypto DB")
-
-    expected_crypto = len(symbols) * len(FRAMES) * per_frame
-    for path, count in ((crypto_path,expected_crypto),(finam_path,1)):
-        with closing(sqlite3.connect(path)) as db:
-            integrity=db.execute("PRAGMA integrity_check").fetchone()[0]
-            require(integrity=="ok","SQLite corruption in "+path.name)
-            require(db.execute("PRAGMA journal_mode").fetchone()[0].lower()=="wal",
-                    "WAL disabled in "+path.name)
-            total=db.execute("SELECT COUNT(*) FROM candles").fetchone()[0]
-            distinct=db.execute(
-                "SELECT COUNT(*) FROM (SELECT DISTINCT symbol,tf,ts FROM candles)"
-            ).fetchone()[0]
-            require(total==distinct==count,"missing or duplicate "+path.name)
-            if path==crypto_path:
-                corrected=db.execute(
-                    "SELECT COUNT(*) FROM candles WHERE ROUND(h-o, 2)=3"
-                ).fetchone()[0]
-                require(corrected==len(symbols)*len(FRAMES),"overlapping kline correction missing")
-
-    reread=FinamMarketService(crypto_path,api=BinanceAPI())
-    for symbol in symbols:
-        series=reread._series(symbol)
-        require(len(series)==len(FRAMES),"frame lost after crypto restart")
-        require(all(len(series[tf])==per_frame for tf in FRAMES),
-                "historical candle lost after crypto restart")
-    return {"status":"PASS", "providers":["Finam","Binance USD-M"],
-            "crypto_symbols":list(symbols), "frames":len(FRAMES),
-            "crypto_candles":expected_crypto, "finam_candles":1,
-            "kline_corrections":len(symbols)*len(FRAMES),
-            "sqlite_integrity":"ok", "sqlite_mode":"wal",
-            "elapsed_seconds":round(time.perf_counter()-t0,3)}
+    from flowdesk.finam_universe import compose_universe, RU_FUTURES
+    finam=FinamMarketService(root / "finam_candles_v1.sqlite3")
+    routed=MarketServices(finam=finam,directory=root)
+    rows=compose_universe()[0][RU_FUTURES]
+    require(any(row.label=="EDZ2026" for row in rows),"ED missing")
+    require(routed.for_symbol("EDZ6@RTSX") is finam,"ED not routed to Finam")
+    try:routed.for_symbol("BTCUSDT@BINANCE")
+    except ValueError:pass
+    else:raise AssertionError("Retired crypto connection enabled")
+    require(not (root/"binance_candles_v1.sqlite3").exists(),"Retired crypto database created")
+    finam._upsert("EDZ6@RTSX","H1",[Candle(datetime(2026,11,17,tzinfo=timezone.utc),1,2,.5,1,1)])
+    require(len(finam._series("EDZ6@RTSX")["H1"])==1,"ED history lost")
+    return {"status":"PASS","providers":["Finam"],"frames":len(FRAMES),
+            "ed_source":"Finam","retired_crypto_connection_rejected":True,
+            "retired_crypto_database_created":False}
 
 
 def user_theme_render(root):
@@ -226,7 +174,7 @@ def main():
     tracemalloc.start()
     report={"audit_schema":1,"mode":"offline_synthetic",
             "external_requests":False,"secrets_used":False,
-            "coverage":"21 Finam in baseline audit, selected BTC here; 6 source frames, 5 chart frames"}
+            "coverage":"22 Finam instruments, including ED; 6 source frames, 5 chart frames"}
     try:
         with tempfile.TemporaryDirectory(prefix="flowdesk-extended-audit-") as folder:
             root=Path(folder)

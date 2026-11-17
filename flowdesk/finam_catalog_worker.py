@@ -27,13 +27,14 @@ class FinamCatalogWorker(QThread):
     progress=Signal(str)
 
     def __init__(self,api,parent=None,*,watchlist=None,roll_state=None,clock=None,
-                 futures_cache=None):
+                 futures_cache=None,refresh_ranking=True):
         super().__init__(parent)
         self.api=api
         self.watchlist=watchlist or WatchlistService()
         self.roll_state=roll_state or RollState()
         self.futures_cache=futures_cache or FuturesListCache()
         self.clock=clock or (lambda:datetime.now(timezone.utc))
+        self.refresh_ranking=refresh_ranking
 
     def run(self):
         scope=getattr(self.api,"request_scope",None)
@@ -102,8 +103,11 @@ class FinamCatalogWorker(QThread):
             phase_started=monotonic()
             self.progress.emit("MOEX: обновление топ-10 по обороту за 20 сессий…")
             try:
-                stocks,ranking_status=refresh_top10(
-                    watchlist=self.watchlist,cancelled=self.isInterruptionRequested)
+                if self.refresh_ranking:
+                    stocks,ranking_status=refresh_top10(
+                        watchlist=self.watchlist,cancelled=self.isInterruptionRequested)
+                else:
+                    stocks,ranking_status=cached_top10(watchlist=self.watchlist)
             except InterruptedError:
                 raise
             except Exception as exc:
