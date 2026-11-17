@@ -37,7 +37,7 @@ def storage_stress(folder):
     from flowdesk.finam_universe import US_CONTRACTS, RU_CONTRACTS, STOCK_DISPLAY_LIMIT
     instrument_count=len(US_CONTRACTS)+len(RU_CONTRACTS)+STOCK_DISPLAY_LIMIT
     symbols = [f"T{i:02d}@RTSX" for i in range(instrument_count)]
-    frames = ("M1", "M5", "H1", "H4", "D1", "W1", "MN1")
+    frames = ("M5", "H1", "H4", "D1", "W1", "MN1")
     candles = 40
     start = time.perf_counter()
 

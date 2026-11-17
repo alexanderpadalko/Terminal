@@ -68,13 +68,13 @@ def vwap_series(candles,anchor='Session',source='hlc3',*,exchange: ExchangeClock
     return values,previous[-50:]
 
 
-def summary_rows(analysis):
+def summary_rows(analysis, frames=('H1','H4','D1','W1','MN1')):
     """Five source states, published by their own close; price is chart close."""
     price=analysis.candles[-1].close if analysis.candles else None
     cutoff=chart_cutoff(analysis)
     rows=[]
     sources=analysis.summary_sources
-    for tf in ('H1','H4','D1','W1','MN1'):
+    for tf in frames:
         source=analysis if tf==analysis.timeframe else sources.get(tf)
         state=None
         live=tf=='H1' or tf==analysis.timeframe

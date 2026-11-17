@@ -123,11 +123,11 @@ class TestWorkingFvgV214(unittest.TestCase):
         state.source_confirmed_at = candle_close_time(bars[1], "H1")
         chart=Analysis(bars[:2], [], [], eng.history, [], "H1",
                        asof=candle_close_time(bars[1], "H1"))
-        chart.summary_sources={}
+        chart.summary_sources={"H4":chart}
         self.assertEqual(summary_rows(chart)[0]["flow"], 1)
         self.assertEqual(summary_rows(chart)[0]["fvg"], 0)
         self.assertEqual(
-            select_working_fvg_signals(chart, 100).as_map()["H1"],0
+            select_working_fvg_signals(chart, 100).as_map()["H4"],0
         )
         self.assertTrue("рабочий FVG: пробит" in state.diagnosis)
 

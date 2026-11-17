@@ -42,7 +42,7 @@ def kline(row):
 
 class BinanceAPI:
     session_candles=True
-    stream_frames=('M1','M5','H1','H4','D1')
+    stream_frames=('M5','H1','H4','D1')
     candle_depth_days={**DEPTH_DAYS,"D1":5*365}
     provider_name="Binance"
     provenance_mode="BINANCE_USDM_NATIVE_CANDLES"

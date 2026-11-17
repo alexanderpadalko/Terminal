@@ -20,7 +20,7 @@ from .session_store import record_response
 
 VERSION = 'FULL_ARCHIVE_v2_'
 FLOOR = datetime(1970, 1, 1, tzinfo=timezone.utc)
-FRAMES = ('MN1', 'W1', 'D1', 'H1', 'H4', 'M5', 'M1')
+FRAMES = ('MN1', 'W1', 'D1', 'H1', 'H4', 'M5')
 
 
 def backfill_window(service, symbol, *, cancelled=lambda: False, frame=None, excluded_frames=()):
@@ -50,7 +50,7 @@ def backfill_window(service, symbol, *, cancelled=lambda: False, frame=None, exc
                    if not item.get('exhausted') and tf not in excluded_frames]
         if not pending:
             return None
-        # Fewest completed windows first keeps M1/M5 moving alongside
+        # Fewest completed windows first keeps M5 moving alongside
         # the larger native windows; persisted turn counts survive restart.
         with closing(service._connection()) as db:
             turns = dict(db.execute('SELECT tf,turns FROM full_archive_turns WHERE symbol=?', (symbol,)))

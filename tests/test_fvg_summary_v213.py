@@ -71,7 +71,7 @@ class TestSummaryV213(unittest.TestCase):
         main=source('H1')
         main.summary_sources={tf:source(tf) for tf in ('H4','D1','W1','MN1')}
         self.assertEqual([row['fvg'] for row in summary_rows(main)],[1]*5)
-        self.assertEqual(select_working_fvg_signals(main,100).directions,(1,)*5)
+        self.assertEqual(select_working_fvg_signals(main,100).directions,(1,)*4)
 
     def test_si_visible_older_zone_does_not_replace_the_broken_selected_guard(self):
         guard=FVG(2,3,4,82947,82930,-1,broken=5)

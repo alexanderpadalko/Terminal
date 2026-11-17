@@ -142,13 +142,14 @@ def place_vwap_axis_tags(levels,project_y,top,bottom,obstacles=()):
 def draw_overlays(chart,p):
     cfg=chart.indicator_settings
     if cfg.currentFvgTableEnabled:
-        rows=summary_rows(chart.analysis)
+        from .terminal_policy import FLOW_TIMEFRAMES
+        rows=summary_rows(chart.analysis, FLOW_TIMEFRAMES) if chart.terminal else summary_rows(chart.analysis)
         p.setFont(font(cfg.currentFvgFontSize))
         width=max(20,(chart.x1-chart.x0)*cfg.currentFvgCellWidth/100)
         heights=([QFontMetrics(font(cfg.currentFvgFontSize)).height()+4,
                   QFontMetrics(font(cfg.currentFlowArrowSize)).height()+4] if cfg.currentFvgCellHeight==0
                  else [max(8,(chart.bottom-chart.top)*cfg.currentFvgCellHeight/100)]*2)
-        left=chart.x1-width*5-6
+        left=chart.x1-width*len(rows)-6
         top=chart.top+4
         for index,row in enumerate(rows):
             for row_index,key in enumerate(('fvg','flow')):

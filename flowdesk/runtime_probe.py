@@ -31,7 +31,7 @@ def check_finam_runtime(output):
         worker.run()
         entries=[SimpleNamespace(symbol=f"TEST{i}@MISX",verified=True) for i in range(3)]
         scanner=FinamScreenerWorker(object(),entries,object(),backfill=False,
-            evaluate=lambda service,ticker,mic,settings,**kwargs:ScanResult(ticker+"@"+mic,(0,)*5))
+            evaluate=lambda service,ticker,mic,settings,**kwargs:ScanResult(ticker+"@"+mic,(0,)*4))
         rows=[]
         scanner.row.connect(rows.append)
         scanner.run()
@@ -88,12 +88,22 @@ def check_finam_runtime(output):
                     and not values[tf][-1].settlement_close for tf in ('D1','W1','MN1')):
                 checked.append(symbol)
         result['us_futures_session_last_trade']=len(checked)==8
+        from .pipeline import analyze_timeframes
+        from .terminal_policy import DISPLAY_TIMEFRAMES, FLOW_TIMEFRAMES
+        terminal_sources={tf:[Candle(observed-timedelta(hours=i),100,102,99,101,1,
+                              scheduled_close=observed-timedelta(hours=i-1))
+                              for i in range(12,0,-1)] for tf in (*DISPLAY_TIMEFRAMES,'H1','M1')}
+        chart,parents=analyze_timeframes(terminal_sources,'M5',asof=observed,terminal=True)
+        result['terminal_scope']=bool(not chart.flows and not chart.pairs and not chart.market
+            and set(parents)==set(FLOW_TIMEFRAMES) and set(chart.summary_sources)==set(FLOW_TIMEFRAMES)
+            and all(not item.market for item in parents.values()))
         result["ok"] = (result.get("executor_callable") and
                         result.get("thread_result") == 17 and result.get("localhost_resolved")
                         and result.get("scheduler_result")==23 and result.get("scanner_rows")==3
                         and result.get("binance_decoder") and result.get('session_candles')
                         and result.get('native_dwm') and result.get('nq_session_family')
-                        and result.get('nq_session_last_trade') and result.get('us_futures_session_last_trade'))
+                        and result.get('nq_session_last_trade') and result.get('us_futures_session_last_trade')
+                        and result.get('terminal_scope'))
     except Exception as exc:
         result["error_type"] = type(exc).__name__
     Path(output).write_text(json.dumps(result, indent=2), encoding="utf-8")

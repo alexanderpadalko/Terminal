@@ -7,6 +7,7 @@ from pathlib import Path
 import sqlite3
 import threading
 from .finam_api import FinamAPI, FinamAPIError, FRAMES, DEPTH_DAYS, parse_instant
+from .terminal_policy import DISPLAY_TIMEFRAMES, SOURCE_TIMEFRAMES, FLOW_TIMEFRAMES, POLICY_VERSION
 from .market_symbols import symbol_name
 from .market_data import Candle, normalize, candle_close_time
 from .pipeline import analyze_timeframes
@@ -120,11 +121,11 @@ class FinamMarketService:
             return changed
 
     def _series(self,symbol):
-        series={tf:[] for tf in FRAMES}
+        series={tf:[] for tf in SOURCE_TIMEFRAMES}
         with closing(self._connection()) as db:
             db.execute('BEGIN')
             rows=db.execute("""SELECT tf,ts,o,h,l,c,v,closes_at FROM candles
-                WHERE symbol=? ORDER BY ts""",(symbol,))
+                WHERE symbol=? AND tf!='M1' ORDER BY ts""",(symbol,))
             for tf,ts,o,h,l,c,v,ending in rows:
                 if tf in series:
                     series[tf].append(Candle(datetime.fromisoformat(ts),o,h,l,c,v,
@@ -134,7 +135,7 @@ class FinamMarketService:
                 row=db.execute('SELECT revision FROM candle_source_revisions WHERE symbol=?',(symbol,)).fetchone()
                 state={'revision':row[0] if row else 0,
                     'coverage':db.execute('SELECT tf,start,ending FROM candle_source_coverage WHERE symbol=?',(symbol,)).fetchall(),
-                    'observations':db.execute('SELECT tf,ts,observed_at FROM candle_source_observations WHERE symbol=?',(symbol,)).fetchall(),
+                    'observations':db.execute("SELECT tf,ts,observed_at FROM candle_source_observations WHERE symbol=? AND tf!='M1'",(symbol,)).fetchall(),
                     'moex_progress':db.execute('SELECT cursor,exhausted FROM finam_history_progress WHERE symbol=? AND tf=?',
                                               (symbol,MOEX_PROGRESS)).fetchone(),
                     'full_archive':bool(db.execute("SELECT 1 FROM finam_history_progress WHERE symbol=? AND tf GLOB 'FULL_ARCHIVE_v2_*' LIMIT 1",
@@ -174,7 +175,8 @@ class FinamMarketService:
 
     def mark_stream_reconnect(self,symbol):
         with self.lock:
-            frames=self.api.stream_frames if native_higher_enabled(self.api) else FRAMES
+            frames=self.api.stream_frames if native_higher_enabled(self.api) else SOURCE_TIMEFRAMES
+            frames=tuple(tf for tf in frames if tf in SOURCE_TIMEFRAMES)
             self._repair.update((symbol,tf) for tf in frames)
             for tf in frames:
                 self._stream_updates.pop((symbol,tf),None)
@@ -195,7 +197,7 @@ class FinamMarketService:
         for event in events:
             if (event.kind!="candles" or
                 (event.symbol.upper(),event.board.upper())!=(ticker.upper(),mic.upper()) or
-                event.timeframe not in FRAMES or not event.candles):continue
+                event.timeframe not in SOURCE_TIMEFRAMES or not event.candles):continue
             prior=self._tail(symbol,event.timeframe,1)
             first=min(c.time for c in event.candles)
             if prior and first>candle_close_time(prior[-1],event.timeframe):
@@ -215,6 +217,7 @@ class FinamMarketService:
 
     def refresh_series(self,symbol,frames,*,priority=0,cancelled=lambda:False):
         """Deduplicate refreshes by exact symbol/TF; do not lock the DB across HTTP."""
+        frames=tuple(tf for tf in frames if tf in SOURCE_TIMEFRAMES)
         policy=bool(getattr(self.api,'session_candles',False))
         if policy:
             # US futures need H1 for session OHLCV; RU futures need it for
@@ -312,18 +315,21 @@ class FinamMarketService:
         with self.lock:self._quotes[symbol]=(now,result)
         return result
 
-    def analyze_cached(self,symbol,timeframe,series,settings,observed):
+    def analyze_cached(self,symbol,timeframe,series,settings,observed,*,terminal=True):
+        """Active product scope by default; terminal=False is offline reference only."""
+        if terminal and timeframe not in DISPLAY_TIMEFRAMES:
+            raise ValueError('Таймфрейм недоступен в терминале')
         lock=self._key_lock(self._analysis_locks,(symbol,timeframe))
         with lock:
             # All OHLCV and scheduled closes participate, including historical corrections.
-            needed=set(('H1','H4','D1','W1','MN1'))
+            needed=set(FLOW_TIMEFRAMES if terminal else ('H1','H4','D1','W1','MN1'))
             if timeframe in ('M1','M5'):needed.add('M5')
             if timeframe=='M1':needed.add('M1')
             fingerprint=tuple((tf,tuple(bars),sum(b.time<=observed for b in bars),
                                sum(candle_close_time(b,tf)<=observed for b in bars))
                               for tf,bars in sorted(series.items()) if tf in needed)
             session_meta=getattr(series,'session_metadata',{})
-            key=(settings.calculation_key(),fingerprint,repr(session_meta))
+            key=(settings.calculation_key(),fingerprint,repr(session_meta),POLICY_VERSION if terminal else 'reference')
             cache_id=(symbol,timeframe)
             with self.lock:cached=self.analysis_cache.get(cache_id)
             if cached and cached[0]==key and cached[1][0].asof<=observed:return cached[1]
@@ -339,11 +345,11 @@ class FinamMarketService:
                         provenance[tf]['mode']='FINAM_NATIVE_CANDLES' if native else 'SESSION_CANDLES'
                         provenance[tf]['native_higher']=native
             previous=None
-            if (cached and cached[0][0]==key[0] and
+            if (cached and cached[0][0]==key[0] and cached[0][-1]==key[-1] and
                     getattr(cached[1][0],'session_info',{}).get('history_breaks',{})==session_meta.get('history_breaks',{})):
                 previous={cached[1][0].timeframe:cached[1][0],**cached[1][1]}
             result=analyze_timeframes(series,timeframe,asof=observed,settings=settings,
-                                      provenance=provenance,cached=previous)
+                                      provenance=provenance,cached=previous,terminal=terminal)
             with self.lock:
                 self.analysis_cache[cache_id]=(key,result)
                 self.analysis_cache.move_to_end(cache_id)
@@ -380,7 +386,7 @@ class FinamMarketService:
     def view(self,ticker,mic,timeframe,*,refresh=False,allow_http=False,settings=None,
              progress=None,cancelled=lambda:False,**ignored):
         symbol=symbol_name(ticker,mic)
-        if timeframe not in FRAMES:raise ValueError("Неизвестный таймфрейм Finam")
+        if timeframe not in DISPLAY_TIMEFRAMES:raise ValueError("Таймфрейм недоступен в терминале")
         with self.lock:self._active_analysis_key=(symbol,timeframe)
         settings=settings or IndicatorSettings()
         progress=progress or (lambda message:None)
@@ -389,7 +395,7 @@ class FinamMarketService:
             progress(self.provider_name+": сверка последних свечей")
             errors=self.refresh_series(symbol,(timeframe,),cancelled=cancelled)
             if self._tail(symbol,timeframe,1) or self._tail(symbol,'M5',1):
-                errors.update(self.refresh_series(symbol,(tf for tf in FRAMES if tf!=timeframe),cancelled=cancelled))
+                errors.update(self.refresh_series(symbol,(tf for tf in SOURCE_TIMEFRAMES if tf!=timeframe),cancelled=cancelled))
         delay=self.api.market_delay_minutes(mic)
         observed=self.clock()-timedelta(minutes=delay)
         raw=self._series(symbol)
@@ -431,7 +437,7 @@ class FinamMarketService:
                 }.get(issue,reason)
             raise RuntimeError(f"{self.provider_name} · {symbol} · {timeframe}: {reason}")
         progress("Finam: расчёт потоков v2.11")
-        main,parents=self.analyze_cached(symbol,timeframe,series,settings,observed)
+        main,parents=self.analyze_cached(symbol,timeframe,series,settings,observed,terminal=True)
         with self.lock:
             prior=self.latest_stream_at.get(symbol)
             repair=any((symbol,tf) in self._repair for tf in FRAMES)

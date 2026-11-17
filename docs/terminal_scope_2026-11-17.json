@@ -1,0 +1,175 @@
+{
+  "date": "2026-11-17",
+  "version": "0.2.26",
+  "base_commit": "127551b848894db78fea0b87e6b83dd6635d6a3c",
+  "scope": {
+    "display": [
+      "M5",
+      "H4",
+      "D1",
+      "W1",
+      "MN1"
+    ],
+    "source": [
+      "M5",
+      "H1",
+      "H4",
+      "D1",
+      "W1",
+      "MN1"
+    ],
+    "flow": [
+      "H4",
+      "D1",
+      "W1",
+      "MN1"
+    ],
+    "market_structure": false,
+    "m5_flow": false,
+    "m1_old_rows_preserved": true
+  },
+  "tests": {
+    "run": 772,
+    "skipped": 1,
+    "failures": 0,
+    "errors": 0,
+    "seconds": 46.956
+  },
+  "dpi_scales": [
+    1,
+    1.25,
+    1.5,
+    2
+  ],
+  "pip_check": "PASS",
+  "compileall": "PASS",
+  "performance": "Full EXE CPU/RAM reduction not measured",
+  "system_audit": {
+    "audit_schema": 1,
+    "network": "offline_synthetic_only",
+    "credentials": "not_loaded",
+    "version": "0.2.26",
+    "sqlite_stress": {
+      "instruments": 21,
+      "timeframes": 6,
+      "candles": 5040,
+      "overlap_corrections": 126,
+      "elapsed_seconds": 2.057,
+      "sqlite_integrity": "ok",
+      "sqlite_journal": "wal"
+    },
+    "safety": {
+      "trade_account_calls_blocked": 3,
+      "stale_quote_rejected": true,
+      "market_scope_isolation": true,
+      "safe_permissions": true
+    },
+    "gui": {
+      "offscreen_layouts": [
+        {
+          "width": 1040,
+          "height": 650,
+          "list_viewport": 374
+        },
+        {
+          "width": 1280,
+          "height": 720,
+          "list_viewport": 432
+        },
+        {
+          "width": 1600,
+          "height": 900,
+          "list_viewport": 432
+        }
+      ],
+      "read_only_ui": true
+    },
+    "duration_seconds": 2.321,
+    "status": "PASS"
+  },
+  "extended_audit": {
+    "audit_schema": 1,
+    "mode": "offline_synthetic",
+    "external_requests": false,
+    "secrets_used": false,
+    "coverage": "21 Finam in baseline audit, selected BTC here; 6 source frames, 5 chart frames",
+    "provider_isolation": {
+      "status": "PASS",
+      "providers": [
+        "Finam",
+        "Binance USD-M"
+      ],
+      "crypto_symbols": [
+        "BTCUSDT@BINANCE"
+      ],
+      "frames": 6,
+      "crypto_candles": 480,
+      "finam_candles": 1,
+      "kline_corrections": 6,
+      "sqlite_integrity": "ok",
+      "sqlite_mode": "wal",
+      "elapsed_seconds": 0.118
+    },
+    "theme_fvg": {
+      "status": "PASS",
+      "single_theme": "user",
+      "settings_persisted": true,
+      "fvg_rendered": [
+        {
+          "setting": "fvgBullColor",
+          "hex": "#A11B00BF",
+          "measured_rgb": [
+            125,
+            26,
+            8
+          ],
+          "expected_rgb": [
+            125,
+            26,
+            8
+          ]
+        },
+        {
+          "setting": "fvgBearColor",
+          "hex": "#2244CC80",
+          "measured_rgb": [
+            25,
+            46,
+            118
+          ],
+          "expected_rgb": [
+            25,
+            46,
+            118
+          ]
+        },
+        {
+          "setting": "fvgFilledColor",
+          "hex": "#80EC2040",
+          "measured_rgb": [
+            44,
+            77,
+            32
+          ],
+          "expected_rgb": [
+            44,
+            77,
+            32
+          ]
+        }
+      ],
+      "canvas_background": "#101820FF"
+    },
+    "failure_modes": {
+      "status": "PASS",
+      "invalid_preferences": "defaults_with_warning",
+      "invalid_preferences_original_preserved": true,
+      "corrupt_sqlite": "detected_without_deletion",
+      "verified_backup_restored_to_new_file": true,
+      "recovery_requires_manual_selection": true
+    },
+    "status": "PASS",
+    "elapsed_seconds": 1.046,
+    "peak_python_allocations_mb": 17.6
+  }
+}

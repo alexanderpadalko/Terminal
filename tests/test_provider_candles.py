@@ -147,7 +147,7 @@ class TestNativeHigher(unittest.TestCase):
         self.assertEqual([tf for _,tf,_ in self.api.calls][1:],['H1','M5'])
 
     def test_stream_subscriptions_and_repair_include_native_w_m_not_unused_h4(self):
-        self.assertEqual(set(FinamAPI.stream_frames),{'M1','M5','H1','D1','W1','MN1'})
+        self.assertEqual(set(FinamAPI.stream_frames),{'M5','H1','D1','W1','MN1'})
         self.market.mark_stream_reconnect(SYMBOL)
         self.assertIn((SYMBOL,'MN1'),self.market._repair)
         self.assertIn((SYMBOL,'W1'),self.market._repair)

@@ -39,6 +39,7 @@ from .finam_stream import FinamStreamWorker
 from .finam_screener import FinamScreenerWorker, ScanResult, LABELS, unknown
 from .history_archive import HistoryArchiveWorker
 from .gui import CandleChart, TimeframeBar
+from .terminal_policy import DISPLAY_TIMEFRAMES
 from .settings import IndicatorSettings, ApplicationSettings, SettingsStore
 from .settings_dialog import SettingsDialog
 
@@ -210,9 +211,9 @@ class FinamWindow(QMainWindow):
             # selection or guess the target MIC while awaiting the directory.
             self.symbol_edit.setText("SBER")
             self.mic.setCurrentText("MISX")
-        tf = str(self.ui_prefs.value("tf","H1"))
+        tf = str(self.ui_prefs.value("tf","H4"))
         blocked=self.tf.blockSignals(True)
-        self.tf.setCurrentText(tf if tf in self.tf.buttons else "H1")
+        self.tf.setCurrentText(tf if tf in self.tf.buttons else "H4")
         self.tf.blockSignals(blocked)
         self._indicator()
         QTimer.singleShot(0,self._startup)
@@ -231,7 +232,7 @@ class FinamWindow(QMainWindow):
         wordmark.setStyleSheet("font-size: 19px; font-weight: 800; letter-spacing: 1px")
         header.addWidget(wordmark)
         header.addSpacing(20)
-        self.tf=TimeframeBar()
+        self.tf=TimeframeBar(frames=DISPLAY_TIMEFRAMES)
         self.tf.currentTextChanged.connect(lambda _:self._load(refresh=False))
         header.addWidget(self.tf)
         header.addStretch()
@@ -249,7 +250,7 @@ class FinamWindow(QMainWindow):
         outer.addWidget(self.feed)
         self.feed.hide()  # Technical observation belongs in diagnostics.log.
         split=QSplitter(Qt.Orientation.Horizontal)
-        self.chart=CandleChart()
+        self.chart=CandleChart(terminal=True)
         self.chart.set_settings(self.indicator_settings)
         self.chart.set_chart_colors(self.app_settings)
         self.chart.empty_text="Добавьте токен Finam в настройках и выберите инструмент"
@@ -431,7 +432,7 @@ class FinamWindow(QMainWindow):
                  (signals.get(tf) is None and not result.flow_unformed(tf))]
         if no_data and missing:
             # Explain *which selected timeframe* cannot be assessed. A W
-            # result may be unknown even though a valid H1 signal is shown.
+            # result may be unknown even though another valid TF signal is shown.
             reasons=result.reason_map() if result is not None else {}
             explanations=[]
             short_labels=[]

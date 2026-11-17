@@ -21,7 +21,7 @@ import time
 import tracemalloc
 
 
-FRAMES = ("M1", "M5", "H1", "H4", "D1", "W1", "MN1")
+FRAMES = ("M5", "H1", "H4", "D1", "W1", "MN1")
 STEPS = {"M1": 1, "M5": 5, "H1": 60, "H4": 240,
          "D1": 1440, "W1": 10080, "MN1": 43200}
 
@@ -43,7 +43,8 @@ def provider_isolation(root):
     finam = FinamMarketService(finam_path)
     crypto = FinamMarketService(crypto_path, api=BinanceAPI())
     routed = MarketServices(finam=finam, crypto=crypto, directory=root)
-    symbols = ("BTCUSDT@BINANCE", "ETHUSDT@BINANCE")
+    from flowdesk.finam_universe import compose_universe, CRYPTO
+    symbols = tuple(item.symbol for item in compose_universe()[0][CRYPTO])
     per_frame = 80
     t0 = time.perf_counter()
 
@@ -71,7 +72,7 @@ def provider_isolation(root):
     require(not finam._series("BTCUSDT@BINANCE"), "crypto candle polluted Finam DB")
     require(not crypto._series("SBER@MISX"), "Finam candle polluted crypto DB")
 
-    expected_crypto = 2 * len(FRAMES) * per_frame
+    expected_crypto = len(symbols) * len(FRAMES) * per_frame
     for path, count in ((crypto_path,expected_crypto),(finam_path,1)):
         with closing(sqlite3.connect(path)) as db:
             integrity=db.execute("PRAGMA integrity_check").fetchone()[0]
@@ -87,7 +88,7 @@ def provider_isolation(root):
                 corrected=db.execute(
                     "SELECT COUNT(*) FROM candles WHERE ROUND(h-o, 2)=3"
                 ).fetchone()[0]
-                require(corrected==2*len(FRAMES),"overlapping kline correction missing")
+                require(corrected==len(symbols)*len(FRAMES),"overlapping kline correction missing")
 
     reread=FinamMarketService(crypto_path,api=BinanceAPI())
     for symbol in symbols:
@@ -98,7 +99,7 @@ def provider_isolation(root):
     return {"status":"PASS", "providers":["Finam","Binance USD-M"],
             "crypto_symbols":list(symbols), "frames":len(FRAMES),
             "crypto_candles":expected_crypto, "finam_candles":1,
-            "kline_corrections":2*len(FRAMES),
+            "kline_corrections":len(symbols)*len(FRAMES),
             "sqlite_integrity":"ok", "sqlite_mode":"wal",
             "elapsed_seconds":round(time.perf_counter()-t0,3)}
 
@@ -225,7 +226,7 @@ def main():
     tracemalloc.start()
     report={"audit_schema":1,"mode":"offline_synthetic",
             "external_requests":False,"secrets_used":False,
-            "coverage":"30 instruments / 7 frames; 28 Finam in baseline audit, 2 crypto here"}
+            "coverage":"21 Finam in baseline audit, selected BTC here; 6 source frames, 5 chart frames"}
     try:
         with tempfile.TemporaryDirectory(prefix="flowdesk-extended-audit-") as folder:
             root=Path(folder)

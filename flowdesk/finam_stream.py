@@ -11,6 +11,7 @@ from PySide6.QtCore import QThread, Signal
 
 from .asyncio_runtime import prepare_asyncio_runtime
 from .finam_api import FinamAPI, FRAMES, decimal_number, finam_bar, symbol_name
+from .terminal_policy import SOURCE_TIMEFRAMES
 
 WS_URL = "wss://api.finam.ru/ws"
 
@@ -147,7 +148,8 @@ class FinamStreamWorker(QThread):
                                 # Quotes and OHLC only; ORDERS/TRADES/ACCOUNT are never requested.
                                 requests = [{"action":"SUBSCRIBE","type":"QUOTES",
                                              "data":{"symbols":[symbol]},"token":token}]
-                                for name in getattr(self.api,'stream_frames',FRAMES):
+                                for name in getattr(self.api,'stream_frames',SOURCE_TIMEFRAMES):
+                                    if name not in SOURCE_TIMEFRAMES:continue
                                     tf=FRAMES[name]
                                     requests.append({"action":"SUBSCRIBE","type":"BARS",
                                                      "data":{"symbol":symbol,"timeframe":tf},

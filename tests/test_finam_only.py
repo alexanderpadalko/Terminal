@@ -278,24 +278,25 @@ class TestFinamMarket(unittest.TestCase):
                                         api=self.api,clock=lambda:NOW)
     def test_http_off_does_not_call_history(self):
         with self.assertRaisesRegex(RuntimeError,"Разрешите HTTP"):
-            self.service.view("AAPL","XNAS","H1",allow_http=False)
+            self.service.view("AAPL","XNAS","M5",allow_http=False)
         self.assertEqual(self.api.calls,[])
 
     def test_allow_http_seed_then_cache_without_network(self):
-        first,_,_=self.service.view("AAPL","XNAS","H1",allow_http=True)
-        self.assertGreaterEqual(len(self.api.calls),7)
+        first,_,_=self.service.view("AAPL","XNAS","M5",allow_http=True)
+        self.assertGreaterEqual(len(self.api.calls),6)
         self.api.calls.clear()
-        again,_,_=self.service.view("AAPL","XNAS","H1",allow_http=False)
+        again,_,_=self.service.view("AAPL","XNAS","M5",allow_http=False)
         self.assertEqual(first.candles,again.candles)
         self.assertEqual(self.api.calls,[])
 
     def test_stream_upserts_without_http(self):
-        self.service.view("AAPL","XNAS","H1",allow_http=True)
+        self.service.view("AAPL","XNAS","M5",allow_http=True)
         self.api.calls.clear()
-        t=NOW-timedelta(hours=1)
-        event=FinamEvent("candles","AAPL","XNAS",1,NOW,"H1",(bar(t,100),))
+        t=NOW-timedelta(minutes=5)
+        event=FinamEvent("candles","AAPL","XNAS",1,NOW,"M5",
+                         (Candle(t,100,102,98,101,100,scheduled_close=NOW),))
         self.service.ingest_stream("AAPL","XNAS",(event,))
-        result,_,_=self.service.view("AAPL","XNAS","H1",allow_http=False)
+        result,_,_=self.service.view("AAPL","XNAS","M5",allow_http=False)
         self.assertEqual(self.api.calls,[])
         self.assertEqual(result.candles[-1].time,t)
         self.assertEqual(result.candles[-1].close,101)
@@ -305,20 +306,20 @@ class TestFinamMarket(unittest.TestCase):
             self.api.calls.append((symbol,tf))
             raise FinamAPIError("Finam HTTP 404: проверьте тикер, MIC и доступ токена.",http_status=404)
         self.api.bars=missing
-        with self.assertRaisesRegex(RuntimeError,"TSLA@XNAS · H1:.*404"):
-            self.service.view("TSLA","XNAS","H1",allow_http=True)
-        self.assertEqual(self.api.calls,[("TSLA@XNAS","H1")])
+        with self.assertRaisesRegex(RuntimeError,"TSLA@XNAS · M5:.*404"):
+            self.service.view("TSLA","XNAS","M5",allow_http=True)
+        self.assertEqual(self.api.calls,[("TSLA@XNAS","M5")])
 
     def test_failed_refresh_reports_stale_history_and_preserves_cache(self):
-        first,_,_=self.service.view("SBER","MISX","H1",allow_http=True)
+        first,_,_=self.service.view("SBER","MISX","M5",allow_http=True)
         def offline(*args,**kwargs):
             raise FinamAPIError("Finam HTTP 503")
         self.api.bars=offline
         self.service.clock=lambda:NOW+timedelta(seconds=301)
-        again,_,info=self.service.view("SBER","MISX","H1",allow_http=True,refresh=True)
+        again,_,info=self.service.view("SBER","MISX","M5",allow_http=True,refresh=True)
         self.assertEqual(first.candles,again.candles)
         self.assertIn("Не обновлены",info["warning"])
-        self.assertIn("H1",info["warning"])
+        self.assertIn("M5",info["warning"])
 
 
 class TestFinamWebSocket(unittest.TestCase):

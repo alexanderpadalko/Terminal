@@ -33,6 +33,8 @@ def _time(source,index,close=False):
 
 
 def select_flow_display(analysis,parents,settings):
+    if analysis.timeframe=='M5':
+        return FlowDisplay(None,'',(),'')
     lower=analysis.timeframe in ('M1','M5')
     source=parents.get('H1') if lower else analysis
     tf='H1' if lower else analysis.timeframe

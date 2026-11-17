@@ -151,7 +151,7 @@ class TimeframeBar(QWidget):
     LABELS = (("M1", "1м"), ("M5", "5м"), ("H1", "1ч"),
               ("H4", "4ч"), ("D1", "Д"), ("W1", "Н"), ("MN1", "М"))
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, *, frames=None):
         super().__init__(parent)
         self.setObjectName("timeframeBar")
         layout = QHBoxLayout(self)
@@ -160,8 +160,9 @@ class TimeframeBar(QWidget):
         self.group = QButtonGroup(self)
         self.group.setExclusive(True)
         self.buttons = {}
-        self._current = "H1"
+        self._current = "H4" if frames is not None else "H1"
         for tf, label in self.LABELS:
+            if frames is not None and tf not in frames:continue
             button = QToolButton(self)
             button.setText(label)
             button.setCheckable(True)
@@ -255,8 +256,9 @@ class MarketWorker(QThread):
 class CandleChart(QWidget):
     crosshair = Signal(int)
 
-    def __init__(self):
+    def __init__(self, *, terminal=False):
         super().__init__()
+        self.terminal=terminal
         self.setMouseTracking(True)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.setMinimumSize(600, 430)
@@ -339,7 +341,7 @@ class CandleChart(QWidget):
         cfg=self.indicator_settings
         self.fvg_settings=DisplaySettings(enabled=self.show_fvg,max_zones=cfg.fvgMaxZones,
             only_in_flow=cfg.fvgOnlyInFlow,show_lower=cfg.fvgShowM1 if analysis.timeframe=='M1' else cfg.fvgShowM5,
-            higher=tuple(tf for tf,key in [('H1','showH1OnM5'),('H4','showH4OnM5'),('D1','showDOnM5'),('W1','showWOnM5'),('MN1','showMOnM5')] if getattr(cfg,key)))
+            higher=tuple(tf for tf,key in [('H1','showH1OnM5'),('H4','showH4OnM5'),('D1','showDOnM5'),('W1','showWOnM5'),('MN1','showMOnM5')] if getattr(cfg,key) and (not self.terminal or tf!='H1')))
         vwap_key=(cfg.vwapAnchor,cfg.vwapSource,self.exchange)
         if changed or self._vwap_key!=vwap_key:
             self.vwap,self.vwap_previous=vwap_series(analysis.candles,cfg.vwapAnchor,
@@ -840,7 +842,7 @@ class CandleChart(QWidget):
                     caption=f'{prefix}{level.ratio:g} ({self.format_price(level.price)})'
                     p.drawText(QRectF(right_x-190,Y-p.fontMetrics().height()-3,184,p.fontMetrics().height()),
                                int(Qt.AlignmentFlag.AlignRight),caption)
-        draw_market(self,p,x,y,first,last)
+        if not self.terminal:draw_market(self,p,x,y,first,last)
         draw_vwap(self,p,x,y,first,last)
         p.restore()
         draw_overlays(self,p)

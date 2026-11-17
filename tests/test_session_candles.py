@@ -299,7 +299,7 @@ class TestSessionStore(unittest.TestCase):
             prepare_series=lambda *a:{})
         result=scan_one(service,'SBER','MISX',None)
         self.assertFalse(any(result.directions))
-        self.assertEqual(result.error_code,'h1_unavailable')
+        self.assertEqual(result.error_code,'history_unavailable')
 
     def test_restart_version_invalidation_and_raw_history_are_independent(self):
         cal=calendar_for('SBER@MISX');s=cal.session(date(2026,11,12));rows=lower(s)

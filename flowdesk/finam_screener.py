@@ -1,4 +1,4 @@
-"""Read-only FVG screener: 38 Finam instruments and two Binance perpetuals.
+"""Read-only H4/D/W/M FVG screener for the selected terminal universe.
 
 Uses the pinned v2.11 FlowEngine with the user's v2.13 summary predicate,
 not a separate MOEX feed or reimplementation of flow reversal rules.
@@ -24,8 +24,10 @@ from .finam_market import TTL_SECONDS
 from .provider_candles import native_higher_enabled
 from .asyncio_runtime import prepare_asyncio_runtime
 
-TIMEFRAMES = ("H1", "H4", "D1", "W1", "MN1")
-LABELS = ("H1", "H4", "D", "W", "M")
+from .terminal_policy import FLOW_TIMEFRAMES, SUMMARY_LABELS
+
+TIMEFRAMES = FLOW_TIMEFRAMES
+LABELS = SUMMARY_LABELS
 DISPLAY = dict(zip(TIMEFRAMES, LABELS))
 INTERNAL = dict(zip(LABELS, TIMEFRAMES))
 # Signal readiness comes from the confirmed flow, not a fixed bar count.
@@ -64,9 +66,9 @@ class ScanResult:
 
 _ERROR_LABELS={
     "missing_history": "история не загружена",
-    "price_or_h1_unavailable": "нет цены или истории H1",
+    "price_or_history_unavailable": "нет цены или истории",
     "price_unavailable": "нет последней цены Finam",
-    "h1_unavailable": "H1 недоступен",
+    "history_unavailable": "история недоступна",
     "analysis_unavailable": "расчёт недоступен",
     "unverified": "тикер не подтверждён Finam",
     "rate_limited": "лимит запросов Finam",
@@ -160,11 +162,11 @@ def select_working_fvg_signals(main, latest_price, *, symbol="", fetch_problems=
 
     Never fall back to an older FVG if the working guard is broken. Every TF
     has its own most recent closed source state; price is the same latest
-    Finam trade/available last candle across all five TFs. A developing,
+    Finam trade/available last candle across all four TFs. A developing,
     unconfirmed FVG does not produce a signal.
     """
     if not main or not getattr(main, "candles", None) or latest_price is None:
-        return unknown(symbol, "price_or_h1_unavailable")
+        return unknown(symbol, "price_or_history_unavailable")
     sources={**(getattr(main,"summary_sources",{}) or {}),
              main.timeframe:main}
     cutoff=chart_cutoff(main)
@@ -187,7 +189,7 @@ def select_working_fvg_signals(main, latest_price, *, symbol="", fetch_problems=
             reasons.append(detail+(("; "+error) if error else ""))
             continue
         direction.append(summary_fvg_side(source,cutoff,latest_price,
-                         live=tf=='H1' or tf==main.timeframe))
+                         live=tf==main.timeframe))
         reasons.append("")
     return ScanResult(symbol,tuple(direction),price=latest_price,
                       missing_reasons=tuple(reasons))
@@ -322,12 +324,8 @@ def scan_one(service, ticker, mic, settings, *, cancelled=lambda:False,
         if getattr(exc,"http_status",None)==429:raise
     fetch_problems=service.refresh_series(symbol,TIMEFRAMES,priority=10,cancelled=cancelled)
     if price is None:
-        fetch_problems.update(service.refresh_series(symbol,("M1",),priority=10,cancelled=cancelled))
+        fetch_problems.update(service.refresh_series(symbol,("M5",),priority=10,cancelled=cancelled))
     series=service._series(symbol)
-    if not series.get("H1") and not native_higher_enabled(service.api):
-        return unknown(symbol,"h1_unavailable",
-                       reasons=tuple(fetch_problems.get(tf,"H1 недоступен")
-                                     for tf in TIMEFRAMES))
     delay=service.api.market_delay_minutes(mic)
     observed=service.clock()-timedelta(minutes=delay or 0)
     repair=getattr(service,'repair_source_evidence',None)
@@ -339,18 +337,19 @@ def scan_one(service, ticker, mic, settings, *, cancelled=lambda:False,
     if callable(prepare):series=prepare(symbol,series,observed)
     else:series=exclude_stock_closing_auction(series,mic)
     analysis_tf=next((tf for tf in TIMEFRAMES if series.get(tf)),None)
-    if (not series.get('H1') and not native_higher_enabled(service.api)) or analysis_tf is None:
-        return unknown(symbol,'h1_unavailable')
+    if analysis_tf is None:
+        return unknown(symbol,'history_unavailable',
+                       reasons=tuple(fetch_problems.get(tf,'история недоступна') for tf in TIMEFRAMES))
     if cancelled():
         raise InterruptedError()
     try:
-        main, _ = service.analyze_cached(symbol,analysis_tf,series,settings,observed)
+        main, _ = service.analyze_cached(symbol,analysis_tf,series,settings,observed,terminal=True)
     except (ValueError,IndexError,TypeError,AttributeError):
         return unknown(symbol,"analysis_unavailable")
     if price is None and not quote_problem:
         # Finam-only fallback when the quote endpoint is unavailable. Use
-        # the last known M1 close, then H1 close; never invent a bid or trade.
-        recent=series.get("M1") or series.get("H1") or ()
+        # the last known M5 close, then H4 close; never invent a bid or trade.
+        recent=series.get("M5") or series.get("H4") or ()
         available=[c for c in recent if c.time<=observed]
         if available:
             price=_price(available[-1].close)

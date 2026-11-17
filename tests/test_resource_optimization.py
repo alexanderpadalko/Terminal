@@ -67,9 +67,9 @@ class ResourceTests(unittest.TestCase):
     def test_warm_pipeline_uses_unchanged_timeframes_and_keeps_exact_result(self):
         start=NOW-timedelta(days=20)
         series={'H1':hours(start,60),'H4':hours(start,20),'D1':hours(start,15)}
-        first=self.service.analyze_cached('TEST@RTSX','H1',series,self.settings,NOW)
+        first=self.service.analyze_cached('TEST@RTSX','H1',series,self.settings,NOW,terminal=False)
         changed={**series,'H1':[*series['H1'][:-1],replace(series['H1'][-1],high=120)]}
-        cached=self.service.analyze_cached('TEST@RTSX','H1',changed,self.settings,NOW)
+        cached=self.service.analyze_cached('TEST@RTSX','H1',changed,self.settings,NOW,terminal=False)
         fresh=analyze_timeframes(changed,'H1',settings=self.settings,asof=NOW)
         numeric(self,cached[0],fresh[0])
         for tf in cached[1]:numeric(self,cached[1][tf],fresh[1][tf])
@@ -78,9 +78,9 @@ class ResourceTests(unittest.TestCase):
 
     def test_unused_minute_archive_is_not_retained_by_hourly_fingerprint(self):
         series={'H1':self.service.api.rows,'M1':hours(NOW-timedelta(days=10),2000)}
-        first=self.service.analyze_cached('TEST@RTSX','H1',series,self.settings,NOW)
+        first=self.service.analyze_cached('TEST@RTSX','H1',series,self.settings,NOW,terminal=False)
         changed={**series,'M1':[*series['M1'],Candle(NOW,100,101,99,100,1)]}
-        again=self.service.analyze_cached('TEST@RTSX','H1',changed,self.settings,NOW)
+        again=self.service.analyze_cached('TEST@RTSX','H1',changed,self.settings,NOW,terminal=False)
         self.assertIs(first,again)
         key=self.service.analysis_cache['TEST@RTSX','H1'][0]
         self.assertEqual({entry[0] for entry in key[1]},{'H1'})
@@ -91,7 +91,7 @@ class ResourceTests(unittest.TestCase):
         self.service._active_analysis_key=(symbol,'H1')
         with patch('flowdesk.finam_market.ANALYSIS_CACHE_ENTRIES',2):
             for name in (symbol,'A@RTSX','B@RTSX','C@RTSX'):
-                self.service.analyze_cached(name,'H1',{'H1':rows},self.settings,NOW)
+                self.service.analyze_cached(name,'H1',{'H1':rows},self.settings,NOW,terminal=False)
         self.assertEqual(len(self.service.analysis_cache),2)
         self.assertIn((symbol,'H1'),self.service.analysis_cache)
         self.assertEqual(self.service._series(symbol)['H1'],rows)

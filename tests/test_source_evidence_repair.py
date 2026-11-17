@@ -152,9 +152,9 @@ class EvidenceRepairTests(unittest.TestCase):
         self.unverify(3,35)
         with (patch.object(self.service,'refresh_series',return_value={}),
               patch.object(self.service,'analyze_cached',return_value=(SimpleNamespace(asof=NOW),{})) as analyze):
-            self.service.view('CRZ6','RTSX','H1',allow_http=False)
+            self.service.view('CRZ6','RTSX','H4',allow_http=False)
             self.assertEqual(self.api.calls,[])
-            self.service.view('CRZ6','RTSX','H1',allow_http=True)
+            self.service.view('CRZ6','RTSX','H4',allow_http=True)
             used=analyze.call_args.args[2]
             self.assertEqual(len(used['H1']),len(self.rows))
             self.assertEqual(len(self.api.calls),1)

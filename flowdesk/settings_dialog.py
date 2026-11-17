@@ -9,6 +9,7 @@ from PySide6.QtWidgets import (
 )
 from .settings import (IndicatorSettings, ApplicationSettings, specifications,
                        CHART_COLOR_FIELDS, CHART_THEME_DEFAULTS)
+from .terminal_policy import retired_setting
 
 
 def qcolor(value):
@@ -247,6 +248,7 @@ class SettingsDialog(QDialog):
     def __init__(self,indicator,application,parent=None,*,finam_only=False,token_action=None):
         super().__init__(parent)
         self.finam_only=finam_only
+        self._initial_indicator=indicator
         # Preserve the legacy panel flag when editing Finam-only settings.
         # Its right-hand instrument list is not controlled by this flag.
         self._initial_show_panel=application.show_panel
@@ -279,13 +281,28 @@ class SettingsDialog(QDialog):
             for spec in specifications():
                 if (spec['group']!=group or spec['variable'] in
                         ("showDevelopingLeg","showMarketStatusInput",
-                         "fvgMtfDiagnostics")):
+                         "fvgMtfDiagnostics") or (finam_only and retired_setting(spec['variable']))):
                     continue  # Permanent structural leg; remove debug UI.
                 control=self._control(spec,getattr(indicator,spec['variable']))
                 control.setObjectName('setting_'+spec['variable'])
-                control.setToolTip(spec['tooltip'].replace('TradingView','FlowDesk'))
+                title=spec['title']
+                tooltip=spec['tooltip'].replace('TradingView','FlowDesk')
+                if finam_only:
+                    for retired in ('M1 / ', 'H1 / '):
+                        title=title.replace(retired,'')
+                        tooltip=tooltip.replace(retired,'')
+                    title={
+                        'showH4OnM5':'FVG H4 на M5',
+                        'showDOnM5':'FVG D на M5 / H4',
+                        'showWOnM5':'FVG W на M5 / H4 / D',
+                        'showMOnM5':'FVG M на M5 / H4 / D / W',
+                    }.get(spec['variable'],title)
+                    if 'M1' in spec['title'] or 'H1' in spec['title']:
+                        tooltip=title
+                control.setToolTip(tooltip)
                 self.controls[spec['variable']]=control
-                form.addRow(spec['title'],control)
+                form.addRow(title,control)
+            if not form.rowCount():continue
             scroll=QScrollArea()
             scroll.setWidgetResizable(True)
             scroll.setWidget(widget)
@@ -360,6 +377,10 @@ class SettingsDialog(QDialog):
             if spec['variable'] in ("showMarketStatusInput","fvgMtfDiagnostics"):
                 values[spec['variable']]=False
                 continue
+            if spec['variable'] not in self.controls:
+                values[spec['variable']]=(False if spec['type']=='bool' else
+                                         getattr(self._initial_indicator,spec['variable']))
+                continue
             control=self.controls[spec['variable']]
             if spec['type']=='bool':value=control.isChecked()
             elif spec['type'] in ('int','float'):value=control.value()
@@ -386,8 +407,7 @@ class SettingsDialog(QDialog):
         for field,button in self.chart_controls.items():
             button.set_value(CHART_THEME_DEFAULTS[theme][field])
         for spec in specifications():
-            if spec['variable'] in ("showDevelopingLeg","showMarketStatusInput",
-                                   "fvgMtfDiagnostics"):
+            if spec['variable'] not in self.controls:
                 continue
             control=self.controls[spec['variable']]
             value=spec['default']

@@ -1,4 +1,4 @@
-"""Read-only, five-TF FVG signal tests with no network or credentials."""
+"""Read-only, four-TF FVG signal tests with no network or credentials."""
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -26,7 +26,7 @@ def make_main(count=6):
             flows=[FlowState(i,side=1,lo=80,hi=120,start=0,guard=guard)
                    for i in range(count)],asof=ts)
         sources[tf]=source
-    main=sources["H1"]
+    main=sources["H4"]
     main.summary_sources=sources
     return main
 
@@ -43,12 +43,12 @@ class TestSignalLogic(unittest.TestCase):
                 state.guard_broken=broken
                 state.lo,state.hi=80,150
         result=select_working_fvg_signals(main,100,symbol="SBER@MISX")
-        self.assertEqual(result.directions,(1,-1,0,0,0))
-        self.assertEqual(result.as_map(),{"H1":1,"H4":-1,"D":0,"W":0,"M":0})
+        self.assertEqual(result.directions,(-1,0,0,0))
+        self.assertEqual(result.as_map(),{"H4":-1,"D":0,"W":0,"M":0})
         self.assertTrue(result.matched(("H4",)))
-        self.assertTrue(result.matched(("W","H1")))
+        self.assertTrue(result.matched(("W","H4")))
         self.assertFalse(result.matched(("W","D")))
-        self.assertFalse(result.missing(("H1","H4")))
+        self.assertFalse(result.missing(("H4",)))
         self.assertEqual(result.symbol,"SBER@MISX")
 
     def test_zone_boundaries_included_and_broken_zone_no_fallback(self):
@@ -62,7 +62,7 @@ class TestSignalLogic(unittest.TestCase):
         for source in main.summary_sources.values():
             for state in source.flows:
                 state.guard_broken=True
-        self.assertEqual(select_working_fvg_signals(main,105).directions,(0,0,0,0,0))
+        self.assertEqual(select_working_fvg_signals(main,105).directions,(0,0,0,0))
 
     def test_uninitialized_flow_and_absent_history_are_unknown_not_negative_signal(self):
         main=make_main()
@@ -70,19 +70,19 @@ class TestSignalLogic(unittest.TestCase):
         main.summary_sources["MN1"].candles=[]
         with patch("flowdesk.finam_screener.summary_fvg_side",return_value=0):
             result=select_working_fvg_signals(main,105)
-        self.assertEqual(result.directions,(0,0,0,None,None))
+        self.assertEqual(result.directions,(0,0,None,None))
         self.assertTrue(result.missing(("W",)))
-        self.assertFalse(result.missing(("H1",)))
-        self.assertFalse(result.matched(("H1","M")))
-        self.assertEqual(unknown("A@RTSX").directions,(None,)*5)
+        self.assertFalse(result.missing(("H4",)))
+        self.assertFalse(result.matched(("H4","M")))
+        self.assertEqual(unknown("A@RTSX").directions,(None,)*4)
 
     def test_short_ready_history_can_signal_on_every_timeframe_without_bar_floor(self):
         # The genuine selected-guard/publication path, not a mocked zone:
         # four closed candles are below every former 70/50/45/35/30 floor.
         main=make_main(count=4)
         result=select_working_fvg_signals(main,100,symbol="SIZ6@RTSX")
-        self.assertEqual(result.directions,(1,1,1,1,1))
-        self.assertEqual(result.missing_reasons,("",)*5)
+        self.assertEqual(result.directions,(1,1,1,1))
+        self.assertEqual(result.missing_reasons,("",)*4)
 
     def test_real_uninitialized_monthly_history_never_fabricates_signal(self):
         main=make_main()
@@ -116,13 +116,13 @@ class TestSignalLogic(unittest.TestCase):
             result=select_working_fvg_signals(
                 main,100,symbol="SIZ26@RTSX",
                 fetch_problems={"W1":"Finam не вернул свечи"})
-        self.assertEqual(result.directions,(0,0,0,None,None))
+        self.assertEqual(result.directions,(0,0,None,None))
         self.assertEqual(result.reason_map()["W"],
                          "поток ещё не сформирован; Finam не вернул свечи")
         self.assertEqual(result.reason_map()["M"],"нет подтверждённого состояния")
         self.assertTrue(result.missing(("W","M")))
         self.assertFalse(result.matched(("W","M")))
-        self.assertEqual(result.reason_map()["H1"],"")
+        self.assertEqual(result.reason_map()["H4"],"")
 
     def test_missing_sources_and_access_denial_have_distinct_safe_messages(self):
         main=make_main()
@@ -245,16 +245,16 @@ class TestSignalLogic(unittest.TestCase):
             calls.append(ticker)
             if ticker=="TEST1":
                 raise FinamAPIError("stop",http_status=429)
-            return ScanResult(ticker+"@"+mic,(0,0,0,0,0))
+            return ScanResult(ticker+"@"+mic,(0,0,0,0))
         worker=FinamScreenerWorker(object(),items,object(),evaluate=evaluate,max_workers=1)
         worker.row.connect(results.append)
         worker.run()
         self.assertEqual(calls,["TEST0","TEST1"])
         self.assertEqual(len(results),4)
-        self.assertEqual(results[0].directions,(0,0,0,0,0))
+        self.assertEqual(results[0].directions,(0,0,0,0))
         for result in results[1:]:
             self.assertEqual(result.error_code,"rate_limited")
-            self.assertEqual(result.missing_reasons[4],"лимит запросов Finam")
+            self.assertEqual(result.missing_reasons[3],"лимит запросов Finam")
 
     def test_bounded_history_backfill_resumes_and_persists_without_contract_stitching(self):
         from flowdesk.finam_api import FinamAPI
@@ -327,7 +327,7 @@ class TestSignalLogic(unittest.TestCase):
         with patch("flowdesk.finam_market.analyze_timeframes",
                    return_value=(make_main(),{})):
             with patch("flowdesk.finam_screener.select_working_fvg_signals",
-                       return_value=ScanResult("SBER@MISX",(1,0,0,0,0))):
+                       return_value=ScanResult("SBER@MISX",(1,0,0,0))):
                 result=scan_one(service,"SBER","MISX",IndicatorSettings(),
                                 time_sleep=lambda _:None)
                 again=scan_one(service,"SBER","MISX",IndicatorSettings(),
@@ -335,8 +335,8 @@ class TestSignalLogic(unittest.TestCase):
         self.assertEqual(result.directions[0],1)
         self.assertEqual(result.price,100)
         requested=[tf for _,tf in service.api.calls if tf!="quote"]
-        self.assertEqual(set(requested),{"H1","H4","D1","W1","MN1"})
-        self.assertEqual(len(requested),5)
+        self.assertEqual(set(requested),{"H4","D1","W1","MN1"})
+        self.assertEqual(len(requested),4)
         self.assertEqual(again.price_origin,"finam_last")
         self.assertNotIn("M5",requested)
 

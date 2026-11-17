@@ -9,6 +9,7 @@ from .engine import Analysis, analyze
 from .market_data import Candle, TIMEFRAMES, normalize,candle_close_time
 from .liquidity import HIGHER_SOURCES
 from .history_analysis import analyze_history
+from .terminal_policy import DISPLAY_TIMEFRAMES
 
 
 def _closed(source):
@@ -36,7 +37,7 @@ def analyze_timeframes(series: dict[str, list[Candle]], display_tf: str,
                        *, asof: datetime | None = None,
                        provenance: dict[str, dict] | None = None,
                        cached: dict[str, Analysis] | None = None,
-                       settings=None
+                       settings=None, terminal=False
                        ) -> tuple[Analysis, dict[str, Analysis]]:
     """Analyze longest TF first, without shortening the calculation history.
 
@@ -44,7 +45,8 @@ def analyze_timeframes(series: dict[str, list[Candle]], display_tf: str,
     source candle. Each source retains its own provenance when CSV replaces
     a higher timeframe from an MOEX bundle.
     """
-    if display_tf not in TIMEFRAMES or not series.get(display_tf):
+    frames=DISPLAY_TIMEFRAMES if terminal else TIMEFRAMES
+    if display_tf not in frames or not series.get(display_tf):
         raise ValueError("Нет свечей выбранного таймфрейма")
     asof = asof if asof is not None else datetime.now(timezone.utc)
     main_candles=normalize(series[display_tf])
@@ -55,6 +57,8 @@ def analyze_timeframes(series: dict[str, list[Candle]], display_tf: str,
     analyses: dict[str, Analysis] = {}
     minimum_tick=next((data['minimum_tick'] for data in (provenance or {}).values() if data.get('minimum_tick')), .01)
     def replay(bars,tf,*,previous=None,**kwargs):
+        if terminal:
+            kwargs.update(market_structure=False, low_tf_flow=False)
         boundaries=(provenance or {}).get(tf,{}).get('history_breaks',{}).get(tf,())
         return analyze_history(bars,tf,breaks=boundaries,cached=previous,**kwargs) if boundaries else analyze(bars,tf,cached=previous,**kwargs)
     limited={}
@@ -78,7 +82,7 @@ def analyze_timeframes(series: dict[str, list[Candle]], display_tf: str,
                                              settings=settings,minimum_tick=minimum_tick)
                 if dependency_changed or not _same_closed(old,limited[tf]):changed_contexts.add(tf)
     reused=set()
-    for tf in reversed(TIMEFRAMES[TIMEFRAMES.index(display_tf):]):
+    for tf in reversed(frames[frames.index(display_tf):]):
         if not series.get(tf):
             continue
         bars=normalize(series[tf])
@@ -101,7 +105,7 @@ def analyze_timeframes(series: dict[str, list[Candle]], display_tf: str,
         summary={**limited}
         if analyses.get('H1'):
             summary['H1']=analyses['H1']
-        elif series.get('H1'):
+        elif not terminal and series.get('H1'):
             # H1 is LOWER than H4/D/W/M: the main analysis loop stops at the
             # displayed frame and therefore never visits it. The five-column
             # summary must still receive its independent confirmed H1 flow.

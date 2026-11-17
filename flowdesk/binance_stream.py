@@ -5,6 +5,7 @@ import json
 from math import isfinite
 
 from .binance_api import BinanceAPI,INTERVALS,instant,kline
+from .terminal_policy import SOURCE_TIMEFRAMES
 from .finam_stream import FinamStreamWorker,FinamEvent
 from .market_symbols import BINANCE,symbol_name
 
@@ -39,7 +40,7 @@ class BinanceStreamWorker(FinamStreamWorker):
         epoch=failures=0
         ticker=self.ticker.lower()
         streams=[ticker+"@aggTrade",*(ticker+"@kline_"+INTERVALS[tf]
-            for tf in self.api.stream_frames)]
+            for tf in self.api.stream_frames if tf in SOURCE_TIMEFRAMES)]
         url=WS_URL+"?streams="+"/".join(streams)
         while not self._stopped.is_set():
             epoch+=1;ready=False

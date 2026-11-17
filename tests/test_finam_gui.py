@@ -143,7 +143,7 @@ class TestFinamGui(unittest.TestCase):
             self.assertEqual(chart.viewport.offset,0)
             self.assertEqual(chart.viewport.count,125)
             self.settle()
-            self.assertEqual(self.window.displayed_view,("LKOH","MISX","H1"))
+            self.assertEqual(self.window.displayed_view,("LKOH","MISX","H4"))
             image=chart.grab().toImage()
             self.assertFalse(image.isNull())
             lower,upper=chart.last_price_range
@@ -156,7 +156,7 @@ class TestFinamGui(unittest.TestCase):
         self.market.block_symbol="SBER"
         self.select("SBER")
         self.window.tf.setCurrentText("H4")
-        old,parents,info=FakeMarket().view("SBER","MISX","H1",refresh=False)
+        old,parents,info=FakeMarket().view("SBER","MISX","M5",refresh=False)
         self.window._loaded(old,parents,info)
         self.assertIsNone(self.window.chart.analysis)
         self.market.release.set()
@@ -181,7 +181,7 @@ class TestFinamGui(unittest.TestCase):
         chart.viewport.count=47.5
         chart.viewport.offset=90.25
         chart.viewport.right_padding=5
-        self.window.tf.setCurrentText("H4");self.settle()
+        self.window.tf.setCurrentText("M5");self.settle()
         assert_last_centered()
         self.assertAlmostEqual(chart.viewport.count,47.5)
         chart.viewport.offset=50
@@ -361,11 +361,11 @@ class TestFinamGui(unittest.TestCase):
         self.assertFalse(hasattr(self.window,"_filter_universe"))
         self.assertFalse(any("Поиск в выбранном списке" in field.placeholderText()
                              for field in self.window.findChildren(QLineEdit)))
-        self.assertEqual(set(self.window.screen_buttons), {"H1","H4","D","W","M"})
+        self.assertEqual(set(self.window.screen_buttons), {"H4","D","W","M"})
         self.assertEqual(self.window.examples.count(),26)
-        self.window.screen_buttons["H1"].setChecked(True)
+        self.window.screen_buttons["H4"].setChecked(True)
         self.assertLessEqual(self.window.examples.count(),27)
-        self.window.screen_buttons["H1"].setChecked(False)
+        self.window.screen_buttons["H4"].setChecked(False)
         self.assertEqual(self.window.examples.count(),26)
 
     def test_crypto_chart_opens_without_a_finam_token_and_uses_utc(self):
@@ -373,7 +373,7 @@ class TestFinamGui(unittest.TestCase):
              patch.object(self.window,"_start_screener"):
             self.select("BTCUSDT","BINANCE");self.settle()
         start.assert_called_once()
-        self.assertEqual(self.window.displayed_view,("BTCUSDT","BINANCE","H1"))
+        self.assertEqual(self.window.displayed_view,("BTCUSDT","BINANCE","H4"))
         self.assertEqual(self.window.chart.instrument_header,"BTCUSDT.P · Binance")
         self.assertEqual(self.window.chart.exchange.zone.key,"UTC")
         self.assertTrue(self.window.http_timer.isActive())
@@ -510,8 +510,8 @@ class TestFinamGui(unittest.TestCase):
         entry=next(i for i in self.window.universe[RU_STOCKS]
                    if i.label=="SBER")
         self.window.screen_results[entry.symbol]=ScanResult(
-            entry.symbol,(1,-1,0,0,0))
-        self.window.screen_buttons["H1"].setChecked(True)
+            entry.symbol,(1,0,0,0))
+        self.window.screen_buttons["H4"].setChecked(True)
         self.window._populate_universe()
         self.app.processEvents()
         row=next(self.window.examples.item(i) for i in
@@ -525,7 +525,7 @@ class TestFinamGui(unittest.TestCase):
         self.assertIn("SBER",row.text())
         labels=[label.text() for label in custom.findChildren(QLabel)]
         self.assertEqual(sum(label.startswith("SBER ·") for label in labels),1)
-        self.assertIn("H1",labels)
+        self.assertIn("H4",labels)
         self.assertIn("H4",labels)
         self.assertEqual(row.data(Qt.ItemDataRole.UserRole),entry.symbol)
         # Selection used to override transparent foreground with Qt's
@@ -544,7 +544,7 @@ class TestFinamGui(unittest.TestCase):
         # Search has been removed; the marked FVG row remains visible.
         self.assertFalse(hasattr(self.window,"search"))
         self.assertFalse(row.isHidden())
-        self.window.screen_buttons["H1"].setChecked(True)
+        self.window.screen_buttons["H4"].setChecked(True)
         row=next(self.window.examples.item(i) for i in
                  range(self.window.examples.count())
                  if self.window.examples.item(i).text().startswith("SBER ·"))
@@ -575,22 +575,22 @@ class TestFinamGui(unittest.TestCase):
         self.assertTrue(all(name in by_label for name in ("SBER","LKOH")))
         sber,lkoh=by_label["SBER"],by_label["LKOH"]
         self.assertEqual(tuple(self.window.screen_buttons),
-                         ("H1","H4","D","W","M"))
+                         ("H4","D","W","M"))
         self.assertFalse(any(b.isChecked() for b in
                              self.window.screen_buttons.values()))
         initial=[self.window.examples.item(i) for i in
                  range(self.window.examples.count())]
         self.assertEqual(len(initial),26)
         self.window.screen_results[sber.symbol]=ScanResult(
-            sber.symbol,(1,-1,0,0,0))
+            sber.symbol,(1,0,0,0))
         self.window.screen_results[lkoh.symbol]=ScanResult(
-            lkoh.symbol,(0,1,0,-1,0))
+            lkoh.symbol,(0,0,-1,0))
         self.window._populate_universe()
         self.select("LKOH")
         self.settle()
         analysis=self.window.chart.analysis
         self.assertIsNotNone(analysis)
-        self.window.screen_buttons["H1"].setChecked(True)
+        self.window.screen_buttons["H4"].setChecked(True)
         rows=[self.window.examples.item(i) for i in
               range(self.window.examples.count())]
         visible=[row for row in rows if not row.isHidden()]
@@ -602,14 +602,14 @@ class TestFinamGui(unittest.TestCase):
         sber_row=next(row for row in visible if row.text().startswith("SBER"))
         badges=[label.text() for label in
                 self.window.examples.itemWidget(sber_row).findChildren(QLabel)]
-        self.assertIn("H1",badges)
+        self.assertIn("H4",badges)
         self.assertIn("H4",badges) # All badges, not only selected TF.
         self.window.screen_buttons["W"].setChecked(True)
         rows=[self.window.examples.item(i) for i in
               range(self.window.examples.count())]
         self.assertTrue(any("LKOH · " in row.text() for row in rows
                             if not row.isHidden()))
-        self.window.screen_buttons["H1"].setChecked(False)
+        self.window.screen_buttons["H4"].setChecked(False)
         self.window.screen_buttons["W"].setChecked(False)
         self.assertEqual(self.window.examples.count(),26)
         self.assertIs(self.window.chart.analysis,analysis)
@@ -621,7 +621,7 @@ class TestFinamGui(unittest.TestCase):
         sber=next(i for i in self.window.universe[RU_STOCKS]
                   if i.label=="SBER")
         self.window.screen_results[sber.symbol]=ScanResult(
-            sber.symbol,(None,None,None,None,None))
+            sber.symbol,(None,None,None,None))
         self.window.screen_buttons["D"].setChecked(True)
         visible=[self.window.examples.item(i) for i in
                  range(self.window.examples.count())
@@ -651,15 +651,15 @@ class TestFinamGui(unittest.TestCase):
     def test_screener_accepts_normalized_si_eu_results_from_catalog_entries(self):
         from flowdesk.finam_screener import ScanResult
         entries=self.mixed_case_currency_futures()
-        self.window.screen_buttons["H1"].setChecked(True)
+        self.window.screen_buttons["H4"].setChecked(True)
         self.window.screener_pending={entry.symbol.upper() for entry in entries}
         for entry,direction in zip(entries,(1,-1)):
-            result=ScanResult(entry.symbol.upper(),(direction,0,0,0,0))
+            result=ScanResult(entry.symbol.upper(),(direction,0,0,0))
             self.window._screener_row(result)
             with self.subTest(symbol=entry.symbol):
                 self.assertIs(self.window.screen_results.get(result.symbol),result)
                 self.assertNotIn(result.symbol,self.window.screener_pending)
-                self.assertEqual(self.window._screen_outcome(entry,["H1"]),"matched")
+                self.assertEqual(self.window._screen_outcome(entry,["H4"]),"matched")
         self.assertFalse(self.window.screener_pending)
 
     def test_unfinished_si_eu_get_explicit_retry_reason_after_scan(self):
@@ -667,7 +667,7 @@ class TestFinamGui(unittest.TestCase):
         from PySide6.QtCore import Qt
         from PySide6.QtWidgets import QLabel
         entries=self.mixed_case_currency_futures()
-        self.window.screen_buttons["H1"].setChecked(True)
+        self.window.screen_buttons["H4"].setChecked(True)
         worker=MagicMock()
         self.window.screener_worker=worker
         self.window.screener_pending={entry.symbol.upper() for entry in entries}
@@ -697,7 +697,7 @@ class TestFinamGui(unittest.TestCase):
         sber=next(item for item in self.window.universe[RU_STOCKS]
                   if item.label=="SBER")
         self.window.screen_results[sber.symbol]=ScanResult(
-            sber.symbol,(1,-1,1,-1,-1))
+            sber.symbol,(1,1,-1,-1))
         self.window._populate_universe()
         self.assertFalse(any(button.isChecked() for button in
                              self.window.screen_buttons.values()))
@@ -719,7 +719,7 @@ class TestFinamGui(unittest.TestCase):
         widget=self.window.examples.itemWidget(row)
         self.assertIsNotNone(widget)
         badges=[label.text() for label in widget.findChildren(QLabel)]
-        self.assertIn("H1",badges)
+        self.assertIn("H4",badges)
         self.assertIn("H4",badges)
         self.assertIn("M",badges)
         self.window.screen_buttons["W"].setChecked(False)
@@ -732,8 +732,8 @@ class TestFinamGui(unittest.TestCase):
         from flowdesk.finam_screener import ScanResult
         from flowdesk.finam_universe import RU_STOCKS
         entry=next(row for row in self.window.universe[RU_STOCKS] if row.label=='SBER')
-        self.window.screen_results[entry.symbol]=ScanResult(entry.symbol,(0,0,-1,0,None),
-            missing_reasons=("","","","","поток ещё не сформирован"))
+        self.window.screen_results[entry.symbol]=ScanResult(entry.symbol,(0,-1,0,None),
+            missing_reasons=("","","","поток ещё не сформирован"))
         self.window.screen_buttons['M'].setChecked(True)
         self.assertEqual(self.window._screen_outcome(entry,('M',)),'excluded')
         self.assertFalse(any(self.window.examples.item(i).text().startswith('SBER ·')
@@ -752,8 +752,8 @@ class TestFinamGui(unittest.TestCase):
         from flowdesk.finam_screener import ScanResult
         from flowdesk.finam_universe import RU_STOCKS
         entry=self.window.universe[RU_STOCKS][0]
-        self.window.screen_results[entry.symbol]=ScanResult(entry.symbol,(0,0,0,0,None),
-            missing_reasons=("","","","","нет свечей; нет доступа Finam (403)"))
+        self.window.screen_results[entry.symbol]=ScanResult(entry.symbol,(0,0,0,None),
+            missing_reasons=("","","","нет свечей; нет доступа Finam (403)"))
         self.assertEqual(self.window._screen_outcome(entry,('M',)),'unknown')
 
     def test_unformed_tf_has_no_row_or_explanation_even_with_other_tf_signal(self):
@@ -765,20 +765,20 @@ class TestFinamGui(unittest.TestCase):
                    "GCZ26@XCEC",True,"Finam GetAsset")
         self.window.universe[US_FUTURES][0]=entry
         self.window.screen_results[entry.symbol]=ScanResult(
-            entry.symbol,(1,0,1,None,None),
-            missing_reasons=("", "", "", "поток ещё не сформирован", "нет подтверждённого состояния"))
+            entry.symbol,(1,1,None,None),
+            missing_reasons=("","","поток ещё не сформирован","нет подтверждённого состояния"))
         self.window.screen_buttons["W"].setChecked(True)
         self.window.screen_buttons["M"].setChecked(True)
         self.assertFalse(any(self.window.examples.item(i).text().startswith(entry.label+" ·")
                              for i in range(self.window.examples.count())))
-        self.window.screen_buttons["H1"].setChecked(True)
+        self.window.screen_buttons["H4"].setChecked(True)
         row=next(self.window.examples.item(i) for i in
                  range(self.window.examples.count())
                  if self.window.examples.item(i).text().startswith(entry.label+" ·"))
         widget=self.window.examples.itemWidget(row)
         labels=widget.findChildren(QLabel)
         badge_labels=[label.text() for label in labels]
-        self.assertIn("H1",badge_labels)
+        self.assertIn("H4",badge_labels)
         self.assertIn("D",badge_labels)
         self.assertFalse(any(label.objectName()=="screenerMissing" for label in labels))
         self.assertFalse(any("сформирован" in label.text() or
@@ -835,3 +835,14 @@ class TestFinamGui(unittest.TestCase):
         finally:
             other.close()
             other.deleteLater()
+
+    def test_old_h1_and_m1_preferences_migrate_to_h4(self):
+        for retired in ('H1','M1'):
+            self.window.ui_prefs.setValue('tf',retired)
+            other=FinamWindow(service=self.market,settings_store=self.window.settings_store)
+            try:
+                self.assertEqual(other.tf.currentText(),'H4')
+                self.assertEqual(tuple(other.tf.buttons),('M5','H4','D1','W1','MN1'))
+            finally:
+                other.close()
+                other.deleteLater()

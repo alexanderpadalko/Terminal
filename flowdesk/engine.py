@@ -710,7 +710,7 @@ def analyze(
     candles: list[Candle], timeframe: str = "H1", exclude_gaps: bool = True,
     *, higher_h1: Analysis | None = None, asof: datetime | None = None,
     higher_liquidity: dict[str, Analysis] | None = None, settings=None, minimum_tick=.01,
-    cached: Analysis | None = None,
+    cached: Analysis | None = None, market_structure=True, low_tf_flow=True,
 ) -> Analysis:
     """Local structure/FVG; a separate H1 source is mandatory for low-TF flow."""
     if timeframe not in ("M1", "M5", "H1", "H4", "D1", "W1", "MN1"):
@@ -724,8 +724,8 @@ def analyze(
         exclude_gaps=settings.fvgExcludeGaps
     structure = StructureEngine()
     fvg = FVGEngine(timeframe, exclude_gaps,settings.fvgMaxZones)
-    pair = PairEngine()
     low_tf = timeframe in ("M1", "M5")
+    pair = PairEngine() if not low_tf or low_tf_flow else None
     if settings is not None and not low_tf:
         from .reference_engine import PinnedFlowEngine
         flow=PinnedFlowEngine(timeframe,settings)
@@ -733,7 +733,9 @@ def analyze(
     else:
         flow = None if low_tf else FlowEngine(timeframe)
     from .replay_checkpoint import restore,freeze
-    restored=restore(cached,candles,timeframe,asof,settings,minimum_tick,exclude_gaps,higher_liquidity)
+    compatible=(cached is None or not low_tf or
+                (cached.flow_status=='DISABLED') == (not low_tf_flow))
+    restored=restore(cached if compatible else None,candles,timeframe,asof,settings,minimum_tick,exclude_gaps,higher_liquidity)
     frozen=None;start=0;pairs=[]
     if restored is not None:
         frozen,(structure,fvg,pair,flow),pairs=restored
@@ -765,7 +767,7 @@ def analyze(
             confirmed_fvg = fvg.zones
             fvg = deepcopy(fvg)
         sp = structure.step(bar, i)
-        ps = pair.step(bar, sp)
+        ps = pair.step(bar, sp) if pair is not None else None
         zone = fvg.step(bar)
         if flow is not None:
             if confirmed:
@@ -803,8 +805,12 @@ def analyze(
                 flow.history.append(snapshot)
         if settings is not None and flow is not None and confirmed and flow.last_pair is not None:
             ps=flow.last_pair
-        pairs.append(ps)
-    if low_tf:
+        if pair is not None:pairs.append(ps)
+    if low_tf and not low_tf_flow:
+        result = Analysis(candles, structure.current_segments(), fvg.zones, [], [],
+                          timeframe, "", "DISABLED", "", asof=asof,
+                          confirmed_fvg=confirmed_fvg)
+    elif low_tf:
         projected = _project_h1_flows(candles, timeframe, higher_h1, asof=asof,live=settings is not None)
         origin = "H1_CONFIRMED_CANDLES" if higher_h1 is not None and higher_h1.candles else "H1_UNAVAILABLE"
         note = "Поток H1; только закрытые H1 свечи" if higher_h1 is not None and higher_h1.candles else "Ряд H1 отсутствует; направление потока не рассчитывается"
@@ -818,7 +824,7 @@ def analyze(
     result.liquidity_audit = capture_audit
     result.replay_checkpoint=frozen
     result.minimum_tick=minimum_tick
-    if settings is not None:
+    if settings is not None and market_structure:
         from .reference_engine import market_state
         result.market=market_state(result,settings)
         result.reference_version='2.14'

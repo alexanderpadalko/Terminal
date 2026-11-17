@@ -131,7 +131,7 @@ class TestSharedHistory(unittest.TestCase):
         self.service.ingest_stream("SIZ6","RTSX",[event])
         self.service.refresh_series(self.symbol,["H1"])
         self.assertEqual(len(self.api.calls),1)
-        self.service.refresh_series(self.symbol,["M1"])
+        self.service.refresh_series(self.symbol,["M5"])
         self.assertEqual(len(self.api.calls),2)
         self.service.mark_stream_reconnect(self.symbol)
         self.service.refresh_series(self.symbol,["H1"])
@@ -156,17 +156,17 @@ class TestSharedHistory(unittest.TestCase):
         from flowdesk.pipeline import analyze_timeframes
         settings=IndicatorSettings();bars={"H1":self.api.rows}
         with patch("flowdesk.finam_market.analyze_timeframes",wraps=analyze_timeframes) as calculate:
-            first=self.service.analyze_cached(self.symbol,"H1",bars,settings,self.now)
-            again=self.service.analyze_cached(self.symbol,"H1",bars,settings,self.now+timedelta(seconds=5))
+            first=self.service.analyze_cached(self.symbol,"H1",bars,settings,self.now,terminal=False)
+            again=self.service.analyze_cached(self.symbol,"H1",bars,settings,self.now+timedelta(seconds=5),terminal=False)
             self.assertIs(first,again);self.assertEqual(calculate.call_count,1)
-            self.service.analyze_cached(self.symbol,"H1",bars,settings,self.now+timedelta(hours=1))
+            self.service.analyze_cached(self.symbol,"H1",bars,settings,self.now+timedelta(hours=1),terminal=False)
             self.assertEqual(calculate.call_count,2)
             corrected=list(self.api.rows);b=corrected[1]
             corrected[1]=Candle(b.time,b.open,b.high+1,b.low,b.close,b.volume)
-            self.service.analyze_cached(self.symbol,"H1",{"H1":corrected},settings,self.now)
+            self.service.analyze_cached(self.symbol,"H1",{"H1":corrected},settings,self.now,terminal=False)
             self.assertEqual(calculate.call_count,3)
             changed=settings.changed(fvgExcludeGaps=not settings.fvgExcludeGaps)
-            self.service.analyze_cached(self.symbol,"H1",{"H1":corrected},changed,self.now)
+            self.service.analyze_cached(self.symbol,"H1",{"H1":corrected},changed,self.now,terminal=False)
             self.assertEqual(calculate.call_count,4)
 
     def test_empty_or_denied_frames_do_not_create_a_tight_request_loop(self):
@@ -190,13 +190,13 @@ class TestSharedHistory(unittest.TestCase):
         restarted=FinamMarketService(self.path,api=self.api,clock=lambda:self.now)
         self.assertEqual(restarted.load_history_progress()[(self.symbol,"MN1")],saved)
 
-    def test_scanner_only_fetches_m1_when_last_quote_is_absent(self):
+    def test_scanner_only_fetches_m5_when_last_quote_is_absent(self):
         scan_one(self.service,"SIZ6","RTSX",IndicatorSettings())
-        self.assertNotIn("M1",[tf for _,tf,_ in self.api.calls])
+        self.assertNotIn("M5",[tf for _,tf,_ in self.api.calls])
         self.service.invalidate_network_cache()
         self.api.latest_quote=lambda symbol:{"symbol":symbol}
         scan_one(self.service,"SIZ6","RTSX",IndicatorSettings())
-        self.assertIn("M1",[tf for _,tf,_ in self.api.calls])
+        self.assertIn("M5",[tf for _,tf,_ in self.api.calls])
 
 class TestParallelScanner(unittest.TestCase):
     def test_cancelled_pass_closes_its_background_executors(self):

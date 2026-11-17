@@ -131,7 +131,7 @@ class FinamAPI:
     """Thread-safe finite-life JWT obtained from local secret; never printed."""
     session_candles = True
     native_higher_frames=('D1','W1','MN1')
-    stream_frames=('M1','M5','H1','D1','W1','MN1')
+    stream_frames=('M5','H1','D1','W1','MN1')
     def __init__(self, *, opener=None, secret_reader=None, clock=None, coordinator=None):
         self.opener = opener or urlopen
         self.secret_reader = secret_reader or read_secret
