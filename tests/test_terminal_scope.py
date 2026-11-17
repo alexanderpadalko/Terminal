@@ -67,6 +67,7 @@ class TerminalScopeTests(unittest.TestCase):
         reference,original=analyze_timeframes(series,'H4',asof=NOW)
         for frame,current in {'H4':active,**parents}.items():
             before={'H4':reference,**original}[frame]
+            self.assertEqual(current.reference_version,before.reference_version)
             for field in ('candles','segments','flows','pairs','fvg','liquidity_audit'):
                 self.assertEqual(getattr(current,field),getattr(before,field),(frame,field))
 

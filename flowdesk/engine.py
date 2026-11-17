@@ -827,6 +827,6 @@ def analyze(
     if settings is not None and market_structure:
         from .reference_engine import market_state
         result.market=market_state(result,settings)
-        result.reference_version='2.14'
+    result.reference_version='2.14'
     return result
 
