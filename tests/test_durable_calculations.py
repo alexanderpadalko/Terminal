@@ -122,6 +122,22 @@ class DurableCalculationsTests(unittest.TestCase):
         saved=decode(encode(autumn))
         self.assertEqual((saved.timestamp(),saved.fold),(autumn.timestamp(),1))
 
+    def test_snapshot_helpers_release_temporary_graphs_without_cyclic_gc(self):
+        import gc,weakref
+        enabled=gc.isenabled();gc.disable()
+        try:
+            result=analyze(self.rows,'H4',asof=self.now,market_structure=False,incremental=True)
+            context=weakref.ref(result.replay_checkpoint.engines[-1].context)
+            payload=encode(result)
+            del result
+            self.assertIsNone(context())
+            restored=decode(payload)
+            decoded_context=weakref.ref(restored.replay_checkpoint.engines[-1].context)
+            del restored
+            self.assertIsNone(decoded_context())
+        finally:
+            if enabled:gc.enable()
+
     def test_verified_tick_is_used_persisted_and_invalidates_older_precision(self):
         service=self.service()
         service.api.cached_tick_size=lambda symbol:.0001

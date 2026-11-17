@@ -87,7 +87,8 @@ def encode(value):
             else:node=[name,put(vars(item))]
         nodes[index]=node
         return {'ref':index}
-    root=put(value)
+    try:root=put(value)
+    finally:put=None  # Break the recursive helper's closure cycle immediately.
     return json.dumps({'schema':SCHEMA,'root':root,'nodes':nodes},ensure_ascii=False,
                       allow_nan=False,separators=(',',':')).encode()
 
@@ -143,7 +144,8 @@ def decode(raw):
                 object.__setattr__(result,key,value)
         memo[index]=result;pending.remove(index)
         return result
-    return get(payload['root'])
+    try:return get(payload['root'])
+    finally:get=None  # Do not retain the decoded graph until cyclic GC runs.
 
 
 class CalculationStore:
