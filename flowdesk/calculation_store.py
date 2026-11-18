@@ -25,7 +25,8 @@ MAX_TOTAL=256*1024*1024
 MAX_ENTRIES=128
 MODEL_FILES=('engine.py','reference_engine.py','reference_runtime.py','v214_working_fvg.py',
              'replay_checkpoint.py','liquidity.py','pipeline.py','history_analysis.py',
-             'market_data.py','settings.py','terminal_policy.py','finam_market.py','calculation_store.py',
+             'market_data.py','settings.py','terminal_policy.py','finam_market.py','chart_source_cache.py',
+             'session_store.py','calculation_store.py',
              'data/reference_v211.json','data/settings_v211.json')
 
 

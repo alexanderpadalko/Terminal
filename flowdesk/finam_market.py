@@ -21,6 +21,7 @@ from .us_futures_family import product as session_future
 from .moex_trading_family import enabled as moex_trading, PROGRESS as MOEX_PROGRESS
 from . import moex_trading_family as moex
 from .calculation_store import CalculationStore
+from .chart_source_cache import ChartSourceCache, read_frames
 
 TTL_SECONDS = {"M1":60,"M5":300,"H1":300,"H4":900,"D1":1800,"W1":3600,"MN1":14400}
 STREAM_VERIFY_SECONDS = HTTP_REFRESH_SECONDS
@@ -43,6 +44,7 @@ class FinamMarketService:
         self.analysis_cache = OrderedDict()
         self.calculations=CalculationStore(self.path.with_name(self.path.stem+'_analysis_v1.sqlite3'))
         self._active_analysis_key = None
+        self._chart_sources = ChartSourceCache()
         self._source_repair_attempts = {}
         self._source_repair_checked = {}
         self._pull_locks = {}
@@ -119,12 +121,26 @@ class FinamMarketService:
             changed=bool(db.total_changes)
             if getattr(self.api,'session_candles',False):
                 observed=self.clock()-timedelta(minutes=self.api.market_delay_minutes(symbol.rsplit('@',1)[1]))
-                session_store.changed(db,symbol,timeframe,bars,observed,replace=changed or source=='http')
+                revised=session_store.changed(db,symbol,timeframe,bars,observed,replace=changed or source=='http')
+                if revised and symbol==self._chart_sources.symbol and timeframe in SOURCE_TIMEFRAMES:
+                    start=min(b.time.isoformat() for b in bars) if all(
+                        b.time.utcoffset()==timedelta(0) for b in bars) else None
+                    self._commit_source_change(db,symbol,timeframe,start)
             # Fingerprints validate corrections on the next calculation.
             # Keep unchanged TF/block results available for selective reuse.
             return changed
 
-    def _series(self,symbol):
+    def _commit_source_change(self,db,symbol,frame=None,start=None):
+        # The service lock covers both the SQLite commit and the in-memory
+        # record. A reader can never see an uncommitted delta in its input.
+        revision=db.execute('SELECT revision FROM candle_source_revisions WHERE symbol=?',(symbol,)).fetchone()[0]
+        db.commit()
+        self._chart_sources.record(symbol,revision,frame,start)
+
+    def _series(self,symbol,*,chart=False):
+        snapshot=getattr(self._scan_local,'snapshot',None)
+        if chart and snapshot is None and getattr(self.api,'session_candles',False):
+            return self._chart_series(symbol)
         series={tf:[] for tf in SOURCE_TIMEFRAMES}
         with closing(self._connection()) as db:
             db.execute('BEGIN')
@@ -136,16 +152,10 @@ class FinamMarketService:
                         datetime.fromisoformat(ending) if ending else None))
             state=None
             if getattr(self.api,'session_candles',False):
-                row=db.execute('SELECT revision FROM candle_source_revisions WHERE symbol=?',(symbol,)).fetchone()
-                state={'revision':row[0] if row else 0,
-                    'coverage':db.execute('SELECT tf,start,ending FROM candle_source_coverage WHERE symbol=?',(symbol,)).fetchall(),
-                    'observations':db.execute("SELECT tf,ts,observed_at FROM candle_source_observations WHERE symbol=? AND tf!='M1'",(symbol,)).fetchall(),
-                    'moex_progress':db.execute('SELECT cursor,exhausted FROM finam_history_progress WHERE symbol=? AND tf=?',
-                                              (symbol,MOEX_PROGRESS)).fetchone(),
-                    'full_archive':bool(db.execute("SELECT 1 FROM finam_history_progress WHERE symbol=? AND tf GLOB 'FULL_ARCHIVE_v2_*' LIMIT 1",
-                                                   (symbol,)).fetchone())}
+                state=self._source_state(db,symbol)
+                state['observations']=db.execute('''SELECT tf,ts,observed_at FROM candle_source_observations
+                    WHERE symbol=? AND tf!='M1' ''',(symbol,)).fetchall()
         result={tf:normalize(bars) for tf,bars in series.items() if bars}
-        snapshot=getattr(self._scan_local,'snapshot',None)
         if snapshot is not None:
             # HTTP responses own the refreshed suffix even if a selected-chart
             # WebSocket update arrived in the shared DB during this scan.
@@ -154,6 +164,33 @@ class FinamMarketService:
                 prior=[b for b in result.get(tf,()) if start is not None and b.time<start]
                 result[tf]=normalize([*prior,*bars])
         return session_store.SourceSeries(result,state) if state is not None else result
+
+    @staticmethod
+    def _source_state(db,symbol):
+        row=db.execute('SELECT revision FROM candle_source_revisions WHERE symbol=?',(symbol,)).fetchone()
+        return {'revision':row[0] if row else 0,
+                'coverage':db.execute('SELECT tf,start,ending FROM candle_source_coverage WHERE symbol=?',(symbol,)).fetchall(),
+                'moex_progress':db.execute('SELECT cursor,exhausted FROM finam_history_progress WHERE symbol=? AND tf=?',
+                                           (symbol,MOEX_PROGRESS)).fetchone(),
+                'full_archive':bool(db.execute("SELECT 1 FROM finam_history_progress WHERE symbol=? AND tf GLOB 'FULL_ARCHIVE_v2_*' LIMIT 1",
+                                               (symbol,)).fetchone())}
+
+    def _chart_series(self,symbol):
+        with closing(self._connection()) as db:
+            db.execute('BEGIN')
+            state=self._source_state(db,symbol)
+            revision=state['revision']
+            with self.lock:
+                saved,changes=self._chart_sources.inputs(symbol,revision)
+            frames=read_frames(db,symbol,saved,changes)
+        with self.lock:
+            self._chart_sources.publish(symbol,revision,frames)
+        state['observations']=[row for _,observations,_ in frames.values() for row in observations]
+        return session_store.SourceSeries({tf:data[0] for tf,data in frames.items() if data[0]},state)
+
+    def release_chart_sources(self):
+        with self.lock:
+            self._chart_sources.select(None)
 
     @contextmanager
     def http_scan(self):
@@ -180,6 +217,7 @@ class FinamMarketService:
             self._repair_tried.clear()
             self._stream_updates.clear()
             self.analysis_cache.clear()
+            self._chart_sources.select(None)
             self._source_repair_attempts={}
             self._source_repair_checked={}
             db.execute("DELETE FROM finam_pulls")
@@ -200,6 +238,21 @@ class FinamMarketService:
             for tf in frames:
                 self._stream_updates.pop((symbol,tf),None)
                 self._repair_tried.pop((symbol,tf),None)
+
+    def stream_repair_required(self,symbol):
+        now=self.clock()
+        with self.lock:
+            for key in self._repair:
+                if key[0]!=symbol:
+                    continue
+                tried=self._repair_tried.get(key)
+                failed=self._failures.get(key)
+                if tried and 0<=(now-tried).total_seconds()<30:
+                    continue
+                if failed and 0<=(now-failed[0]).total_seconds()<60:
+                    continue
+                return True
+        return False
 
     def ingest_quote(self,event):
         if event.kind!="quote" or not isinstance(event.quote,dict):return
@@ -425,7 +478,9 @@ class FinamMarketService:
              progress=None,cancelled=lambda:False,**ignored):
         symbol=symbol_name(ticker,mic)
         if timeframe not in DISPLAY_TIMEFRAMES:raise ValueError("Таймфрейм недоступен в терминале")
-        with self.lock:self._active_analysis_key=(symbol,timeframe)
+        with self.lock:
+            self._active_analysis_key=(symbol,timeframe)
+            self._chart_sources.select(symbol)
         settings=settings or IndicatorSettings()
         progress=progress or (lambda message:None)
         errors={}
@@ -436,10 +491,10 @@ class FinamMarketService:
                 errors.update(self.refresh_series(symbol,(tf for tf in SOURCE_TIMEFRAMES if tf!=timeframe),cancelled=cancelled))
         delay=self.api.market_delay_minutes(mic)
         observed=self.clock()-timedelta(minutes=delay)
-        raw=self._series(symbol)
+        raw=self._series(symbol,chart=True)
         if (allow_http and 'H1' not in errors and
                 self.repair_source_evidence(symbol,raw,observed,cancelled=cancelled)):
-            raw=self._series(symbol)
+            raw=self._series(symbol,chart=True)
             observed=self.clock()-timedelta(minutes=self.api.market_delay_minutes(mic))
         if (allow_http and timeframe in NATIVE_HIGHER and native_higher_enabled(self.api)
                 and moex_trading(symbol) and (not moex.archive_ready(raw,symbol)
@@ -456,7 +511,7 @@ class FinamMarketService:
                         404:'контракт не найден Финамом',429:'достигнут лимит запросов Финама'}.get(
                             code if type(code) is int else None,'не удалось подготовить исходные свечи Финама')
                 raise FinamAPIError(reason,http_status=code if type(code) is int and 100<=code<=599 else None) from None
-            raw=self._series(symbol)
+            raw=self._series(symbol,chart=True)
             observed=self.clock()-timedelta(minutes=delay)
         series=self.prepare_series(symbol,raw,observed)
         if not series.get(timeframe):

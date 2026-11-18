@@ -11,7 +11,7 @@ import re
 import sys
 from time import monotonic
 
-from PySide6.QtCore import QSettings, QThread, QTimer, Qt, Signal, QSize
+from PySide6.QtCore import QEvent, QSettings, QThread, QTimer, Qt, Signal, QSize
 from PySide6.QtWidgets import (
     QApplication, QComboBox, QHBoxLayout, QLabel, QLineEdit,
     QMainWindow, QMessageBox, QPushButton, QVBoxLayout, QWidget,
@@ -79,16 +79,23 @@ class FinamLoadWorker(QThread):
     progress = Signal(str)
 
     def __init__(self, service, ticker, mic, timeframe, settings,
-                 *, allow_http=False, refresh=False, events=()):
+                 *, allow_http=False, refresh=False, events=(), defer_chart=False):
         super().__init__()
         self.service, self.ticker, self.mic = service, ticker, mic
         self.timeframe, self.settings = timeframe, settings
         self.allow_http, self.refresh, self.events = allow_http, refresh, events
+        self.defer_chart = defer_chart
 
     def run(self):
         scope=getattr(getattr(self.service,"api",None),"request_scope",None)
         with scope(priority=0,cancelled=self.isInterruptionRequested) if scope else nullcontext():
-            self._run()
+            try:
+                self._run()
+            finally:
+                if self.defer_chart:
+                    release = getattr(self.service, 'release_chart_sources', None)
+                    if callable(release):
+                        release()
 
     def _run(self):
         try:
@@ -96,6 +103,10 @@ class FinamLoadWorker(QThread):
                 self.service.ingest_stream(self.ticker,self.mic,self.events)
             if self.isInterruptionRequested():
                 return
+            if self.defer_chart and self.events and not self.refresh:
+                requires_repair = getattr(self.service, 'stream_repair_required', None)
+                if callable(requires_repair) and not requires_repair(symbol_name(self.ticker, self.mic)):
+                    return  # The stream batch is stored; chart analysis can wait.
             getter=getattr(getattr(self.service,'api',None),'asset_tick_size',None)
             step=None
             if callable(getter):
@@ -147,6 +158,7 @@ class FinamWindow(QMainWindow):
         self.pending_load = None
         self.pending_bars = {}
         self._http_refresh_pending = False
+        self._restore_refresh_pending = False
         self.closing = False
         self.analysis = None
         self.parents = {}
@@ -600,14 +612,14 @@ class FinamWindow(QMainWindow):
 
     def _history_changed(self,symbol):
         self._history_dirty.add(symbol)
-        if not self.closing and self.current and '@'.join(self.current)==symbol:
+        if not self.closing and not self.isMinimized() and self.current and '@'.join(self.current)==symbol:
             # Coalesce successive source windows; delivery still preserves
             # the user's latest timestamp/zoom through _loaded().
             if not self.history_chart_timer.isActive():
                 self.history_chart_timer.start()
 
     def _history_chart_refresh(self):
-        if self.closing or not self.current_view or '@'.join(self.current) not in self._history_dirty:
+        if self.closing or self.isMinimized() or not self.current_view or '@'.join(self.current) not in self._history_dirty:
             return
         if self.loader is not None:
             self.history_chart_timer.start()
@@ -928,14 +940,18 @@ class FinamWindow(QMainWindow):
         if self.loader is not None:
             self.pending_load=request
             return
-        # Every started worker checks HTTP freshness/repair. A request arriving
-        # while it runs is coalesced and retried on completion, never dropped.
+        # HTTP checks and chart loads share one worker. A pending HTTP check
+        # is served by this load or remains queued behind an active worker.
         self._http_refresh_pending=False
+        defer_chart = self.isMinimized()
+        if self._restore_refresh_pending and not defer_chart:
+            self._history_dirty.discard('@'.join(self.current))
+        self._restore_refresh_pending = defer_chart
         market=(self.service.for_market(mic) if callable(getattr(self.service,"for_market",None))
                 else self.service)
         self.loader=FinamLoadWorker(market,ticker,mic,request[2],
               self.indicator_settings,allow_http=True,
-              refresh=refresh,events=request[4])
+              refresh=refresh,events=request[4],defer_chart=defer_chart)
         self.loader.loaded.connect(self._loaded)
         self.loader.failed.connect(self._failed)
         self.loader.progress.connect(self._load_progress)
@@ -945,7 +961,7 @@ class FinamWindow(QMainWindow):
         self.loader.start()
 
     def _loaded(self,main,parents,info):
-        if self.closing or (info["symbol"],info["board"],info["tf"])!=self.current_view:
+        if self.closing or self.isMinimized() or (info["symbol"],info["board"],info["tf"])!=self.current_view:
             return
         # Read the user's latest view on delivery, including gestures made
         # while HTTP/reconnect work was in flight. New charts still reframe.
@@ -987,7 +1003,7 @@ class FinamWindow(QMainWindow):
         return worker is None or (worker.ticker,worker.mic,worker.timeframe)==self.current_view
 
     def _load_progress(self,message):
-        if not self.closing and self._current_load_signal():
+        if not self.closing and not self.isMinimized() and self._current_load_signal():
             self.status.setText(message)
 
     def _failed(self,reason):
@@ -996,6 +1012,8 @@ class FinamWindow(QMainWindow):
         symbol=(self.current_view[0]+"@"+self.current_view[1]
                 if self.current_view else "")
         log_event("chart_load_failed",symbol=symbol,error=reason)
+        if self.isMinimized():
+            return
         self.status.setText("Finam: "+reason)
         if self.displayed_view != self.current_view:
             ticker,mic,tf=self.current_view
@@ -1022,6 +1040,8 @@ class FinamWindow(QMainWindow):
             self._load(refresh=req[3],events=req[4])
         elif self._http_refresh_pending:
             self._http_refresh()
+        elif self._restore_refresh_pending and not self.isMinimized():
+            self._refresh_restored_chart()
         elif self.pending_bars:
             self.feed_timer.start()
         self._indicator()
@@ -1133,7 +1153,7 @@ class FinamWindow(QMainWindow):
             if callable(ingest):ingest(event)
             q=event.quote
             last=q.get("last")
-            if last is not None:
+            if last is not None and not self.isMinimized():
                 instant=q.get("timestamp")
                 stamp=(self._exchange_time(instant,event.board,seconds=True)
                        if instant is not None else "время сделки не указано")
@@ -1148,12 +1168,15 @@ class FinamWindow(QMainWindow):
                 self.feed_timer.start()
         self._indicator()
 
+    def _take_pending_bars(self):
+        events = tuple(self.pending_bars.values())
+        self.pending_bars.clear()
+        return events
+
     def _flush(self):
         if self.loader is not None or self.closing or not self.pending_bars:
             return
-        events=tuple(self.pending_bars.values())
-        self.pending_bars.clear()
-        self._load(refresh=False,events=events)
+        self._load(refresh=False,events=self._take_pending_bars())
 
     def _http_refresh(self):
         if self.closing or not read_secret():
@@ -1162,9 +1185,24 @@ class FinamWindow(QMainWindow):
             self._http_refresh_pending=True
             return
         self._http_refresh_pending=False
-        events=tuple(self.pending_bars.values())
-        self.pending_bars.clear()
-        self._load(refresh=True,events=events)
+        self._load(refresh=True,events=self._take_pending_bars())
+
+    def _refresh_restored_chart(self):
+        if self.loader is not None or not self._restore_refresh_pending:
+            return
+        self.feed_timer.stop()
+        self._load(events=self._take_pending_bars())
+
+    def changeEvent(self, event):
+        super().changeEvent(event)
+        if event.type() != QEvent.Type.WindowStateChange or getattr(self, 'closing', True):
+            return
+        if self.isMinimized():
+            self._restore_refresh_pending = self.current_view is not None
+            self.history_chart_timer.stop()
+        elif event.oldState() & Qt.WindowState.WindowMinimized:
+            self._refresh_restored_chart()
+            self._indicator()
 
     def _schedule_http(self):
         if not self.closing and read_secret():
@@ -1174,7 +1212,7 @@ class FinamWindow(QMainWindow):
             self.http_timer.stop()
 
     def _indicator(self):
-        if not hasattr(self,"channel"):
+        if not hasattr(self,"channel") or self.isMinimized():
             return
         provider="FINAM"
         if self.stream_ready:

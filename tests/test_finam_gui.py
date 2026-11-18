@@ -531,6 +531,76 @@ class TestFinamGui(unittest.TestCase):
         finally:
             self.window.stream=None
 
+    def test_minimized_stream_stores_candles_and_chart_catches_up_on_restore(self):
+        from datetime import datetime, timezone
+        from flowdesk.finam_stream import FinamEvent
+
+        self.select('SBER'); self.settle()
+        window = self.window
+        before = window.chart.analysis
+        calls = len(self.market.calls)
+        window._history_changed('SBER@MISX')
+        self.assertTrue(window.history_chart_timer.isActive())
+        window.showMinimized()
+        self.assertTrue(window.isMinimized())
+        self.assertFalse(window.history_chart_timer.isActive())
+
+        candle = before.candles[-1]
+        event = FinamEvent('candles', 'SBER', 'MISX', 1, datetime.now(timezone.utc),
+                           timeframe='H4', candles=(candle,))
+        window.pending_bars[('H4', candle.time)] = event
+        with patch.object(self.market, 'ingest_stream', create=True) as ingest, \
+             patch.object(self.market, 'stream_repair_required', create=True, return_value=False):
+            window._flush(); self.settle()
+            ingest.assert_called_once_with('SBER', 'MISX', (event,))
+            self.assertIs(window.chart.analysis, before)
+            self.assertEqual(len(self.market.calls), calls)
+            self.assertIn('SBER@MISX', window._history_dirty)
+
+            # Restoration must also work while a stream-only batch is active.
+            gate = threading.Event()
+            ingest.side_effect = lambda *args: gate.wait(4)
+            window.pending_bars[('H4', candle.time)] = event
+            window._flush()
+            loader = window.loader
+            self.assertIsNotNone(loader)
+            try:
+                window.showNormal()
+                self.assertIs(window.loader, loader)
+            finally:
+                gate.set()
+            self.settle()
+
+        self.assertEqual(self.market.calls[calls:], [('SBER', 'MISX', 'H4', False)])
+        self.assertIsNot(window.chart.analysis, before)
+        self.assertNotIn('SBER@MISX', window._history_dirty)
+
+    def test_minimized_http_and_stream_repair_still_check_source(self):
+        from datetime import datetime, timezone
+        from flowdesk.finam_stream import FinamEvent
+
+        self.select('SBER'); self.settle()
+        window = self.window
+        before = window.chart.analysis
+        calls = len(self.market.calls)
+        window.showMinimized()
+        candle = before.candles[-1]
+        event = FinamEvent('candles', 'SBER', 'MISX', 1, datetime.now(timezone.utc),
+                           timeframe='H4', candles=(candle,))
+        window.pending_bars[('H4', candle.time)] = event
+        with patch.object(self.market, 'ingest_stream', create=True) as ingest, \
+             patch.object(self.market, 'stream_repair_required', create=True, return_value=True):
+            window._flush(); self.settle()
+            ingest.assert_called_once_with('SBER', 'MISX', (event,))
+        with patch('flowdesk.finam_gui.read_secret', return_value='test'):
+            window._http_refresh(); self.settle()
+
+        self.assertEqual(self.market.calls[calls:], [
+            ('SBER', 'MISX', 'H4', False),
+            ('SBER', 'MISX', 'H4', True),
+        ])
+        self.assertIs(window.chart.analysis, before)
+
     def test_screener_badges_have_one_visible_title_and_wider_sidebar(self):
         from PySide6.QtCore import Qt
         from PySide6.QtWidgets import QLabel

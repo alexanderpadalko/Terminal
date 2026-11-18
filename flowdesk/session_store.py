@@ -65,9 +65,10 @@ def changed(db,symbol,tf,bars,observed,*,replace=True):
             AND julianday(excluded.observed_at)>=julianday(?)''',
             ((symbol,tf,b.time.isoformat(),observed.isoformat(),
               candle_close_time(b,tf).isoformat(),candle_close_time(b,tf).isoformat()) for b in bars))
-    if not replace and db.total_changes==before:return
+    if not replace and db.total_changes==before:return False
     db.execute('''INSERT INTO candle_source_revisions VALUES(?,1)
         ON CONFLICT(symbol) DO UPDATE SET revision=revision+1''',(symbol,))
+    return True
 
 
 def record_coverage(service,symbol,tf,start,end):
@@ -85,6 +86,8 @@ def record_coverage(service,symbol,tf,start,end):
             ((symbol,tf,a.isoformat(),b.isoformat()) for a,b in merged))
         db.execute('''INSERT INTO candle_source_revisions VALUES(?,1)
             ON CONFLICT(symbol) DO UPDATE SET revision=revision+1''',(symbol,))
+        if getattr(service,'_chart_sources',None) is not None and service._chart_sources.symbol==symbol:
+            service._commit_source_change(db,symbol)
 
 
 def record_response(service,symbol,tf,bars,start,end,observed):
@@ -109,9 +112,9 @@ def prepare(service,symbol,raw,observed):
     pilot_requested=primary_native and bool(futures.product(symbol))
     ru=primary_native and moex.enabled(symbol)
     state=getattr(raw,'source_state',None)
-    snapshots=state['observations'] if state else []
-    observed_at={(tf,datetime.fromisoformat(ts)):datetime.fromisoformat(stamp) for tf,ts,stamp in snapshots}
-    native,native_issues=native_higher_series(raw,observed,observed_at) if primary_native else ({},{})
+    def source_observations():
+        return {(tf,datetime.fromisoformat(ts)):datetime.fromisoformat(stamp)
+                for tf,ts,stamp in (state['observations'] if state else ())}
     factory=getattr(service,'calendar_factory',calendar_for)
     try:
         calendar=factory(symbol)
@@ -119,9 +122,10 @@ def prepare(service,symbol,raw,observed):
             raise CalendarUnavailable('instrument_calendar_unknown')
     except CalendarUnavailable:
         result={tf:bars for tf,bars in raw.items() if tf not in ('H4',*NATIVE_HIGHER)}
-        if not (pilot_requested or ru):result.update(native)
         issues={tf:'instrument_calendar_unknown' for tf in ('H4',*NATIVE_HIGHER)}
         if primary_native and not (pilot_requested or ru):
+            native,native_issues=native_higher_series(raw,observed,source_observations())
+            result.update(native)
             issues={**{'H4':'instrument_calendar_unknown'},**native_issues}
         return PreparedSeries(result,
             {'version':moex.POLICY if ru else futures.POLICY if pilot_requested else NATIVE_POLICY_VERSION if primary_native else AGGREGATION_VERSION,
@@ -165,6 +169,8 @@ def prepare(service,symbol,raw,observed):
                 except (ValueError,TypeError,KeyError):
                     pass  # Damaged derived data is rebuilt from untouched raw bars.
         windows=state['coverage'] if state else []
+    observed_at=source_observations()
+    native,native_issues=native_higher_series(raw,observed,observed_at) if primary_native else ({},{})
     coverage={}
     for tf,start,end in windows:
         coverage.setdefault(tf,[]).append((datetime.fromisoformat(start),datetime.fromisoformat(end)))

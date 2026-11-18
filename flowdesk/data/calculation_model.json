@@ -1,6 +1,6 @@
 {
   "schema": 2,
-  "sha256": "b1fae89e74da139e68a0d683c5dc7aa80f8d5eb355b98310b0c840faacbb0d0c",
+  "sha256": "cf538287b3486ec89ee0f2a1396c03212e871e2fcf7e6745bee37c98adc17147",
   "files": [
     "engine.py",
     "reference_engine.py",
@@ -14,6 +14,8 @@
     "settings.py",
     "terminal_policy.py",
     "finam_market.py",
+    "chart_source_cache.py",
+    "session_store.py",
     "calculation_store.py",
     "data/reference_v211.json",
     "data/settings_v211.json"
