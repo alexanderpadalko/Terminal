@@ -404,6 +404,19 @@ def _scan_one(service, ticker, mic, settings, *, cancelled=lambda:False,
     if callable(prepare):series=prepare(symbol,series,observed)
     else:series=exclude_stock_closing_auction(series,mic)
     metadata=getattr(series,'session_metadata',{}) or {}
+    # A complete MOEX archive can still contain an old D1 that was observed
+    # before the session closed. A three-candle tail cannot reconfirm it.
+    # Recheck one exact raw source before deciding that D/W/M are unavailable.
+    from . import moex_trading_family as moex
+    if (metadata.get('version')==moex.POLICY and
+            any(issue=='native_snapshot_unconfirmed'
+                for tf,issue in (metadata.get('issues',{}) or {}).items()
+                if tf in ('D1','W1','MN1'))):
+        if moex.recheck_unconfirmed_snapshot(
+                service,symbol,service._series(symbol),observed,
+                cancelled=cancelled,priority=10):
+            series=prepare(symbol,service._series(symbol),observed)
+            metadata=getattr(series,'session_metadata',{}) or {}
     # Native equities and other markets may have control diagnostics despite
     # valid higher candles; they are not MOEX futures bootstrap failures.
     from .moex_trading_family import POLICY as MOEX_POLICY
