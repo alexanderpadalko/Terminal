@@ -91,6 +91,66 @@ class TestMoexFirstOpen(unittest.TestCase):
             scan_one(self.market,"CRZ6","RTSX",IndicatorSettings())
             bootstrap.assert_not_called()
 
+    def test_screener_rechecks_stale_closed_native_d1_without_archive_reset(self):
+        from contextlib import closing
+        from flowdesk.finam_screener import scan_one
+        old=self.api.rows['D1'][0].time
+        self.market.save_history_progress(SYMBOL,moex.PROGRESS,{
+            'cursor':datetime(2025,2,24,tzinfo=MOSCOW),'exhausted':True})
+        with closing(self.market._connection()) as db,db:
+            db.execute("UPDATE candle_source_observations SET observed_at=? "
+                       "WHERE symbol=? AND tf='D1' AND ts=?",
+                       (old.isoformat(),SYMBOL,old.isoformat()))
+        raw=self.market._series(SYMBOL)
+        self.assertTrue(moex.archive_ready(raw,SYMBOL))
+        self.assertEqual(moex._unconfirmed_snapshot(raw,SYMBOL,NOW),('D1',old))
+        first=self.market.prepare_series(SYMBOL,raw,NOW)
+        self.assertEqual(first.session_metadata['issues']['D1'],
+                         'native_snapshot_unconfirmed')
+        self.api.latest_quote=lambda symbol:{'quote':[{'last':{'value':'11'}}]}
+        # The normal three-bar tail has already moved beyond the old draft.
+        with patch.object(self.market,'refresh_series',return_value={}):
+            result=scan_one(self.market,'CRZ6','RTSX',IndicatorSettings())
+        self.assertTrue(all('нет свечей' not in result.reason_map()[tf]
+                            for tf in ('D','W','M')))
+        raw=self.market._series(SYMBOL)
+        self.assertIsNone(moex._unconfirmed_snapshot(raw,SYMBOL,NOW))
+        prepared=self.market.prepare_series(SYMBOL,raw,NOW)
+        self.assertTrue(all(prepared.get(tf) for tf in ('D1','W1','MN1')))
+        requests=[(frame,a,b) for _,frame,a,b in self.api.calls
+                  if frame=='D1' and a<=old<b]
+        self.assertEqual(len(requests),1)
+        self.assertLessEqual(requests[0][2]-requests[0][1],
+                             timedelta(days=30,hours=1))
+        with patch.object(self.market,'refresh_series',return_value={}):
+            scan_one(self.market,'CRZ6','RTSX',IndicatorSettings())
+        self.assertEqual(len([(frame,a,b) for _,frame,a,b in self.api.calls
+                              if frame=='D1' and a<=old<b]),1)
+
+    def test_empty_recheck_never_confirms_unreturned_native_d1(self):
+        from contextlib import closing
+        from flowdesk.finam_screener import scan_one
+        old=self.api.rows['D1'][0].time
+        self.market.save_history_progress(SYMBOL,moex.PROGRESS,{
+            'cursor':datetime(2025,2,24,tzinfo=MOSCOW),'exhausted':True})
+        with closing(self.market._connection()) as db,db:
+            db.execute("UPDATE candle_source_observations SET observed_at=? "
+                       "WHERE symbol=? AND tf='D1' AND ts=?",
+                       (old.isoformat(),SYMBOL,old.isoformat()))
+        self.api.latest_quote=lambda symbol:{'quote':[{'last':{'value':'11'}}]}
+        original=self.api.bars
+        self.api.bars=lambda symbol,tf,*,start,end:(
+            [] if tf=='D1' and start<=old<end else
+            original(symbol,tf,start=start,end=end))
+        with patch.object(self.market,'refresh_series',return_value={}):
+            result=scan_one(self.market,'CRZ6','RTSX',IndicatorSettings())
+        self.assertIsNone(result.as_map()['D'])
+        self.assertIn('Finam ещё не подтвердил исходную дневную свечу',
+                      result.reason_map()['D'])
+        self.assertEqual(self.market.prepare_series(SYMBOL,
+                         self.market._series(SYMBOL),NOW).session_metadata[
+                         'issues']['D1'],'native_snapshot_unconfirmed')
+
     def test_screener_surfaces_finam_bootstrap_denial_without_signals(self):
         from flowdesk.finam_screener import scan_one
         self.api.latest_quote=lambda symbol:{"quote":[{"last":{"value":"11"}}]}
