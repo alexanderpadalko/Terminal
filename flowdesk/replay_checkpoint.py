@@ -36,10 +36,10 @@ def context_key(tf,settings,minimum_tick,exclude_gaps,higher,edge):
 
 
 def clone_engines(engines):
-    structure,fvg,pair,flow=engines
-    # Published snapshots/candles are immutable during replay. Copy mutable
-    # working state and list containers; share the large frozen prefix rows.
-    memo={id(fvg._bars):list(fvg._bars),id(fvg._inside):list(fvg._inside)}
+    _,fvg,_,flow=engines
+    # Each replay needs its own rolling FVG containers and flow history list.
+    # The frozen candle and published history rows can be shared.
+    memo={id(fvg._bars):fvg._bars.copy(),id(fvg._inside):fvg._inside.copy()}
     if flow is not None:
         memo[id(flow.history)]=list(flow.history)
         if hasattr(flow,'times'):memo[id(flow.times)]=list(flow.times)

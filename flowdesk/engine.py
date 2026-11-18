@@ -9,6 +9,7 @@ strategy or a verified Pine reimplementation.
 from __future__ import annotations
 
 from copy import deepcopy
+from collections import deque
 from dataclasses import dataclass, field, replace
 from typing import Optional
 from bisect import bisect_left, bisect_right
@@ -190,13 +191,14 @@ class FVGEngine:
         self.exclude_gaps = exclude_gaps
         self.max_zones=max_zones
         self.zones: list[FVG] = []
-        self._bars: list[Candle] = []
-        self._inside: list[bool] = []
+        self._bars: deque[Candle] = deque(maxlen=2)
+        self._inside: deque[bool] = deque(maxlen=2)
+        self._next_index = 0
         self._mother_hi: Optional[float] = None
         self._mother_lo: Optional[float] = None
 
     def step(self, bar: Candle) -> Optional[FVG]:
-        i = len(self._bars)
+        i = self._next_index
         inside = self._mother_hi is not None and bar.high <= self._mother_hi and bar.low >= self._mother_lo
         if not inside:
             self._mother_hi, self._mother_lo = bar.high, bar.low
@@ -219,6 +221,7 @@ class FVGEngine:
                         del self.zones[:-self.max_zones]
         self._bars.append(bar)
         self._inside.append(inside)
+        self._next_index += 1
         return result
 
 

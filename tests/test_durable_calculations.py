@@ -93,8 +93,49 @@ class DurableCalculationsTests(unittest.TestCase):
 
     def test_unknown_serialized_classes_are_rejected(self):
         import json
+        header=json.dumps({'schema':SCHEMA,'root':{'ref':0}})
         with self.assertRaises(ValueError):
-            decode(json.dumps({'schema':SCHEMA,'root':{'ref':0},'nodes':[['eval',{}]]}))
+            decode(header+'\n'+json.dumps(['eval',{}])+'\n')
+
+    def test_chunked_snapshot_keeps_shared_references_and_deque_capacity(self):
+        import zlib
+        from collections import deque
+        from flowdesk.calculation_store import JSON_BATCH
+        shared = [self.rows[-1], 'строка\nсо второй строкой']
+        source = {'refs': [shared] * (JSON_BATCH + 1), 'tail': deque([shared], maxlen=2),
+                  'map': {i: shared for i in range(JSON_BATCH + 1)}}
+        encoded = encode(source, compressed=True)
+        restored = decode(zlib.decompress(encoded))
+        self.assertEqual(restored, source)
+        self.assertEqual(restored['tail'].maxlen, 2)
+        self.assertIs(restored['refs'][-1], restored['tail'][0])
+        self.assertIs(restored['map'][JSON_BATCH], restored['refs'][0])
+
+    def test_bounded_encoding_keeps_previous_valid_disk_snapshot(self):
+        service=self.service()
+        service.analyze_cached('EDZ6@RTSX','H4',{'H4':self.rows},self.cfg,self.now)
+        old=service.calculations.load('EDZ6@RTSX','H4')
+        self.assertIsNotNone(old)
+        with patch('flowdesk.calculation_store.MAX_RAW', 64):
+            with self.assertRaises(ValueError):
+                encode(self.rows, compressed=True)
+            changed=self.rows[:-1]+[replace(self.rows[-1],high=self.rows[-1].high+1)]
+            self.service().analyze_cached('EDZ6@RTSX','H4',{'H4':changed},self.cfg,self.now+timedelta(hours=1))
+        new=service.calculations.load('EDZ6@RTSX','H4')
+        self.assertEqual(old[0],new[0])
+        numeric(self,old[1][0],new[1][0])
+
+    def test_over_limit_snapshot_is_retried_only_when_closed_history_changes(self):
+        service=self.service()
+        original = self.rows
+        new_draft = original[:-1] + [replace(original[-1], high=original[-1].high + 1)]
+        correction = [replace(original[0], low=original[0].low - 1), *new_draft[1:]]
+        with (patch('flowdesk.calculation_store.MAX_RAW', 64),
+              patch('flowdesk.calculation_store.encode', wraps=encode) as writes):
+            for rows in (original, new_draft, correction):
+                service.calculations._attempted.clear()
+                service.analyze_cached('EDZ6@RTSX', 'H4', {'H4': rows}, self.cfg, self.now)
+        self.assertEqual(writes.call_count, 2)
 
     def test_frozen_model_revision_does_not_require_python_source_files(self):
         import json

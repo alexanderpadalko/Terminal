@@ -3,12 +3,14 @@
 Source candles stay in their existing database. A bad, stale, incompatible or
 missing snapshot is a cache miss and always falls back to the original replay.
 """
+from array import array
 from collections import deque
 from contextlib import closing
 from dataclasses import fields, is_dataclass
 from datetime import date,datetime
 from functools import lru_cache
 import hashlib
+from itertools import islice
 import json
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -18,16 +20,23 @@ import threading
 import time
 import zlib
 
-SCHEMA=2
+SCHEMA=3
 MAX_ENTRY=32*1024*1024
 MAX_RAW=128*1024*1024
 MAX_TOTAL=256*1024*1024
 MAX_ENTRIES=128
+MAX_NODES=1_500_000
+JSON_BATCH=1024
+COMPRESSION_BATCH=256*1024
 MODEL_FILES=('engine.py','reference_engine.py','reference_runtime.py','v214_working_fvg.py',
              'replay_checkpoint.py','liquidity.py','pipeline.py','history_analysis.py',
              'market_data.py','settings.py','terminal_policy.py','finam_market.py','chart_source_cache.py',
              'session_store.py','calculation_store.py',
              'data/reference_v211.json','data/settings_v211.json')
+
+
+class SnapshotTooLarge(ValueError):
+    """The derived graph exceeded this store's limits during encoding."""
 
 
 @lru_cache(maxsize=1)
@@ -57,10 +66,14 @@ def registry():
 def field_names(cls):return tuple(f.name for f in fields(cls))
 
 
-def encode(value):
+def _encoded_records(value):
+    """Write one JSON record per object, retaining references instead of a second graph."""
     from .reference_runtime import ReferenceContext
-    nodes=[];memo={}
-    def put(item):
+    dumps=json.JSONEncoder(ensure_ascii=False,allow_nan=False,separators=(',',':')).encode
+    items=[]
+    indexes={}
+
+    def reference(item):
         if item is None or type(item) in (bool,int,float,str):return item
         if isinstance(item,datetime):
             stamp={'time':item.isoformat()}
@@ -69,37 +82,97 @@ def encode(value):
             if item.fold:stamp['fold']=item.fold
             return stamp
         if isinstance(item,date):return {'day':item.isoformat()}
-        if id(item) in memo:return {'ref':memo[id(item)][0]}
-        index=len(nodes);memo[id(item)]=(index,item);nodes.append(None)
+        identity=id(item)
+        index=indexes.get(identity)
+        if index is None:
+            index=len(items)
+            if index>=MAX_NODES:raise SnapshotTooLarge('Calculation snapshot contains too many objects')
+            indexes[identity]=index
+            # Keep identities alive for shared references, including generated
+            # context dictionaries that were not in the caller's graph.
+            items.append(item)
+        return {'ref':index}
+
+    def record(kind,values,length,extra=()):
+        if length<=JSON_BATCH:
+            yield (dumps([kind,list(values),*extra])+'\n').encode()
+            return
+        yield ('['+dumps(kind)+',[').encode()
+        first=True
+        while batch:=list(islice(values,JSON_BATCH)):
+            if not first:
+                yield b','
+            yield dumps(batch)[1:-1].encode()
+            first=False
+        yield (']'+''.join(','+dumps(v) for v in extra)+']\n').encode()
+
+    yield (dumps({'schema':SCHEMA,'root':reference(value)})+'\n').encode()
+    index=0
+    while index<len(items):
+        item=items[index]
+        index+=1
         if type(item) in (list,tuple,deque):
-            node=[type(item).__name__,[put(v) for v in item]]
-            if isinstance(item,deque):node.append(item.maxlen)
+            extra=(item.maxlen,) if isinstance(item,deque) else ()
+            yield from record(type(item).__name__,(reference(v) for v in item),len(item),extra)
+            continue
         elif type(item) is dict:
-            node=['dict',[[put(k),put(v)] for k,v in item.items()]]
+            yield from record('dict',([reference(k),reference(v)] for k,v in item.items()),len(item))
+            continue
         elif isinstance(item,ReferenceContext):
             # observe() reconstructs transient OHLC/timeframe helpers before
             # the next step; only numeric state/history must survive restart.
-            node=['context',put({'tf':item.tf,'settings':item.settings.as_dict(),
+            node=['context',reference({'tf':item.tf,'settings':item.settings.as_dict(),
                 'states':item.states,'history':item.history,'index':item.index,'tick':item.tick})]
         else:
             name=type(item).__name__
             if registry().get(name) is not type(item):raise ValueError('Unsupported calculation state')
-            if is_dataclass(item):node=[name,[put(getattr(item,key)) for key in field_names(type(item))]]
-            else:node=[name,put(vars(item))]
-        nodes[index]=node
-        return {'ref':index}
-    try:root=put(value)
-    finally:put=None  # Break the recursive helper's closure cycle immediately.
-    return json.dumps({'schema':SCHEMA,'root':root,'nodes':nodes},ensure_ascii=False,
-                      allow_nan=False,separators=(',',':')).encode()
+            if is_dataclass(item):node=[name,[reference(getattr(item,key)) for key in field_names(type(item))]]
+            else:node=[name,reference(vars(item))]
+        yield (dumps(node)+'\n').encode()
+
+
+def encode(value, *, compressed=False):
+    """Enforce size limits while writing, before allocating oversized snapshots."""
+    output=bytearray()
+    buffer=bytearray()
+    zipper=zlib.compressobj(level=1) if compressed else None
+    raw_size=0
+    for chunk in _encoded_records(value):
+        raw_size+=len(chunk)
+        if raw_size>MAX_RAW:raise SnapshotTooLarge('Calculation snapshot exceeds the raw limit')
+        if zipper is None:
+            output.extend(chunk)
+            continue
+        buffer.extend(chunk)
+        if len(buffer)>=COMPRESSION_BATCH:
+            output.extend(zipper.compress(buffer))
+            buffer.clear()
+            if len(output)>MAX_ENTRY:raise SnapshotTooLarge('Calculation snapshot exceeds the disk limit')
+    if zipper is not None:
+        output.extend(zipper.compress(buffer))
+        output.extend(zipper.flush())
+        if len(output)>MAX_ENTRY:raise SnapshotTooLarge('Calculation snapshot exceeds the disk limit')
+    return bytes(output)
 
 
 def decode(raw):
     from .reference_runtime import ReferenceContext
     from .settings import IndicatorSettings
-    payload=json.loads(raw)
-    if payload['schema']!=SCHEMA or len(payload['nodes'])>1500000:raise ValueError('Snapshot schema')
-    nodes=payload['nodes'];memo={};pending=set();strings={};times={}
+    if isinstance(raw,str):raw=raw.encode()
+    if len(raw)>MAX_RAW:raise ValueError('Snapshot exceeds the raw limit')
+    header_end=raw.find(b'\n')
+    if header_end<0:raise ValueError('Snapshot header')
+    payload=json.loads(raw[:header_end])
+    if payload['schema']!=SCHEMA:raise ValueError('Snapshot schema')
+    # Small offsets let the reader decode only the requested node, so it
+    # never holds an entire parsed JSON tree beside the restored graph.
+    offsets=array('I',[header_end+1])
+    while offsets[-1]<len(raw):
+        if len(offsets)>MAX_NODES:raise ValueError('Snapshot has too many objects')
+        end=raw.find(b'\n',offsets[-1])
+        if end<0:raise ValueError('Truncated snapshot')
+        offsets.append(end+1)
+    memo={};pending=set();strings={};times={}
     def get(item):
         if type(item) is str:return strings.setdefault(item,item)
         if item is None or type(item) in (bool,int,float):return item
@@ -116,11 +189,11 @@ def decode(raw):
         if set(item)=={'day'}:return date.fromisoformat(item['day'])
         if set(item)!={'ref'} or type(item['ref']) is not int:raise ValueError('Snapshot reference')
         index=item['ref']
-        if not 0<=index<len(nodes):raise ValueError('Snapshot index')
+        if not 0<=index<len(offsets)-1:raise ValueError('Snapshot index')
         if index in memo:return memo[index]
         if index in pending:raise ValueError('Immutable snapshot cycle')
         pending.add(index)
-        kind,data,*extra=nodes[index]
+        kind,data,*extra=json.loads(raw[offsets[index]:offsets[index+1]])
         if kind in ('list','dict','deque'):
             result=[] if kind=='list' else {} if kind=='dict' else deque(maxlen=extra[0])
             memo[index]=result
@@ -151,7 +224,7 @@ def decode(raw):
 
 class CalculationStore:
     def __init__(self,path):
-        self.path=Path(path);self._lock=threading.Lock();self._saved={};self._attempted={}
+        self.path=Path(path);self._lock=threading.Lock();self._handled={};self._attempted={}
 
     def _connect(self):
         self.path.parent.mkdir(parents=True,exist_ok=True)
@@ -194,15 +267,16 @@ class CalculationStore:
         # Live-only changes do not rewrite a large snapshot every second.
         from .market_data import candle_close_time
         sources={result[0].timeframe:result[0],**result[1]}
-        closed=tuple((frame,tuple(b for b in item.candles if item.asof is None or
-                      candle_close_time(b,frame)<=item.asof)) for frame,item in sorted(sources.items()))
-        signature=hashlib.sha256(repr((key[0],key[-1],closed,result[0].session_info)).encode()).hexdigest()
-        if self._saved.get(identity)==signature:return
+        digest=hashlib.sha256(repr((key[0],key[-1],result[0].session_info)).encode())
+        for frame,item in sorted(sources.items()):
+            digest.update(frame.encode()+b'\0')
+            for bar in item.candles:
+                if item.asof is None or candle_close_time(bar,frame)<=item.asof:
+                    digest.update(repr(bar).encode()+b'\0')
+        signature=digest.hexdigest()
+        if self._handled.get(identity)==signature:return
         try:
-            raw=encode((key,result))
-            if len(raw)>MAX_RAW:return
-            payload=zlib.compress(raw,level=1)
-            if len(payload)>MAX_ENTRY:return
+            payload=encode((key,result),compressed=True)
             with self._lock,closing(self._connect()) as db,db:
                 db.execute('INSERT OR REPLACE INTO snapshots VALUES(?,?,?,?,?,?)',
                            (symbol,tf,model_version(),hashlib.sha256(payload).hexdigest(),payload,time.time()))
@@ -212,6 +286,10 @@ class CalculationStore:
                     total+=size
                     if i>=MAX_ENTRIES or total>MAX_TOTAL:
                         db.execute('DELETE FROM snapshots WHERE symbol=? AND tf=?',(name,frame))
-            self._saved[identity]=signature
+            self._handled[identity]=signature
+        except SnapshotTooLarge:
+            # A changing draft alone should not repeatedly serialize a
+            # closed history that is already too large to persist.
+            self._handled[identity]=signature
         except (OSError,sqlite3.Error,ValueError,TypeError,OverflowError,RecursionError):
             pass  # A derived cache can never make source data unavailable.

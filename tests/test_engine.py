@@ -98,6 +98,33 @@ class TestFvg(unittest.TestCase):
             engine.step(v)
         self.assertEqual(engine.zones, [])
 
+    def test_m5_checkpoint_keeps_absolute_zone_indices_and_isolates_forming_break(self):
+        def m5(i, o, h, l, c):
+            return Candle(BASE + timedelta(minutes=5 * i), o, h, l, c, 100)
+
+        prefix = [m5(i, 9, 10, 8, 9) for i in range(512)]
+        prefix += [m5(512, 10, 11, 9, 10), m5(513, 11, 12, 10, 11),
+                   m5(514, 12, 13, 11.5, 12)]
+        forming = m5(515, 11, 12, 10.5, 10.8)
+        options = dict(asof=forming.time + timedelta(minutes=1),
+                       market_structure=False, low_tf_flow=False, incremental=True)
+        before = analyze([*prefix, forming], 'M5', **options)
+        zone = before.confirmed_fvg[-1]
+        self.assertEqual((zone.start, zone.impulse, zone.created), (512, 513, 514))
+        self.assertTrue(zone.active)
+        self.assertEqual(before.fvg[-1].broken, 515)
+        fvg = before.replay_checkpoint.engines[1]
+        self.assertEqual(list(fvg._bars), prefix[-2:])
+
+        changed = [*prefix, m5(515, 11, 12, 10.5, 11.2)]
+        resumed = analyze(changed, 'M5', cached=before, **options)
+        fresh = analyze(changed, 'M5', **options)
+        self.assertEqual(resumed.fvg, fresh.fvg)
+        self.assertEqual(resumed.confirmed_fvg, fresh.confirmed_fvg)
+        self.assertTrue(resumed.fvg[-1].balanced)
+        self.assertTrue(resumed.fvg[-1].active)
+        self.assertEqual(before.fvg[-1].broken, 515)
+
 
 class TestStructure(unittest.TestCase):
     def test_mother_inside_and_reversal(self):
