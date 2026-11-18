@@ -68,8 +68,17 @@ jobs:
           # Never purge a release until a successful main-branch Windows build
           # with an actual Windows ZIP has been located and protected.
           runs = request("/actions/workflows/build-windows.yml/runs?branch=main&status=success&per_page=50")["workflow_runs"]
+          with open(os.environ["GITHUB_EVENT_PATH"], encoding="utf-8") as event_file:
+              trigger = json.load(event_file).get("workflow_run")
+          if (trigger and trigger.get("head_branch") == "main" and
+                  trigger.get("event") != "pull_request" and trigger.get("conclusion") == "success"):
+              # The completed event can arrive before the successful-run
+              # listing reflects the build that caused this cleanup.
+              runs = [trigger, *(run for run in runs if run["id"] != trigger["id"])]
+          runs.sort(key=lambda run: (run.get("created_at", ""), run["id"]), reverse=True)
           keep_run = None
           keep_ids = set()
+          keep_started = None
           for run in runs:
               if run.get("conclusion") != "success" or run.get("head_branch") != "main":
                   continue
@@ -79,8 +88,9 @@ jobs:
               if valid:
                   keep_run = run["id"]
                   keep_ids = {a["id"] for a in items if not a.get("expired")}
+                  keep_started = run.get("created_at")
                   break
-          if keep_run is None or not keep_ids:
+          if keep_run is None or not keep_ids or not keep_started:
               raise RuntimeError("Refusing cleanup: no verified Windows ZIP to preserve")
 
           # Protect in-progress runs from deletion; their artifacts will be
@@ -99,6 +109,9 @@ jobs:
 
           old = [a for a in all_artifacts
                  if a["id"] not in keep_ids and
+                 # Keep newer uploads visible in inventory even if the
+                 # corresponding run/artifact listing is still stale.
+                 a.get("created_at") and a["created_at"] < keep_started and
                  (a.get("workflow_run") or {}).get("id") not in active_runs]
           print("Protected successful run:", keep_run,
                 "; artifact IDs:", sorted(keep_ids))
