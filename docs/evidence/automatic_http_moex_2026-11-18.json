@@ -145,7 +145,52 @@
     ]
   },
   "windows_release": {
-    "status": "pending"
+    "status": "success",
+    "run_id": 44313026660,
+    "job_id": 134831794341,
+    "url": "https://github.com/alexanderpadalko/Terminal/actions/runs/44313026660",
+    "tests": 802,
+    "seconds": 98.879,
+    "tracebacks": 0,
+    "audits": "PASS",
+    "dpi": [
+      1,
+      1.25,
+      1.5,
+      2
+    ],
+    "compile_and_dependencies": "PASS",
+    "no_token_window": "PASS",
+    "frozen_runtime": {
+      "ok": true,
+      "automatic_http": true,
+      "moex_additions": true,
+      "terminal_scope": true,
+      "persistent_calculations": true
+    },
+    "model": "0378053a8a3a0fd157d67e64423fed925918ba9a0b293c59c4e16a5f48c12413",
+    "clean_exit_seconds": [
+      0.104,
+      0.091,
+      0.094
+    ],
+    "exit_codes": [
+      0,
+      0,
+      0
+    ],
+    "artifact": {
+      "id": 14430539232,
+      "name": "FlowDesk-0.2.26-Finam-Windows-x64-UNSIGNED",
+      "bytes": 49493295,
+      "sha256": "06180bd29876f62c23aa15cd937f630b13293f01343b45eed2bec3a55abd5758",
+      "url": "https://github.com/alexanderpadalko/Terminal/actions/runs/44313026660/artifacts/14430539232"
+    },
+    "evidence_artifact": {
+      "id": 14430224927,
+      "sha256": "2f3be04f16ea9ee9f8f6a7541acd2d9eabac9d200e45eee6b6165811ed79c185",
+      "url": "https://github.com/alexanderpadalko/Terminal/actions/runs/44313026660/artifacts/14430224927"
+    }
   },
   "limitations": [
     "Full EXE CPU/RAM not measured",
@@ -158,5 +203,6 @@
     "https://www.moex.com/n101980?nt=106",
     "https://www.moex.com/ru/tradingcalendar?market=derivatives-market",
     "https://www.moex.com/ru/derivatives/perpetual-futures/IMOEXF"
-  ]
+  ],
+  "code_commit": "a7b779e60b2dc51c4e6d9a8ccc57e9719843c780"
 }
