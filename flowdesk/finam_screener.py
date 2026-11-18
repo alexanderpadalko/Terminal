@@ -404,11 +404,15 @@ def _scan_one(service, ticker, mic, settings, *, cancelled=lambda:False,
     if callable(prepare):series=prepare(symbol,series,observed)
     else:series=exclude_stock_closing_auction(series,mic)
     metadata=getattr(series,'session_metadata',{}) or {}
-    for tf,issue in (metadata.get('issues',{}) or {}).items():
-        # Never replace source-specific HTTP permission/transport failures.
-        if tf in TIMEFRAMES and not series.get(tf) and issue:
-            fetch_problems.setdefault(tf,
-                _MOEX_PREPARATION_MESSAGES.get(issue,"не подтверждена исходная история Finam"))
+    # Native equities and other markets may have control diagnostics despite
+    # valid higher candles; they are not MOEX futures bootstrap failures.
+    from .moex_trading_family import POLICY as MOEX_POLICY
+    if metadata.get('version')==MOEX_POLICY:
+        for tf,issue in (metadata.get('issues',{}) or {}).items():
+            # Never replace source-specific HTTP permission/transport failures.
+            if tf in TIMEFRAMES and not series.get(tf) and issue:
+                fetch_problems.setdefault(tf,
+                    _MOEX_PREPARATION_MESSAGES.get(issue,"не подтверждена исходная история Finam"))
     analysis_tf=next((tf for tf in TIMEFRAMES if series.get(tf)),None)
     if analysis_tf is None:
         return unknown(symbol,'history_unavailable',

@@ -85,12 +85,11 @@ class TestMoexFirstOpen(unittest.TestCase):
         self.assertTrue(all(prepared.get(tf) for tf in ('D1','W1','MN1')))
         self.assertTrue(all("нет свечей" not in result.reason_map()[tf]
                             for tf in ('D','W','M')))
-        # Ready family is reused, not archived again by the next scan.
-        archived=[(tf,a,b) for _,tf,a,b in self.api.calls if
-                  self.api.archive_request(tf,a,b)]
-        scan_one(self.market,"CRZ6","RTSX",IndicatorSettings())
-        self.assertEqual([(tf,a,b) for _,tf,a,b in self.api.calls if
-                          self.api.archive_request(tf,a,b)],archived)
+        # Ready family must not enter the MOEX archive bootstrap again.
+        # A normal overlapping D1 HTTP refresh is allowed on each scan.
+        with patch("flowdesk.moex_trading_family.backfill",wraps=moex.backfill) as bootstrap:
+            scan_one(self.market,"CRZ6","RTSX",IndicatorSettings())
+            bootstrap.assert_not_called()
 
     def test_screener_surfaces_finam_bootstrap_denial_without_signals(self):
         from flowdesk.finam_screener import scan_one
