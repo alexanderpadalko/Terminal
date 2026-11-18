@@ -243,6 +243,91 @@ def build_family(raw,symbol,observed,*,observations,archive_verified,coverage=No
     return family,'ready',detail
 
 
+
+SNAPSHOT_RECHECK_SECONDS=300
+
+
+def _unconfirmed_snapshot(raw,symbol,observed):
+    """Find one exact native source that lacks valid post-close evidence."""
+    state=getattr(raw,'source_state',None)
+    if not state:return None
+    observed_at={(tf,datetime.fromisoformat(ts)):datetime.fromisoformat(stamp)
+                 for tf,ts,stamp in state.get('observations',())}
+    unknown=datetime.min.replace(tzinfo=UTC)
+    daily=normalize(raw.get('D1',()))
+    for index,bar in enumerate(daily):
+        if bar.time>observed:continue
+        end=_physical_end(bar,symbol)
+        known=observed_at.get(('D1',bar.time),unknown)
+        legacy=known==unknown
+        successor=index+1<len(daily) and daily[index+1].time<=observed
+        valid=((legacy and successor) or (not legacy and end<=known<=observed)
+               if end<=observed else not legacy and bar.time<=known<=observed)
+        if not valid:return ('D1',bar.time)
+    for tf in ('W1','MN1'):
+        boundary=_period(launch(symbol),tf)[0]
+        rows=normalize(raw.get(tf,()))
+        for index,bar in enumerate(rows):
+            if bar.time>observed or _period(_local_date(bar),tf)[0]>=boundary:
+                continue
+            end=candle_close_time(bar,tf)
+            known=observed_at.get((tf,bar.time),unknown)
+            successor=index+1<len(rows) and rows[index+1].time<=observed
+            if not ((known==unknown and successor) or end<=known<=observed):
+                if end<=observed:return (tf,bar.time)
+    return None
+
+
+def recheck_unconfirmed_snapshot(service,symbol,raw,observed,*,cancelled,priority=10):
+    """Re-fetch a precise raw Finam candle; no synthetic close or cross-contract join."""
+    from contextlib import nullcontext
+    from .session_store import record_response
+    target=_unconfirmed_snapshot(raw,symbol,observed)
+    if target is None:return False
+    tf,stamp=target
+    lock=service._key_lock(service._pull_locks,(symbol,PROGRESS))
+    service._acquire(lock,cancelled)
+    try:
+        now=service.clock()
+        with service.lock:
+            attempts=service._source_repair_attempts
+            key=(symbol,tf,stamp)
+            prior=attempts.get(key)
+            if prior is not None and 0<=(now-prior).total_seconds()<SNAPSHOT_RECHECK_SECONDS:
+                return False
+            attempts[key]=now
+            generation=service._generation
+        if cancelled():raise InterruptedError()
+        start=stamp-timedelta(hours=1)
+        end=min(observed+timedelta(microseconds=1),stamp+timedelta(days=30))
+        if end<=start:return False
+        scope=getattr(service.api,'request_scope',None)
+        try:
+            with scope(priority=priority,cancelled=cancelled) if scope else nullcontext():
+                bars=service.api.bars(symbol,tf,start=start,end=end)
+            if cancelled() or generation!=service._generation:raise InterruptedError()
+            if any(not start<=b.time<end for b in bars):
+                raise ValueError('Source recheck returned a bar outside the requested interval')
+            if not any(b.time==stamp for b in bars):
+                return False
+            with service.lock:
+                if generation!=service._generation:raise InterruptedError()
+                service._upsert(symbol,tf,bars)
+            record_response(service,symbol,tf,bars,start,end,observed)
+            return True
+        except InterruptedError:
+            with service.lock:attempts.pop(key,None)
+            raise
+        except Exception as exc:
+            from .diagnostics_log import log_event
+            log_event('candle_source_unavailable',symbol=symbol,timeframe=tf,
+                      error=exc,stage='candles',outcome='failed')
+            if getattr(exc,'http_status',None)==429:raise
+            return False
+    finally:
+        lock.release()
+
+
 def backfill(service,symbol,now,*,cancelled):
     if not enabled(symbol):return {}
     # The selected chart and scanner can request this same bootstrap at once.
