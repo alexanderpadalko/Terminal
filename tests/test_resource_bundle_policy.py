@@ -85,7 +85,7 @@ class ResourceBundlePolicyTests(unittest.TestCase):
     def test_universe_and_active_routing_are_finam_only_and_include_ed(self):
         from flowdesk.market_services import MarketServices
         universe,_=compose_universe()
-        self.assertEqual(sum(len(rows) for rows in universe.values()),22)
+        self.assertEqual(sum(len(rows) for rows in universe.values()),27)
         self.assertNotIn('crypto',universe)
         ed=next(row for row in universe[RU_FUTURES] if row.label=='EDZ2026')
         self.assertEqual(ed.name,'Евро / доллар')

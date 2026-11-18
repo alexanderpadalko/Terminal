@@ -24,10 +24,11 @@ class TestCuratedFinamUniverse(unittest.TestCase):
                          ["GCZ2026","SIZ2026","NGZ2026","BRNF2027"])
         self.assertEqual([x.label for x in universe[RU_FUTURES]],
                          ["SIZ2026","CRZ2026","EUZ2026","EDZ2026","USDRUB.P",
-                          "CNYRUB.P","EURRUB.P","MXZ2026"])
+                          "CNYRUB.P","EURRUB.P","MXZ2026","IRUS.P",
+                          "GDZ2026","SVZ2026","BRZ2026","NGX2026"])
         self.assertNotIn(CRYPTO,universe)
         self.assertEqual(len(universe[RU_STOCKS]),10)
-        self.assertEqual(sum(map(len,universe.values())),22)
+        self.assertEqual(sum(map(len,universe.values())),27)
         self.assertFalse(is_in_universe("ETHUSDT@BINANCE",universe))
         self.assertTrue(status)
 
@@ -64,9 +65,32 @@ class TestCuratedFinamUniverse(unittest.TestCase):
         contracts=[c for c in RU_CONTRACTS if c.display.endswith(".P")]
         matches=[{"ticker":"USDRUBF","mic":"RTSX","symbol":"USDRUBF@RTSX"},
                  {"ticker":"CNYRUBF","mic":"RTSX","symbol":"CNYRUBF@RTSX"},
-                 {"ticker":"EURRUBF","mic":"RTSX","symbol":"EURRUBF@RTSX"}]
+                 {"ticker":"EURRUBF","mic":"RTSX","symbol":"EURRUBF@RTSX"},
+                 {"ticker":"IMOEXF","mic":"RTSX","symbol":"IMOEXF@RTSX"}]
         self.assertEqual([match_contract(c,matches) for c in contracts],
                          [r["symbol"] for r in matches])
+
+    def test_added_moex_contracts_resolve_exact_venue_and_keep_its_candle_policy(self):
+        from datetime import date
+        from flowdesk.trading_calendar import calendar_for
+        from flowdesk.moex_trading_family import enabled
+        from flowdesk.us_futures_family import product
+        expected={'IRUS.P':'IMOEXF','GDZ2026':'GDZ6','SVZ2026':'SVZ6',
+                  'BRZ2026':'BRZ6','NGX2026':'NGX6'}
+        for contract in RU_CONTRACTS:
+            if contract.display not in expected:continue
+            ticker=expected[contract.display]
+            rows=[{'ticker':ticker,'mic':'RTSX','symbol':ticker+'@RTSX','type':'FUTURES'},
+                  {'ticker':ticker,'mic':'XNYM','symbol':ticker+'@XNYM','type':'FUTURES'}]
+            symbol=match_contract(contract,rows)
+            self.assertEqual(symbol,ticker+'@RTSX')
+            self.assertTrue(enabled(symbol))
+            self.assertIsNone(product(symbol))
+            calendar=calendar_for(symbol)
+            self.assertEqual(calendar.profile,'MOEX_FUTURE_FULL')
+            self.assertEqual(calendar.session(date(2026,11,18)).segments,
+                calendar_for('CRZ6@RTSX').session(date(2026,11,18)).segments)
+            self.assertEqual(match_contract(contract,rows[1:]),'')
 
     def test_previous_confirmed_twenty_session_rank_is_trimmed_to_top_ten(self):
         stock_rows=[{"symbol":f"S{i:02d}","board":"TQBR","kind":"stock",

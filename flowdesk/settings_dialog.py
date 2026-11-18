@@ -9,7 +9,7 @@ from PySide6.QtWidgets import (
 )
 from .settings import (IndicatorSettings, ApplicationSettings, specifications,
                        CHART_COLOR_FIELDS, CHART_THEME_DEFAULTS)
-from .terminal_policy import retired_setting
+from .terminal_policy import retired_setting, HTTP_REFRESH_SECONDS
 
 
 def qcolor(value):
@@ -326,11 +326,13 @@ class SettingsDialog(QDialog):
                 'Secret key хранится в хранилище Windows; в настройках не отображается.')
             self.token_button.clicked.connect(lambda: token_action(self))
             form.addRow('Доступ к Finam Trade API',self.token_button)
-        self.refresh=QSpinBox()
-        self.refresh.setRange(10,3600)
-        self.refresh.setSuffix(' с')
-        self.refresh.setValue(application.refresh_seconds)
-        form.addRow('Интервал резервного HTTP-обновления',self.refresh)
+        self.refresh=None
+        if not finam_only:
+            self.refresh=QSpinBox()
+            self.refresh.setRange(10,3600)
+            self.refresh.setSuffix(' с')
+            self.refresh.setValue(application.refresh_seconds)
+            form.addRow('Интервал резервного HTTP-обновления',self.refresh)
         self.panel=None
         if not finam_only:
             # The historical MainWindow still uses this toggle to show its
@@ -390,7 +392,7 @@ class SettingsDialog(QDialog):
         colors={field:button.value for field,button in self.chart_controls.items()}
         return IndicatorSettings(values),ApplicationSettings(
             True if self.finam_only else self.auto.isChecked(),
-            self.refresh.value(),
+            HTTP_REFRESH_SECONDS if self.finam_only else self.refresh.value(),
             self._initial_show_panel if self.finam_only else self.panel.isChecked(),
             True if self.finam_only else self.http.isChecked(),
             **colors)
@@ -417,7 +419,8 @@ class SettingsDialog(QDialog):
             else:control.setCurrentText(value)
         if self.auto is not None:
             self.auto.setChecked(True)
-        self.refresh.setValue(60)
+        if self.refresh is not None:
+            self.refresh.setValue(60)
         if self.panel is not None:
             self.panel.setChecked(False)
         if self.http is not None:

@@ -8,7 +8,7 @@ import sqlite3
 import threading
 import math
 from .finam_api import FinamAPI, FinamAPIError, FRAMES, DEPTH_DAYS, parse_instant
-from .terminal_policy import DISPLAY_TIMEFRAMES, SOURCE_TIMEFRAMES, FLOW_TIMEFRAMES, POLICY_VERSION
+from .terminal_policy import DISPLAY_TIMEFRAMES, SOURCE_TIMEFRAMES, FLOW_TIMEFRAMES, POLICY_VERSION, HTTP_REFRESH_SECONDS
 from .market_symbols import symbol_name
 from .market_data import Candle, normalize, candle_close_time
 from .pipeline import analyze_timeframes
@@ -23,7 +23,7 @@ from . import moex_trading_family as moex
 from .calculation_store import CalculationStore
 
 TTL_SECONDS = {"M1":60,"M5":300,"H1":300,"H4":900,"D1":1800,"W1":3600,"MN1":14400}
-STREAM_VERIFY_SECONDS = 900
+STREAM_VERIFY_SECONDS = HTTP_REFRESH_SECONDS
 FULL_VERIFY_SECONDS = 86400
 ANALYSIS_CACHE_ENTRIES = 4
 ANALYSIS_CACHE_UNITS = 100000

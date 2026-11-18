@@ -126,16 +126,19 @@ class TestSharedHistory(unittest.TestCase):
 
     def test_stream_health_is_per_frame_and_reconnect_forces_recovery(self):
         self.service.refresh_series(self.symbol,["H1"])
-        self.now+=timedelta(seconds=301)
+        self.now+=timedelta(seconds=299)
         event=FinamEvent("candles","SIZ6","RTSX",1,self.now,"H1",tuple(self.api.rows))
         self.service.ingest_stream("SIZ6","RTSX",[event])
         self.service.refresh_series(self.symbol,["H1"])
         self.assertEqual(len(self.api.calls),1)
-        self.service.refresh_series(self.symbol,["M5"])
+        self.now+=timedelta(seconds=2)
+        self.service.refresh_series(self.symbol,["H1"])
         self.assertEqual(len(self.api.calls),2)
+        self.service.refresh_series(self.symbol,["M5"])
+        self.assertEqual(len(self.api.calls),3)
         self.service.mark_stream_reconnect(self.symbol)
         self.service.refresh_series(self.symbol,["H1"])
-        self.assertEqual(len(self.api.calls),3)
+        self.assertEqual(len(self.api.calls),4)
         self.assertNotIn((self.symbol,"H1"),self.service._repair)
 
     def test_old_snapshot_does_not_suppress_http_and_gap_is_repaired(self):

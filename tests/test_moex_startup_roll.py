@@ -5,6 +5,7 @@ from datetime import datetime, timezone, date, timedelta
 from pathlib import Path
 import tempfile
 import unittest
+import json
 
 from PySide6.QtWidgets import QApplication
 
@@ -14,6 +15,7 @@ from flowdesk.finam_rotation import (
 )
 from flowdesk.moex_reference import refresh_top10
 from flowdesk.finam_catalog_worker import FinamCatalogWorker
+from flowdesk.finam_futures_cache import FuturesListCache
 
 
 NOW=datetime(2026,11,13,14,30,tzinfo=timezone.utc)
@@ -52,6 +54,22 @@ class API:
 
 
 class TestRollover(unittest.TestCase):
+    def test_added_moex_gas_rolls_by_finam_expiry_and_irus_has_no_roll(self):
+        gas=next(c for c in RU_CONTRACTS if c.display=='NGX2026')
+        rows=[row('NGX6','RTSX','2026-11-25'),row('NGZ6','RTSX','2026-12-29'),
+              row('NGZ6','XNYM','2026-11-24'),row('IMOEXF','RTSX')]
+        api=API(rows)
+        for day,expected in ((date(2026,11,23),'NGX6@RTSX'),
+                             (date(2026,11,24),'NGZ6@RTSX')):
+            result=resolve_contract(gas,rows,api,today=day,now=NOW)
+            self.assertEqual(result.item.symbol,expected)
+            self.assertTrue(result.item.verified)
+        index=next(c for c in RU_CONTRACTS if c.display=='IRUS.P')
+        result=resolve_contract(index,rows,api,today=NOW.date(),now=NOW)
+        self.assertEqual(result.item.symbol,'IMOEXF@RTSX')
+        self.assertEqual(result.reason,'perpetual')
+        self.assertFalse(any(kind=='quote' for kind,_ in api.calls))
+
     def test_contract_stays_until_day_before_expiry_without_quote_calls(self):
         base=NQ_ROLLOVER_CONTRACT
         rows=[row("NQZ6","XCME","2026-12-18"),
@@ -173,7 +191,7 @@ class TestMoexTurnover(unittest.TestCase):
 
     def test_exact_moex_top10_refreshes_at_launch(self):
         from flowdesk.watchlist import WatchlistService
-        cache=WatchlistService().cached()
+        cache=json.loads((Path(__file__).resolve().parents[1]/'flowdesk/data/watchlist_seed.json').read_text(encoding='utf-8'))
         self.assertIsNotNone(cache)
         class Watchlist:
             def __init__(self):
@@ -204,7 +222,7 @@ class TestCatalogStartup(unittest.TestCase):
 
     def test_startup_refreshes_stocks_and_switches_one_day_before_expiry(self):
         from flowdesk.watchlist import WatchlistService
-        base=WatchlistService().cached()
+        base=json.loads((Path(__file__).resolve().parents[1]/'flowdesk/data/watchlist_seed.json').read_text(encoding='utf-8'))
         rows=[row("GCZ6","XCME","2026-11-14"),
               row("GCH7","XCME","2027-03-19"),
               row("SiZ6","RTSX","2026-11-14"),
@@ -222,6 +240,7 @@ class TestCatalogStartup(unittest.TestCase):
             source=StockSource()
             worker=FinamCatalogWorker(api,watchlist=source,
                 roll_state=RollState(Path(directory)/"state.json"),
+                futures_cache=FuturesListCache(directory),
                 clock=lambda:NOW)
             messages=[]
             worker.loaded.connect(messages.append)

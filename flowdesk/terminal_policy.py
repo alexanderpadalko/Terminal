@@ -4,6 +4,7 @@ DISPLAY_TIMEFRAMES = ('M5', 'H4', 'D1', 'W1', 'MN1')
 SOURCE_TIMEFRAMES = ('M5', 'H1', 'H4', 'D1', 'W1', 'MN1')
 FLOW_TIMEFRAMES = ('H4', 'D1', 'W1', 'MN1')
 SUMMARY_LABELS = ('H4', 'D', 'W', 'M')
+HTTP_REFRESH_SECONDS = 300
 POLICY_VERSION = 'terminal-h4-d-w-m-1'
 
 

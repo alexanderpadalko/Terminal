@@ -52,6 +52,12 @@ class TestFinamGui(unittest.TestCase):
             side_effect=lambda *args:QSettings(str(directory/"prefs.ini"),QSettings.Format.IniFormat))
         self.prefs_patch.start()
         self.addCleanup(self.prefs_patch.stop)
+        from flowdesk.finam_futures_cache import FuturesListCache
+        class IsolatedFuturesListCache(FuturesListCache):
+            def __init__(self):super().__init__(directory)
+        self.cache_patch=patch('flowdesk.finam_gui.FuturesListCache',IsolatedFuturesListCache)
+        self.cache_patch.start()
+        self.addCleanup(self.cache_patch.stop)
         self.market=FinamMarket()
         self.window=FinamWindow(service=self.market,settings_store=SettingsStore(directory/"settings.json"))
         self.window.show()
@@ -309,7 +315,7 @@ class TestFinamGui(unittest.TestCase):
 
     def test_fixed_universe_has_three_finam_groups_without_old_demo_assets(self):
         rows=[self.window.examples.item(i).text() for i in range(self.window.examples.count())]
-        self.assertEqual(len(rows),4+10+8+3)
+        self.assertEqual(len(rows),4+10+13+3)
         self.assertFalse(self.window.symbol_edit.isVisible())
         self.assertFalse(self.window.mic.isVisible())
         self.assertFalse(any("AAPL" in s for s in rows))
@@ -357,11 +363,11 @@ class TestFinamGui(unittest.TestCase):
         self.assertFalse(any("Поиск в выбранном списке" in field.placeholderText()
                              for field in self.window.findChildren(QLineEdit)))
         self.assertEqual(set(self.window.screen_buttons), {"H4","D","W","M"})
-        self.assertEqual(self.window.examples.count(),25)
+        self.assertEqual(self.window.examples.count(),30)
         self.window.screen_buttons["H4"].setChecked(True)
-        self.assertLessEqual(self.window.examples.count(),26)
+        self.assertLessEqual(self.window.examples.count(),31)
         self.window.screen_buttons["H4"].setChecked(False)
-        self.assertEqual(self.window.examples.count(),25)
+        self.assertEqual(self.window.examples.count(),30)
 
     def test_crypto_selection_cannot_start_a_network_connection(self):
         self.assertNotIn("BINANCE",[self.window.mic.itemText(i) for i in range(self.window.mic.count())])
@@ -452,7 +458,8 @@ class TestFinamGui(unittest.TestCase):
                 ApplicationSettings(False,120,False,False))
         persisted=self.window.settings_store.read()[1]
         self.assertTrue(persisted.allow_http and persisted.auto_updates)
-        self.assertEqual(persisted.refresh_seconds,120)
+        self.assertEqual(persisted.refresh_seconds,300)
+        self.assertEqual(self.window.http_timer.interval(),300000)
 
     def test_finam_settings_hide_unused_panel_and_candle_explanation(self):
         from PySide6.QtWidgets import QCheckBox, QLabel
@@ -465,25 +472,64 @@ class TestFinamGui(unittest.TestCase):
                 self.assertIsNone(dialog.panel)
                 self.assertIsNone(dialog.auto)
                 self.assertIsNone(dialog.http)
+                self.assertIsNone(dialog.refresh)
                 labels=[widget.text() for widget in dialog.findChildren(QLabel)]
                 self.assertFalse(any("Показывать боковую панель" in label or
                                      "Время свечи" in label or
-                                     "готовые свечи Finam" in label
+                                     "готовые свечи Finam" in label or
+                                     "Интервал резервного" in label
                                      for label in labels))
-                dialog.refresh.setValue(120)
                 _,edited=dialog.values()
-                self.assertEqual(edited.refresh_seconds,120)
+                self.assertEqual(edited.refresh_seconds,300)
                 self.assertEqual(edited.show_panel,original)
                 self.assertTrue(edited.allow_http and edited.auto_updates)
                 self.assertIn("Finam",dialog.token_button.text())
                 dialog.restore_defaults()
                 _,reset=dialog.values()
-                self.assertEqual(reset.refresh_seconds,60)
+                self.assertEqual(reset.refresh_seconds,300)
                 self.assertEqual(reset.show_panel,original)
             finally:
                 dialog.close()
         # The working instrument list is unaffected by the removed checkbox.
         self.assertGreater(self.window.examples.count(),0)
+
+    def test_automatic_http_recheck_waits_for_busy_loader_and_coalesces_requests(self):
+        from unittest.mock import MagicMock
+        thread=MagicMock()
+        self.window.loader=thread
+        try:
+            with patch('flowdesk.finam_gui.read_secret',return_value='test'), \
+                 patch.object(self.window,'_load') as load:
+                for _ in range(5):self.window._http_refresh()
+                load.assert_not_called()
+                self.assertTrue(self.window._http_refresh_pending)
+                with patch.object(self.window,'sender',return_value=thread):
+                    self.window._load_finished()
+                load.assert_called_once_with(refresh=True,events=())
+                self.assertFalse(self.window._http_refresh_pending)
+        finally:
+            self.window.loader=None
+
+    def test_reconnect_ready_schedules_one_repair_and_ignores_duplicate_ready(self):
+        from datetime import datetime,timezone
+        from types import SimpleNamespace
+        from flowdesk.finam_stream import FinamEvent
+        self.window.stream=SimpleNamespace(ticker='SBER',mic='MISX')
+        marked=[]
+        self.market.mark_stream_reconnect=marked.append
+        try:
+            with patch.object(self.window,'_http_refresh') as refresh:
+                self.window._event(FinamEvent('status','SBER','MISX',2,
+                    datetime.now(timezone.utc),state='resync'))
+                ready=FinamEvent('status','SBER','MISX',2,
+                    datetime.now(timezone.utc),state='ready')
+                self.window._event(ready)
+                self.window._event(ready)
+                self.app.processEvents()
+                self.assertEqual(marked,['SBER@MISX'])
+                refresh.assert_called_once_with()
+        finally:
+            self.window.stream=None
 
     def test_screener_badges_have_one_visible_title_and_wider_sidebar(self):
         from PySide6.QtCore import Qt
@@ -569,7 +615,7 @@ class TestFinamGui(unittest.TestCase):
                              self.window.screen_buttons.values()))
         initial=[self.window.examples.item(i) for i in
                  range(self.window.examples.count())]
-        self.assertEqual(len(initial),25)
+        self.assertEqual(len(initial),30)
         self.window.screen_results[sber.symbol]=ScanResult(
             sber.symbol,(1,0,0,0))
         self.window.screen_results[lkoh.symbol]=ScanResult(
@@ -600,7 +646,7 @@ class TestFinamGui(unittest.TestCase):
                             if not row.isHidden()))
         self.window.screen_buttons["H4"].setChecked(False)
         self.window.screen_buttons["W"].setChecked(False)
-        self.assertEqual(self.window.examples.count(),25)
+        self.assertEqual(self.window.examples.count(),30)
         self.assertIs(self.window.chart.analysis,analysis)
 
     def test_scanner_missing_history_stays_neutral_not_short(self):
@@ -690,7 +736,7 @@ class TestFinamGui(unittest.TestCase):
         self.window._populate_universe()
         self.assertFalse(any(button.isChecked() for button in
                              self.window.screen_buttons.values()))
-        self.assertEqual(self.window.examples.count(),25)
+        self.assertEqual(self.window.examples.count(),30)
         row=next(self.window.examples.item(i) for i in
                  range(self.window.examples.count())
                  if self.window.examples.item(i).text().startswith("SBER ·"))

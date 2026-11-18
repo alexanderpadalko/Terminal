@@ -1,0 +1,162 @@
+{
+  "date": "2026-11-18",
+  "version": "0.2.26",
+  "base_commit": "92ce70a7fc511dac59ebe07ded15aa56759893f0",
+  "scope": {
+    "provider": "Finam",
+    "instruments": 27,
+    "us_futures": 4,
+    "ru_futures": 13,
+    "stocks": 10,
+    "selected_chart_http_seconds": 300,
+    "manual_interval_visible": false,
+    "screener_http_seconds": 300,
+    "websocket": "selected symbol only",
+    "busy_recheck": "coalesced, retry after current worker",
+    "duplicate_ready": "no duplicate recheck",
+    "h4_algorithm": "unchanged; GD/SV/BR/NG RTSX calendar allow-list extended"
+  },
+  "live_metadata": {
+    "source": "Finam GET metadata and H1",
+    "checked_at": "2026-11-18T13:11:38.905238+00:00",
+    "instruments": [
+      {
+        "symbol": "IMOEXF@RTSX",
+        "expiry": null,
+        "tick": 0.5,
+        "h1_bars": 34,
+        "first": "2026-11-16T14:00:00+00:00",
+        "last": "2026-11-18T13:00:00+00:00"
+      },
+      {
+        "symbol": "GDZ6@RTSX",
+        "expiry": "2026-12-18",
+        "tick": 0.1,
+        "h1_bars": 34,
+        "first": "2026-11-16T14:00:00+00:00",
+        "last": "2026-11-18T13:00:00+00:00"
+      },
+      {
+        "symbol": "SVZ6@RTSX",
+        "expiry": "2026-12-18",
+        "tick": 0.01,
+        "h1_bars": 34,
+        "first": "2026-11-16T14:00:00+00:00",
+        "last": "2026-11-18T13:00:00+00:00"
+      },
+      {
+        "symbol": "BRZ6@RTSX",
+        "expiry": "2026-12-01",
+        "tick": 0.01,
+        "h1_bars": 34,
+        "first": "2026-11-16T14:00:00+00:00",
+        "last": "2026-11-18T13:00:00+00:00"
+      },
+      {
+        "symbol": "NGX6@RTSX",
+        "expiry": "2026-11-25",
+        "tick": 0.001,
+        "h1_bars": 34,
+        "first": "2026-11-16T14:00:00+00:00",
+        "last": "2026-11-18T13:00:00+00:00"
+      }
+    ]
+  },
+  "live_h4_charts": {
+    "source": "Finam public view(H4)",
+    "isolated_database": true,
+    "results": [
+      {
+        "symbol": "IMOEXF@RTSX",
+        "ok": true,
+        "h4_bars": 127,
+        "parent_frames": [],
+        "first": "2026-10-19T16:00:00+00:00",
+        "last": "2026-11-18T12:00:00+00:00",
+        "seconds": 3.469
+      },
+      {
+        "symbol": "GDZ6@RTSX",
+        "ok": true,
+        "h4_bars": 127,
+        "parent_frames": [],
+        "first": "2026-10-19T16:00:00+00:00",
+        "last": "2026-11-18T12:00:00+00:00",
+        "seconds": 2.656
+      },
+      {
+        "symbol": "SVZ6@RTSX",
+        "ok": true,
+        "h4_bars": 127,
+        "parent_frames": [],
+        "first": "2026-10-19T16:00:00+00:00",
+        "last": "2026-11-18T12:00:00+00:00",
+        "seconds": 2.672
+      },
+      {
+        "symbol": "BRZ6@RTSX",
+        "ok": true,
+        "h4_bars": 127,
+        "parent_frames": [],
+        "first": "2026-10-19T16:00:00+00:00",
+        "last": "2026-11-18T12:00:00+00:00",
+        "seconds": 2.719
+      },
+      {
+        "symbol": "NGX6@RTSX",
+        "ok": true,
+        "h4_bars": 127,
+        "parent_frames": [],
+        "first": "2026-10-19T16:00:00+00:00",
+        "last": "2026-11-18T12:00:00+00:00",
+        "seconds": 2.843
+      }
+    ],
+    "ok": true
+  },
+  "local_targeted_tests": {
+    "universe": 11,
+    "network_and_history": 18,
+    "startup_and_roll": 15,
+    "resource_policy": 6,
+    "all_passed": true
+  },
+  "compileall": "PASS",
+  "pip_check": "PASS",
+  "local_calculation_model": {
+    "schema": 2,
+    "sha256": "b1fae89e74da139e68a0d683c5dc7aa80f8d5eb355b98310b0c840faacbb0d0c",
+    "files": [
+      "engine.py",
+      "reference_engine.py",
+      "reference_runtime.py",
+      "v214_working_fvg.py",
+      "replay_checkpoint.py",
+      "liquidity.py",
+      "pipeline.py",
+      "history_analysis.py",
+      "market_data.py",
+      "settings.py",
+      "terminal_policy.py",
+      "finam_market.py",
+      "calculation_store.py",
+      "data/reference_v211.json",
+      "data/settings_v211.json"
+    ]
+  },
+  "windows_release": {
+    "status": "pending"
+  },
+  "limitations": [
+    "Full EXE CPU/RAM not measured",
+    "H4 live checks do not prove full archive completion",
+    "Full GUI and packaged checks are recorded by Windows CI"
+  ],
+  "installed_to_user_machine": false,
+  "official_schedule_sources": [
+    "https://www.moex.com/n95054",
+    "https://www.moex.com/n101980?nt=106",
+    "https://www.moex.com/ru/tradingcalendar?market=derivatives-market",
+    "https://www.moex.com/ru/derivatives/perpetual-futures/IMOEXF"
+  ]
+}

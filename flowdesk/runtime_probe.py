@@ -85,7 +85,14 @@ def check_finam_runtime(output):
                 checked.append(symbol)
         result['us_futures_session_last_trade']=len(checked)==8
         from .pipeline import analyze_timeframes
-        from .terminal_policy import DISPLAY_TIMEFRAMES, FLOW_TIMEFRAMES
+        from .terminal_policy import DISPLAY_TIMEFRAMES, FLOW_TIMEFRAMES, HTTP_REFRESH_SECONDS
+        from .finam_universe import RU_CONTRACTS
+        result['automatic_http']=HTTP_REFRESH_SECONDS==300
+        result['moex_additions']=all(
+            any(c.display==label and c.mics==('RTSX',) for c in RU_CONTRACTS)
+            and calendar_for(symbol).profile=='MOEX_FUTURE_FULL'
+            for label,symbol in (('IRUS.P','IMOEXF@RTSX'),('GDZ2026','GDZ6@RTSX'),
+                ('SVZ2026','SVZ6@RTSX'),('BRZ2026','BRZ6@RTSX'),('NGX2026','NGX6@RTSX')))
         terminal_sources={tf:[Candle(observed-timedelta(hours=i),100,102,99,101,1,
                               scheduled_close=observed-timedelta(hours=i-1))
                               for i in range(12,0,-1)] for tf in (*DISPLAY_TIMEFRAMES,'H1','M1')}
@@ -112,7 +119,8 @@ def check_finam_runtime(output):
                         and result.get('session_candles')
                         and result.get('native_dwm') and result.get('nq_session_family')
                         and result.get('nq_session_last_trade') and result.get('us_futures_session_last_trade')
-                        and result.get('terminal_scope') and result.get('persistent_calculations'))
+                        and result.get('terminal_scope') and result.get('persistent_calculations')
+                        and result.get('automatic_http') and result.get('moex_additions'))
     except Exception as exc:
         result["error_type"] = type(exc).__name__
     Path(output).write_text(json.dumps(result, indent=2), encoding="utf-8")

@@ -59,13 +59,18 @@ RU_CONTRACTS=(
     Contract("EURRUB.P","Вечный EUR/RUB",RU_FUTURES,("EURRUBF","EURRUB.P"),("RTSX",)),
     Contract("MXZ2026","Индекс Мосбиржи",RU_FUTURES,
              _expires("MX","Z",2026)+_expires("MIX","Z",2026),("RTSX",)),
+    Contract("IRUS.P","Вечный индекс Мосбиржи",RU_FUTURES,("IMOEXF","IRUS.P"),("RTSX",)),
+    _ru("GDZ2026","Золото","GD"),
+    _ru("SVZ2026","Серебро","SV"),
+    _ru("BRZ2026","Brent","BR"),
+    _ru("NGX2026","Природный газ","NG",month='X'),
 )
-assert len(US_CONTRACTS)==4 and len(RU_CONTRACTS)==8
+assert len(US_CONTRACTS)==4 and len(RU_CONTRACTS)==13
 
 GROUP_LABELS={
     US_FUTURES:"ФЬЮЧЕРСЫ США · 4",
     RU_STOCKS:"АКЦИИ РФ · ТОП-10 ПО ОБОРОТУ",
-    RU_FUTURES:"ФЬЮЧЕРСЫ РФ · 8",
+    RU_FUTURES:"ФЬЮЧЕРСЫ РФ · 13",
 }
 
 
@@ -130,7 +135,7 @@ def cached_top10(*, watchlist=None):
 
 
 def compose_universe(assets=(),*,watchlist=None):
-    """Four US futures, up to ten ranked shares, eight Russian futures."""
+    """Four US futures, up to ten ranked shares, thirteen Russian futures."""
     def contracts(items):
         rows=[]
         for c in items:

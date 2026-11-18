@@ -41,6 +41,11 @@ def provider_isolation(root):
     rows=compose_universe()[0][RU_FUTURES]
     require(any(row.label=="EDZ2026" for row in rows),"ED missing")
     require(routed.for_symbol("EDZ6@RTSX") is finam,"ED not routed to Finam")
+    for label,symbol in (('IRUS.P','IMOEXF@RTSX'),('GDZ2026','GDZ6@RTSX'),
+                         ('SVZ2026','SVZ6@RTSX'),('BRZ2026','BRZ6@RTSX'),
+                         ('NGX2026','NGX6@RTSX')):
+        require(any(row.label==label for row in rows),'Added MOEX future missing')
+        require(routed.for_symbol(symbol) is finam,'MOEX future not routed to Finam')
     try:routed.for_symbol("BTCUSDT@BINANCE")
     except ValueError:pass
     else:raise AssertionError("Retired crypto connection enabled")
@@ -174,7 +179,7 @@ def main():
     tracemalloc.start()
     report={"audit_schema":1,"mode":"offline_synthetic",
             "external_requests":False,"secrets_used":False,
-            "coverage":"22 Finam instruments, including ED; 6 source frames, 5 chart frames"}
+            "coverage":"27 Finam instruments, including ED and 5 MOEX additions; 6 source frames, 5 chart frames"}
     try:
         with tempfile.TemporaryDirectory(prefix="flowdesk-extended-audit-") as folder:
             root=Path(folder)

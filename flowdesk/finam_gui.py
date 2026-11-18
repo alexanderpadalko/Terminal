@@ -39,7 +39,7 @@ from .finam_stream import FinamStreamWorker
 from .finam_screener import FinamScreenerWorker, ScanResult, LABELS, unknown
 from .history_archive import HistoryArchiveWorker
 from .gui import CandleChart, TimeframeBar
-from .terminal_policy import DISPLAY_TIMEFRAMES
+from .terminal_policy import DISPLAY_TIMEFRAMES, HTTP_REFRESH_SECONDS
 from .settings import IndicatorSettings, ApplicationSettings, SettingsStore
 from .settings_dialog import SettingsDialog
 
@@ -133,7 +133,8 @@ class FinamWindow(QMainWindow):
         self.indicator_settings, self.app_settings = self.settings_store.read()
         # Finam-only terminal has unconditional WebSocket and HTTP candle access.
         # Old saved settings must never silently turn either one off.
-        self.app_settings=replace(self.app_settings,auto_updates=True,allow_http=True)
+        self.app_settings=replace(self.app_settings,auto_updates=True,allow_http=True,
+                                  refresh_seconds=HTTP_REFRESH_SECONDS)
         self.ui_prefs = QSettings("FlowDesk","FinamOnly")
         self.loader = None
         self.stream = None
@@ -145,6 +146,7 @@ class FinamWindow(QMainWindow):
         self.displayed_view = None
         self.pending_load = None
         self.pending_bars = {}
+        self._http_refresh_pending = False
         self.closing = False
         self.analysis = None
         self.parents = {}
@@ -801,7 +803,8 @@ class FinamWindow(QMainWindow):
         recalculate=self.indicator_settings.calculation_key()!=indicator.calculation_key()
         self.indicator_settings=indicator
         # Both transports remain enabled even when importing older settings.
-        self.app_settings=replace(application,auto_updates=True,allow_http=True)
+        self.app_settings=replace(application,auto_updates=True,allow_http=True,
+                                  refresh_seconds=HTTP_REFRESH_SECONDS)
         self.settings_store.write(indicator,self.app_settings)
         self.chart.set_settings(indicator)
         self.chart.set_chart_colors(self.app_settings)
@@ -925,6 +928,9 @@ class FinamWindow(QMainWindow):
         if self.loader is not None:
             self.pending_load=request
             return
+        # Every started worker checks HTTP freshness/repair. A request arriving
+        # while it runs is coalesced and retried on completion, never dropped.
+        self._http_refresh_pending=False
         market=(self.service.for_market(mic) if callable(getattr(self.service,"for_market",None))
                 else self.service)
         self.loader=FinamLoadWorker(market,ticker,mic,request[2],
@@ -1014,6 +1020,8 @@ class FinamWindow(QMainWindow):
             self.tf.setCurrentText(req[2])
             self.tf.blockSignals(blocked)
             self._load(refresh=req[3],events=req[4])
+        elif self._http_refresh_pending:
+            self._http_refresh()
         elif self.pending_bars:
             self.feed_timer.start()
         self._indicator()
@@ -1096,7 +1104,8 @@ class FinamWindow(QMainWindow):
             return
         if event.epoch < getattr(self,"stream_epoch",0):
             return
-        if event.epoch > getattr(self,"stream_epoch",0):
+        new_epoch=event.epoch > getattr(self,"stream_epoch",0)
+        if new_epoch:
             self.stream_epoch=event.epoch
             self.pending_bars.clear()
         if event.kind=="status":
@@ -1105,7 +1114,7 @@ class FinamWindow(QMainWindow):
             if event.state in ("resync","reconnecting","unavailable"):
                 mark=getattr(self.service,"mark_stream_reconnect",None)
                 if callable(mark):mark(symbol_name(event.symbol,event.board))
-            if event.state=="ready":
+            if event.state=="ready" and (previous_state!="ready" or new_epoch):
                 QTimer.singleShot(0,self._http_refresh)
             if previous_state != event.state and event.state in ("unavailable","reconnecting"):
                 log_event("stream_"+event.state,
@@ -1147,8 +1156,15 @@ class FinamWindow(QMainWindow):
         self._load(refresh=False,events=events)
 
     def _http_refresh(self):
-        if self.loader is None and not self.closing and read_secret():
-            self._load(refresh=True)
+        if self.closing or not read_secret():
+            return
+        if self.loader is not None:
+            self._http_refresh_pending=True
+            return
+        self._http_refresh_pending=False
+        events=tuple(self.pending_bars.values())
+        self.pending_bars.clear()
+        self._load(refresh=True,events=events)
 
     def _schedule_http(self):
         if not self.closing and read_secret():
