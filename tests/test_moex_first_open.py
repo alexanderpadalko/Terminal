@@ -74,6 +74,37 @@ class TestMoexFirstOpen(unittest.TestCase):
                 self.assertEqual(len(api.calls),before)
                 self.assertEqual(market.prepare_series(SYMBOL,market._series(SYMBOL),NOW)['D1'][-1].trading_date,date(2026,11,16))
 
+    def test_screener_bootstraps_moex_dwm_without_opening_chart(self):
+        from flowdesk.finam_screener import scan_one
+        self.api.latest_quote=lambda symbol:{"quote":[{"last":{"value":"11"}}]}
+        self.assertFalse(moex.archive_ready(self.market._series(SYMBOL),SYMBOL))
+        result=scan_one(self.market,"CRZ6","RTSX",IndicatorSettings())
+        raw=self.market._series(SYMBOL)
+        self.assertTrue(moex.archive_ready(raw,SYMBOL))
+        prepared=self.market.prepare_series(SYMBOL,raw,NOW)
+        self.assertTrue(all(prepared.get(tf) for tf in ('D1','W1','MN1')))
+        self.assertTrue(all("нет свечей" not in result.reason_map()[tf]
+                            for tf in ('D','W','M')))
+        # Ready family is reused, not archived again by the next scan.
+        archived=[(tf,a,b) for _,tf,a,b in self.api.calls if
+                  self.api.archive_request(tf,a,b)]
+        scan_one(self.market,"CRZ6","RTSX",IndicatorSettings())
+        self.assertEqual([(tf,a,b) for _,tf,a,b in self.api.calls if
+                          self.api.archive_request(tf,a,b)],archived)
+
+    def test_screener_surfaces_finam_bootstrap_denial_without_signals(self):
+        from flowdesk.finam_screener import scan_one
+        self.api.latest_quote=lambda symbol:{"quote":[{"last":{"value":"11"}}]}
+        def denied(tf,start,end):
+            if self.api.archive_request(tf,start,end):
+                raise FinamAPIError('SECRET',http_status=403)
+        self.api.hook=denied
+        result=scan_one(self.market,"CRZ6","RTSX",IndicatorSettings())
+        for tf in ('D','W','M'):
+            self.assertIsNone(result.as_map()[tf])
+            self.assertIn("нет доступа к истории Finam (403)",result.reason_map()[tf])
+            self.assertNotIn("SECRET",result.reason_map()[tf])
+
     def test_loader_delivers_chart_after_bootstrap_instead_of_failure(self):
         from flowdesk.finam_gui import FinamLoadWorker
         loaded=[];failed=[]

@@ -297,6 +297,53 @@ def _backfill_higher_history(service, symbol, now, series, *,
         problems.update(backfill(service,symbol,now,cancelled=cancelled))
     return problems
 
+_MOEX_PREPARATION_MESSAGES={
+    "incomplete_daily_coverage":"дневная история Finam ещё подготавливается",
+    "lower_history_unavailable":"нет исходных дневных свечей Finam",
+    "native_snapshot_unconfirmed":"Finam ещё не подтвердил исходную дневную свечу",
+    "opening_source_unavailable":"не подтверждена цена открытия непрерывных торгов",
+    "opening_source_conflict":"конфликт исходной цены открытия Finam",
+    "calendar_history_unknown":"не подтверждён календарь для исходной истории",
+    "calendar_source_conflict":"даты исходной истории противоречат календарю MOEX",
+    "instrument_calendar_unknown":"не подтверждён календарь инструмента",
+}
+
+
+def _bootstrap_moex_for_scan(service,symbol,raw,observed,*,cancelled):
+    """Use the same bounded, resumable D/H1 bootstrap as the selected chart.
+
+    The existing per-symbol MOEX lock serializes scanner/chart preparation.
+    No backfill is needed once the verified D/W/M family is available.
+    """
+    if not native_higher_enabled(service.api):
+        return raw,{}
+    from . import moex_trading_family as moex
+    if not moex.enabled(symbol):
+        return raw,{}
+    if moex.archive_ready(raw,symbol) and moex.opening_ready(raw,symbol,observed):
+        return raw,{}
+    # An empty/denied provider history must not trigger four redundant
+    # archive requests. The initial refresh supplies native D/W/M first.
+    if not any(raw.get(tf) for tf in ("D1","W1","MN1")):
+        return raw,{"D1":"нет исходных дневных свечей Finam"}
+    if cancelled():
+        raise InterruptedError()
+    try:
+        moex.backfill(service,symbol,service.clock(),cancelled=cancelled)
+    except InterruptedError:
+        raise
+    except Exception as exc:
+        code=getattr(exc,"http_status",None)
+        if code==429:
+            raise
+        message={401:"ошибка авторизации Finam (401)",
+                 403:"нет доступа к истории Finam (403)",
+                 404:"контракт не найден Finam (404)"}.get(code,
+                 "подготовка истории Finam недоступна")
+        return service._series(symbol),{"D1":message,"W1":message,"MN1":message}
+    return service._series(symbol),{}
+
+
 def scan_one(service, ticker, mic, settings, *, cancelled=lambda:False,
              time_sleep=time.sleep):
     scope=getattr(service,'http_scan',None)
@@ -345,9 +392,23 @@ def _scan_one(service, ticker, mic, settings, *, cancelled=lambda:False,
             repair(symbol,series,observed,cancelled=cancelled,priority=10)):
         series=service._series(symbol)
         observed=service.clock()-timedelta(minutes=service.api.market_delay_minutes(mic) or 0)
+    # First scan of a MOEX future must prepare its D/W/M source family
+    # without requiring the user to open the D chart. This operation is
+    # bounded, cancelable and resumes from durable Finam archive cursors.
+    series,bootstrap_problems=_bootstrap_moex_for_scan(
+        service,symbol,series,observed,cancelled=cancelled)
+    for tf,reason in bootstrap_problems.items():
+        if tf in TIMEFRAMES:
+            fetch_problems.setdefault(tf,reason)
     prepare=getattr(service,'prepare_series',None)
     if callable(prepare):series=prepare(symbol,series,observed)
     else:series=exclude_stock_closing_auction(series,mic)
+    metadata=getattr(series,'session_metadata',{}) or {}
+    for tf,issue in (metadata.get('issues',{}) or {}).items():
+        # Never replace source-specific HTTP permission/transport failures.
+        if tf in TIMEFRAMES and not series.get(tf) and issue:
+            fetch_problems.setdefault(tf,
+                _MOEX_PREPARATION_MESSAGES.get(issue,"не подтверждена исходная история Finam"))
     analysis_tf=next((tf for tf in TIMEFRAMES if series.get(tf)),None)
     if analysis_tf is None:
         return unknown(symbol,'history_unavailable',
