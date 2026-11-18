@@ -162,14 +162,14 @@
   },
   "component_benchmark": {
     "mode": "offline_synthetic_component_single_run",
-    "model": "88f6b46052d7ce4328bd61902a1ca92df9d6d1b9600c4de94cb7866747e5bb9f",
+    "model": "d26f761c939cd550db23c9e8ef82fd177dae1e26a2fc001909102c1e02ab702f",
     "bars": 1500,
-    "cold_cpu_seconds_including_snapshot_write": 0.734375,
-    "restart_cpu_seconds": 0.234375,
+    "cold_cpu_seconds_including_snapshot_write": 0.75,
+    "restart_cpu_seconds": 0.25,
     "restart_numeric_equal": true,
-    "new_closed_calculation_cpu_seconds_without_snapshot_write": 0.28125,
+    "new_closed_calculation_cpu_seconds_without_snapshot_write": 0.359375,
     "new_closed_engine_steps": 1002,
-    "fresh_new_closed_cpu_seconds_without_snapshot_write": 0.484375,
+    "fresh_new_closed_cpu_seconds_without_snapshot_write": 0.78125,
     "fresh_engine_steps": 2501,
     "new_closed_numeric_equal": true,
     "rolling_context_limit": 1000,
@@ -180,5 +180,74 @@
     "Limited rolling contexts replay when their starting point changes",
     "Very large or incompatible derived snapshots fall back to source replay",
     "Correct Finam min_step can change earlier one-tick tolerance based on default 0.01"
-  ]
+  ],
+  "released_moscow_date": "2026-11-18",
+  "code_commit": "aee7723288c828a05fee1f7eb472ca597bbd9a14",
+  "final_regressions": {
+    "timezone_iana_and_fold_preserved": true,
+    "codec_temporaries_released_with_cyclic_gc_disabled": true
+  },
+  "windows_release": {
+    "run_id": 44176755715,
+    "job_id": 134370047334,
+    "url": "https://github.com/alexanderpadalko/Terminal/actions/runs/44176755715",
+    "conclusion": "success",
+    "tests": {
+      "count": 798,
+      "seconds": 92.411,
+      "errors": 0,
+      "failures": 0,
+      "skipped": 0
+    },
+    "tracebacks": 0,
+    "model": "b88c30c8da272f8e2645372be631b6a2f9313a0ea20f06a5322813d516cfa7ec",
+    "model_runtime_specific": true,
+    "system_audit": "PASS",
+    "extended_audit": "PASS",
+    "dpi": [
+      1,
+      1.25,
+      1.5,
+      2
+    ],
+    "dependencies_and_compile": "PASS",
+    "no_token_window": "PASS",
+    "frozen_runtime": {
+      "ok": true,
+      "frozen": true,
+      "terminal_scope": true,
+      "persistent_calculations": true
+    },
+    "clean_exit": [
+      {
+        "close_after_seconds": 0,
+        "exit_seconds": 0.09,
+        "code": 0
+      },
+      {
+        "close_after_seconds": 0.8,
+        "exit_seconds": 0.09,
+        "code": 0
+      },
+      {
+        "close_after_seconds": 3,
+        "exit_seconds": 0.085,
+        "code": 0
+      }
+    ],
+    "artifact": {
+      "id": 14370891880,
+      "name": "FlowDesk-0.2.26-Finam-Windows-x64-UNSIGNED",
+      "url": "https://github.com/alexanderpadalko/Terminal/actions/runs/44176755715/artifacts/14370891880",
+      "bytes": 49492166,
+      "sha256": "709d8f391cf3301ae18af7382679689323986d0375b876260110f21edf2453a6",
+      "signing": "UNSIGNED"
+    },
+    "evidence_artifact": {
+      "id": 14370028387,
+      "url": "https://github.com/alexanderpadalko/Terminal/actions/runs/44176755715/artifacts/14370028387",
+      "sha256": "216ddb6560771bc1390f297cc7fb95fd7e1812f59325fd762a84e1add8db244d"
+    },
+    "installed_to_user_machine": false
+  }
 }
