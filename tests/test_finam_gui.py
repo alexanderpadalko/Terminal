@@ -149,7 +149,7 @@ class TestFinamGui(unittest.TestCase):
             self.assertEqual(chart.viewport.offset,0)
             self.assertEqual(chart.viewport.count,125)
             self.settle()
-            self.assertEqual(self.window.displayed_view,("LKOH","MISX","H4"))
+            self.assertEqual(self.window.displayed_view,("LKOH","MISX","H1"))
             image=chart.grab().toImage()
             self.assertFalse(image.isNull())
             lower,upper=chart.last_price_range
@@ -161,14 +161,14 @@ class TestFinamGui(unittest.TestCase):
     def test_late_result_for_previous_timeframe_is_ignored(self):
         self.market.block_symbol="SBER"
         self.select("SBER")
-        self.window.tf.setCurrentText("H4")
+        self.window.tf.setCurrentText("H1")
         old,parents,info=FakeMarket().view("SBER","MISX","M5",refresh=False)
         self.window._loaded(old,parents,info)
         self.assertIsNone(self.window.chart.analysis)
         self.market.release.set()
         self.settle()
-        self.assertEqual(self.window.analysis.timeframe,"H4")
-        self.assertEqual(self.window.displayed_view,("SBER","MISX","H4"))
+        self.assertEqual(self.window.analysis.timeframe,"H1")
+        self.assertEqual(self.window.displayed_view,("SBER","MISX","H1"))
 
     def test_rapid_return_cancels_old_chart_and_preserves_stream_and_http_updates(self):
         from dataclasses import replace
@@ -564,8 +564,8 @@ class TestFinamGui(unittest.TestCase):
         window.showMinimized()
         candle = before.candles[-1]
         event = FinamEvent('candles', 'SBER', 'MISX', 1, datetime.now(timezone.utc),
-                           timeframe='H4', candles=(candle,))
-        window.pending_bars[('H4', candle.time)] = event
+                           timeframe='H1', candles=(candle,))
+        window.pending_bars[('H1', candle.time)] = event
         with patch.object(self.market, 'ingest_stream', create=True) as ingest, \
              patch.object(self.market, 'stream_repair_required', create=True, return_value=True):
             window._flush(); self.settle()
@@ -574,8 +574,8 @@ class TestFinamGui(unittest.TestCase):
             window._http_refresh(); self.settle()
 
         self.assertEqual(self.market.calls[calls:], [
-            ('SBER', 'MISX', 'H4', False),
-            ('SBER', 'MISX', 'H4', True),
+            ('SBER', 'MISX', 'H1', False),
+            ('SBER', 'MISX', 'H1', True),
         ])
         self.assertIs(window.chart.analysis, before)
 
@@ -608,14 +608,14 @@ class TestFinamGui(unittest.TestCase):
             other.close()
             other.deleteLater()
 
-    def test_retired_hourly_and_m1_preferences_migrate_to_h4(self):
-        for saved,expected in (('H1','H4'),('M1','H4')):
+    def test_retired_h4_and_m1_preferences_migrate_to_h1(self):
+        for saved,expected in (('H4','H1'),('M1','H1')):
             self.window.ui_prefs.setValue('tf',saved)
             other=FinamWindow(service=self.market,settings_store=self.window.settings_store)
             try:
                 self.assertEqual(other.tf.currentText(),expected)
                 self.assertEqual(tuple(other.tf.buttons),
-                                 ('M5','H4','D1','W1','MN1'))
+                                 ('M5','H1','D1','W1','MN1'))
             finally:
                 other.close()
                 other.deleteLater()
