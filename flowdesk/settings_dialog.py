@@ -288,14 +288,14 @@ class SettingsDialog(QDialog):
                 title=spec['title']
                 tooltip=spec['tooltip'].replace('TradingView','FlowDesk')
                 if finam_only:
-                    for retired in ('M1 / ', 'H1 / '):
+                    for retired in ('M1 / ',):
                         title=title.replace(retired,'')
                         tooltip=tooltip.replace(retired,'')
                     title={
-                        'showH4OnM5':'FVG H4 на M5',
-                        'showDOnM5':'FVG D на M5 / H4',
-                        'showWOnM5':'FVG W на M5 / H4 / D',
-                        'showMOnM5':'FVG M на M5 / H4 / D / W',
+                        'showH1OnM5':'FVG H1 на M5',
+                        'showDOnM5':'FVG D на M5 / H1',
+                        'showWOnM5':'FVG W на M5 / H1 / D',
+                        'showMOnM5':'FVG M на M5 / H1 / D / W',
                     }.get(spec['variable'],title)
                     if 'M1' in spec['title'] or 'H1' in spec['title']:
                         tooltip=title
