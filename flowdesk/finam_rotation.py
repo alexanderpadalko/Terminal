@@ -24,7 +24,7 @@ from .finam_universe import (
 )
 
 MONTHS="FGHJKMNQUVXZ"
-SERIES=re.compile(rf"^([A-Z]+)([{MONTHS}])(\d{{1,4}})$")
+SERIES=re.compile(rf"^([A-Z][A-Z0-9]*)([{MONTHS}])(\d{{1,4}})$")
 WINDOW_HOURS=96  # weekends; never compare quotes from different sessions
 
 

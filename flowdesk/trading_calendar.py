@@ -207,11 +207,11 @@ def calendar_for(symbol):
         return TradingCalendar('CRYPTO_UTC','UTC')
     if mic in ('MISX','XMOE'):
         return TradingCalendar('MOEX_STOCK_FULL','Europe/Moscow')
-    match=re.fullmatch(r'([A-Z]+)[FGHJKMNQUVXZ][0-9]{1,4}',ticker)
+    match=re.fullmatch(r'([A-Z][A-Z0-9]*)[FGHJKMNQUVXZ][0-9]{1,4}',ticker)
     root=match[1] if match else {'USDRUB.P':'USDRUBF','CNYRUB.P':'CNYRUBF',
         'EURRUB.P':'EURRUBF','IRUS.P':'IMOEXF'}.get(ticker,ticker)
     if mic=='RTSX' and root in ('SI','EU','CR','ED','MX','MIX','RI','USDRUBF','CNYRUBF','EURRUBF','IMOEXF',
-                               'GD','SV','BR','NG'):
+                               'GD','SV','BR','NG','MM','GN','S1','BM','NR'):
         return TradingCalendar('MOEX_FUTURE_FULL','Europe/Moscow',root)
     if mic=='XCME' and root in ('NQ','ES'):
         return TradingCalendar('CME_EQUITY','America/Chicago',root)

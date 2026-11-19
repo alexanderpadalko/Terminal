@@ -24,8 +24,8 @@ class TestCuratedFinamUniverse(unittest.TestCase):
                          ["GCZ2026","SIZ2026","NGZ2026","BRNF2027"])
         self.assertEqual([x.label for x in universe[RU_FUTURES]],
                          ["SIZ2026","CRZ2026","EUZ2026","EDZ2026","USDRUB.P",
-                          "CNYRUB.P","EURRUB.P","MXZ2026","IRUS.P",
-                          "GDZ2026","SVZ2026","BRZ2026","NGX2026"])
+                          "CNYRUB.P","EURRUB.P","MMZ2026","IRUS.P",
+                          "GNZ2026","S1Z2026","BMZ2026","NRX2026"])
         self.assertNotIn(CRYPTO,universe)
         self.assertEqual(len(universe[RU_STOCKS]),10)
         self.assertEqual(sum(map(len,universe.values())),27)
@@ -56,10 +56,11 @@ class TestCuratedFinamUniverse(unittest.TestCase):
         self.assertEqual(match_contract(us,[row_us,row_ru]),"SIZ6@XCEC")
         self.assertEqual(match_contract(ru,[row_us,row_ru]),"SIZ6@RTSX")
 
-    def test_russian_futures_aliases_include_mx_not_only_mix(self):
-        mx=[x for x in RU_CONTRACTS if x.display=="MXZ2026"][0]
+    def test_mini_index_does_not_select_standard_mix(self):
+        mx=[x for x in RU_CONTRACTS if x.display=="MMZ2026"][0]
         result=match_contract(mx,[{"ticker":"MXZ6","mic":"RTSX","symbol":"MXZ6@RTSX"}])
-        self.assertEqual(result,"MXZ6@RTSX")
+        self.assertEqual(result,"")
+        self.assertEqual(match_contract(mx,[{"ticker":"MMZ6","mic":"RTSX","symbol":"MMZ6@RTSX"}]),"MMZ6@RTSX")
 
     def test_perpetuals_resolve_by_real_underlying_not_tv_label(self):
         contracts=[c for c in RU_CONTRACTS if c.display.endswith(".P")]
@@ -75,8 +76,8 @@ class TestCuratedFinamUniverse(unittest.TestCase):
         from flowdesk.trading_calendar import calendar_for
         from flowdesk.moex_trading_family import enabled
         from flowdesk.us_futures_family import product
-        expected={'IRUS.P':'IMOEXF','GDZ2026':'GDZ6','SVZ2026':'SVZ6',
-                  'BRZ2026':'BRZ6','NGX2026':'NGX6'}
+        expected={'IRUS.P':'IMOEXF','GNZ2026':'GNZ6','S1Z2026':'S1Z6',
+                  'BMZ2026':'BMZ6','NRX2026':'NRX6'}
         for contract in RU_CONTRACTS:
             if contract.display not in expected:continue
             ticker=expected[contract.display]
@@ -91,6 +92,24 @@ class TestCuratedFinamUniverse(unittest.TestCase):
             self.assertEqual(calendar.session(date(2026,11,18)).segments,
                 calendar_for('CRZ6@RTSX').session(date(2026,11,18)).segments)
             self.assertEqual(match_contract(contract,rows[1:]),'')
+
+    def test_five_mini_contracts_never_match_the_standard_contracts(self):
+        pairs=(("MMZ2026","MMZ6","MXZ6"),
+               ("GNZ2026","GNZ6","GDZ6"),
+               ("S1Z2026","S1Z6","SVZ6"),
+               ("BMZ2026","BMZ6","BRZ6"),
+               ("NRX2026","NRX6","NGX6"))
+        for name,mini,standard in pairs:
+            with self.subTest(mini=mini):
+                contract=next(c for c in RU_CONTRACTS if c.display==name)
+                old={"ticker":standard,"mic":"RTSX",
+                     "symbol":standard+"@RTSX","type":"FUTURES"}
+                new={"ticker":mini,"mic":"RTSX",
+                     "symbol":mini+"@RTSX","type":"FUTURES"}
+                self.assertEqual(match_contract(contract,[old]),"")
+                self.assertEqual(match_contract(contract,[old,new]),mini+"@RTSX")
+                self.assertEqual(match_contract(contract,[{**new,
+                    "mic":"XCEC","symbol":mini+"@XCEC"}]),"")
 
     def test_previous_confirmed_twenty_session_rank_is_trimmed_to_top_ten(self):
         stock_rows=[{"symbol":f"S{i:02d}","board":"TQBR","kind":"stock",

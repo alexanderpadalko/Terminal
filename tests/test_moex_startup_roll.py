@@ -54,13 +54,13 @@ class API:
 
 
 class TestRollover(unittest.TestCase):
-    def test_added_moex_gas_rolls_by_finam_expiry_and_irus_has_no_roll(self):
-        gas=next(c for c in RU_CONTRACTS if c.display=='NGX2026')
-        rows=[row('NGX6','RTSX','2026-11-25'),row('NGZ6','RTSX','2026-12-29'),
-              row('NGZ6','XNYM','2026-11-24'),row('IMOEXF','RTSX')]
+    def test_micro_moex_gas_rolls_by_finam_expiry_and_irus_has_no_roll(self):
+        gas=next(c for c in RU_CONTRACTS if c.display=='NRX2026')
+        rows=[row('NRX6','RTSX','2026-11-25'),row('NRZ6','RTSX','2026-12-29'),
+              row('NRZ6','XNYM','2026-11-24'),row('IMOEXF','RTSX')]
         api=API(rows)
-        for day,expected in ((date(2026,11,23),'NGX6@RTSX'),
-                             (date(2026,11,24),'NGZ6@RTSX')):
+        for day,expected in ((date(2026,11,23),'NRX6@RTSX'),
+                             (date(2026,11,24),'NRZ6@RTSX')):
             result=resolve_contract(gas,rows,api,today=day,now=NOW)
             self.assertEqual(result.item.symbol,expected)
             self.assertTrue(result.item.verified)
@@ -69,6 +69,20 @@ class TestRollover(unittest.TestCase):
         self.assertEqual(result.item.symbol,'IMOEXF@RTSX')
         self.assertEqual(result.reason,'perpetual')
         self.assertFalse(any(kind=='quote' for kind,_ in api.calls))
+
+    def test_mini_silver_numeric_root_rolls_without_standard_silver(self):
+        silver=next(c for c in RU_CONTRACTS if c.display=='S1Z2026')
+        rows=[row('S1Z6','RTSX','2026-12-18'),
+              row('S1H7','RTSX','2027-03-19'),
+              row('SVZ6','RTSX','2026-12-18')]
+        api=API(rows)
+        for day,symbol,label in (
+                (date(2026,12,16),'S1Z6@RTSX','S1Z2026'),
+                (date(2026,12,17),'S1H7@RTSX','S1H2027')):
+            outcome=resolve_contract(silver,rows,api,today=day,now=NOW)
+            self.assertEqual(outcome.item.symbol,symbol)
+            self.assertEqual(outcome.item.label,label)
+            self.assertTrue(outcome.item.verified)
 
     def test_contract_stays_until_day_before_expiry_without_quote_calls(self):
         base=NQ_ROLLOVER_CONTRACT

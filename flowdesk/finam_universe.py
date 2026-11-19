@@ -57,13 +57,12 @@ RU_CONTRACTS=(
     Contract("USDRUB.P","Вечный USD/RUB",RU_FUTURES,("USDRUBF","USDRUB.P"),("RTSX",)),
     Contract("CNYRUB.P","Вечный CNY/RUB",RU_FUTURES,("CNYRUBF","CNYRUB.P"),("RTSX",)),
     Contract("EURRUB.P","Вечный EUR/RUB",RU_FUTURES,("EURRUBF","EURRUB.P"),("RTSX",)),
-    Contract("MXZ2026","Индекс Мосбиржи",RU_FUTURES,
-             _expires("MX","Z",2026)+_expires("MIX","Z",2026),("RTSX",)),
+    _ru("MMZ2026","Индекс Мосбиржи (мини)","MM"),
     Contract("IRUS.P","Вечный индекс Мосбиржи",RU_FUTURES,("IMOEXF","IRUS.P"),("RTSX",)),
-    _ru("GDZ2026","Золото","GD"),
-    _ru("SVZ2026","Серебро","SV"),
-    _ru("BRZ2026","Brent","BR"),
-    _ru("NGX2026","Природный газ","NG",month='X'),
+    _ru("GNZ2026","Золото (мини)","GN"),
+    _ru("S1Z2026","Серебро (мини)","S1"),
+    _ru("BMZ2026","Brent (мини)","BM"),
+    _ru("NRX2026","Природный газ (микро)","NR",month='X'),
 )
 assert len(US_CONTRACTS)==4 and len(RU_CONTRACTS)==13
 

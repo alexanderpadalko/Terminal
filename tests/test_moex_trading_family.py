@@ -147,6 +147,13 @@ class TestMoexTradingFamily(unittest.TestCase):
         for symbol in ('SBER@MISX','SBER@XMOE','SIZ26@XCEC','NQZ26@XCME','BTCUSDT@BINANCE','BAD@RTSX'):
             self.assertFalse(moex.enabled(symbol))
         self.assertTrue(moex.enabled('SiH7@RTSX'))
+        for symbol in ('MMZ6@RTSX','GNZ6@RTSX','S1Z6@RTSX',
+                       'BMZ6@RTSX','NRX6@RTSX'):
+            with self.subTest(symbol=symbol):
+                self.assertTrue(moex.enabled(symbol))
+                self.assertEqual(moex._opening_session(date(2026,11,18),symbol).segments,
+                                 moex._opening_session(date(2026,11,18),'CRZ6@RTSX').segments)
+        self.assertFalse(moex.enabled('S1Z6@XCEC'))
 
 
 class TestMoexTradingStore(unittest.TestCase):
