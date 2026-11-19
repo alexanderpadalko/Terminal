@@ -41,9 +41,9 @@ def provider_isolation(root):
     rows=compose_universe()[0][RU_FUTURES]
     require(any(row.label=="EDZ2026" for row in rows),"ED missing")
     require(routed.for_symbol("EDZ6@RTSX") is finam,"ED not routed to Finam")
-    for label,symbol in (('IRUS.P','IMOEXF@RTSX'),('GDZ2026','GDZ6@RTSX'),
-                         ('SVZ2026','SVZ6@RTSX'),('BRZ2026','BRZ6@RTSX'),
-                         ('NGX2026','NGX6@RTSX')):
+    for label,symbol in (('IRUS.P','IMOEXF@RTSX'),('MMZ2026','MMZ6@RTSX'),
+                         ('GNZ2026','GNZ6@RTSX'),('S1Z2026','S1Z6@RTSX'),
+                         ('BMZ2026','BMZ6@RTSX'),('NRX2026','NRX6@RTSX')):
         require(any(row.label==label for row in rows),'Added MOEX future missing')
         require(routed.for_symbol(symbol) is finam,'MOEX future not routed to Finam')
     try:routed.for_symbol("BTCUSDT@BINANCE")
