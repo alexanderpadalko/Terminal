@@ -46,7 +46,7 @@ def native_rows():
     month=datetime(2026,11,1,tzinfo=UTC)
     return {
         'M5':[candle(START,(10,999,1,90,999),START+timedelta(minutes=5))],
-        'H1':[candle(START,(100,120,95,103,50),START+timedelta(hours=4))],
+        'H1':[candle(START,(100,120,95,103,50),START+timedelta(hours=1))],
         'D1':[candle(saturday,(200,230,170,220,500),saturday+timedelta(days=1))],
         'W1':[candle(monday,(300,360,270,340,600),monday+timedelta(days=7))],
         'MN1':[candle(month,(400,470,370,440,700),datetime(2026,12,1,tzinfo=UTC))]
