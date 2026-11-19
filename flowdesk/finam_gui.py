@@ -178,9 +178,9 @@ class FinamWindow(QMainWindow):
                 self.symbol_edit.setText(ticker)
                 self.mic.setCurrentText(mic)
         self._pending_restore=None
-        tf = str(self.ui_prefs.value("tf","H4"))
+        tf = str(self.ui_prefs.value("tf","H1"))
         blocked=self.tf.blockSignals(True)
-        self.tf.setCurrentText(tf if tf in self.tf.buttons else "H4")
+        self.tf.setCurrentText(tf if tf in self.tf.buttons else "H1")
         self.tf.blockSignals(blocked)
         self._indicator()
         QTimer.singleShot(0,self._startup)

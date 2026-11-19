@@ -6,7 +6,7 @@ from .market_data import candle_close_time, normalize
 
 NATIVE_HIGHER = ('D1', 'W1', 'MN1')
 NATIVE_POLICY_VERSION = 'finam-native-dwm-1'
-NATIVE_ALL_POLICY_VERSION = 'finam-native-m5-h4-dwm-1'
+NATIVE_ALL_POLICY_VERSION = 'finam-native-m5-h1-dwm-2'
 UTC = timezone.utc
 
 

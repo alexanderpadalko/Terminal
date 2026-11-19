@@ -113,7 +113,7 @@ def _candle(row):
 def prepare_native_finam(service,symbol,raw,observed):
     """Return only source OHLCV from Finam; never consult session calendars.
 
-    M5 remains exactly as delivered. H4/D/W/M require the same post-close
+    M5 remains exactly as delivered. H1/D/W/M require the same post-close
     receipt evidence as formerly native D/W/M. An unconfirmed old bar is
     not replaced by derived candles or by another futures contract.
     """
@@ -122,10 +122,10 @@ def prepare_native_finam(service,symbol,raw,observed):
     observations={}
     for i,(tf,ts,stamp) in enumerate(state.get('observations',()) if state else ()):
         if i%1024==0:checkpoint()
-        if tf in ('H4','D1','W1','MN1'):
+        if tf in ('H1','D1','W1','MN1'):
             observations[(tf,datetime.fromisoformat(ts))]=datetime.fromisoformat(stamp)
     native,issues=native_higher_series(
-        raw,observed,observations,frames=('H4','D1','W1','MN1'))
+        raw,observed,observations,frames=('H1','D1','W1','MN1'))
     result={'M5':raw['M5']} if raw.get('M5') else {}
     result.update(native)
     metadata={'version':NATIVE_ALL_POLICY_VERSION,

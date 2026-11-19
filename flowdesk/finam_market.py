@@ -161,8 +161,8 @@ class FinamMarketService:
         self._chart_sources.record(symbol,revision,frame,start,end)
 
     def _source_frames(self):
-        # The production API has no H1. Historical/experimental fakes can
-        # still exercise the old session family without changing that rule.
+        # Production uses native Finam M5/H1/D/W/M; historical fakes
+        # can still exercise archived session families offline.
         return (SOURCE_TIMEFRAMES if getattr(self.api,'native_all_frames',False)
                 else LEGACY_SOURCE_TIMEFRAMES)
 
