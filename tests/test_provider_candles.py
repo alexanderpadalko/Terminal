@@ -143,16 +143,16 @@ class TestNativeHigher(unittest.TestCase):
         self.market.refresh_series(SYMBOL,('MN1',))
         self.assertEqual(len(self.api.calls),1)
         self.api.native_all_frames=True
-        self.market.refresh_series(SYMBOL,('H4',))
-        self.assertEqual([tf for _,tf,_ in self.api.calls][1:],['H4'])
+        self.market.refresh_series(SYMBOL,('H1',))
+        self.assertEqual([tf for _,tf,_ in self.api.calls][1:],['H1'])
 
-    def test_stream_subscriptions_and_repair_include_native_h4_w_m_not_h1(self):
-        self.assertEqual(set(FinamAPI.stream_frames),{'M5','H4','D1','W1','MN1'})
+    def test_stream_subscriptions_and_repair_include_native_h1_w_m_not_h4(self):
+        self.assertEqual(set(FinamAPI.stream_frames),{'M5','H1','D1','W1','MN1'})
         self.market.mark_stream_reconnect(SYMBOL)
         self.assertIn((SYMBOL,'MN1'),self.market._repair)
         self.assertIn((SYMBOL,'W1'),self.market._repair)
-        self.assertIn((SYMBOL,'H4'),self.market._repair)
-        self.assertNotIn((SYMBOL,'H1'),self.market._repair)
+        self.assertIn((SYMBOL,'H1'),self.market._repair)
+        self.assertNotIn((SYMBOL,'H4'),self.market._repair)
 
     def test_full_and_overlapping_incremental_native_inputs_match(self):
         rows=months();self.market._upsert(SYMBOL,'MN1',rows)
