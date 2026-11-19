@@ -88,7 +88,7 @@ def check_finam_runtime(output):
                 ('BMZ2026','BMZ6@RTSX'),('NRX2026','NRX6@RTSX')))
         terminal_sources={tf:[Candle(observed-timedelta(hours=i),100,102,99,101,1,
                               scheduled_close=observed-timedelta(hours=i-1))
-                              for i in range(12,0,-1)] for tf in (*DISPLAY_TIMEFRAMES,'H1','M1')}
+                              for i in range(12,0,-1)] for tf in (*DISPLAY_TIMEFRAMES,'M1')}
         chart,parents=analyze_timeframes(terminal_sources,'M5',asof=observed,terminal=True)
         result['terminal_scope']=bool(not chart.flows and not chart.pairs and not chart.market
             and set(parents)==set(FLOW_TIMEFRAMES) and set(chart.summary_sources)==set(FLOW_TIMEFRAMES)
@@ -101,10 +101,10 @@ def check_finam_runtime(output):
             api=SimpleNamespace(market_delay_minutes=lambda mic:0)
             initial=FinamMarketService(database,api=api)
             settings=IndicatorSettings()
-            first=initial.analyze_cached('EDZ6@RTSX','H4',terminal_sources,settings,observed)
+            first=initial.analyze_cached('EDZ6@RTSX','H1',terminal_sources,settings,observed)
             reopened=FinamMarketService(database,api=api)
-            saved=reopened.calculations.load('EDZ6@RTSX','H4')
-            again=reopened.analyze_cached('EDZ6@RTSX','H4',terminal_sources,settings,observed)
+            saved=reopened.calculations.load('EDZ6@RTSX','H1')
+            again=reopened.analyze_cached('EDZ6@RTSX','H1',terminal_sources,settings,observed)
             result['persistent_calculations']=bool(saved is not None and first==again)
         result["ok"] = (result.get("executor_callable") and
                         result.get("thread_result") == 17 and result.get("localhost_resolved")
