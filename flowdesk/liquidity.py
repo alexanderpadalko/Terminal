@@ -15,7 +15,7 @@ if TYPE_CHECKING:
     from .engine import Analysis
 
 SOURCES = ("MN1", "W1", "D1")  # Most distant -> closest (tie goes to closest).
-HIGHER_SOURCES = {"H1": SOURCES, "H4": SOURCES, "D1": ("MN1", "W1"),
+HIGHER_SOURCES = {"H1": SOURCES+("H4",), "H4": SOURCES, "D1": ("MN1", "W1"),
                   "W1": ("MN1",), "MN1": ()}
 
 
@@ -85,7 +85,7 @@ def select_pine_capture(source_active: dict[str, Capture | None]) -> Capture | N
     history retains it for restoration after a later FVG cancellation.
     """
     chosen = None
-    for tf in SOURCES:
+    for tf in (*SOURCES,'H4'):
         candidate = source_active.get(tf)
         if candidate is not None and (chosen is None or
                                       candidate.captured_at >= chosen.captured_at):
