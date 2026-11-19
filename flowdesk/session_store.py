@@ -6,7 +6,7 @@ import json
 
 from .cancellation import checkpoint
 from .market_data import Candle, candle_close_time, serialize_candle
-from .session_candles import AGGREGATION_VERSION, SessionSeries, build_session_series
+from .session_candles import AGGREGATION_VERSION, SessionSeries, build_session_series, build_h4_from_finam_h1
 from .provider_candles import (NATIVE_HIGHER, NATIVE_POLICY_VERSION, native_higher_enabled,
                                native_higher_series, control_issues)
 from .trading_calendar import CalendarUnavailable, calendar_for
@@ -113,8 +113,9 @@ def _candle(row):
 def prepare(service,symbol,raw,observed,*,bucket_cache=None,bucket_changes=None):
     if not getattr(service.api,'session_candles',False):return raw
     primary_native=native_higher_enabled(service.api)
-    pilot_requested=primary_native and bool(futures.product(symbol))
-    ru=primary_native and moex.enabled(symbol)
+    direct=primary_native and bool(getattr(service.api,'h1_only_h4_native_dwm',False))
+    pilot_requested=primary_native and not direct and bool(futures.product(symbol))
+    ru=primary_native and not direct and moex.enabled(symbol)
     state=getattr(raw,'source_state',None)
     def source_observations():
         observations={}
@@ -147,6 +148,7 @@ def prepare(service,symbol,raw,observed,*,bucket_cache=None,bucket_changes=None)
     versions=(AGGREGATION_VERSION,calendar.revision,NATIVE_POLICY_VERSION if primary_native else None)
     full_archive=bool(state and state.get('full_archive'))
     versions+=(full_archive,)
+    if direct:versions+=('finam-h1-h4-native-dwm-1',)
     if pilot:versions+=(futures.POLICY,)
     ru_progress=state.get('moex_progress') if state else None
     if ru:versions+=(moex.POLICY,moex.REVISION,ru_progress)
@@ -199,8 +201,9 @@ def prepare(service,symbol,raw,observed,*,bucket_cache=None,bucket_changes=None)
                     checkpoint()
                 observed_at.setdefault((tf,bar.time),unknown)
     try:
-        built=build_session_series(raw,calendar,observed,coverage=coverage,observed_at=observed_at,
-                                   bucket_cache=bucket_cache)
+        builder=build_h4_from_finam_h1 if direct else build_session_series
+        built=builder(raw,calendar,observed,coverage=coverage,observed_at=observed_at,
+                      bucket_cache=bucket_cache)
     except (ValueError,OverflowError):
         if not primary_native:raise
         built=SessionSeries({tf:bars for tf,bars in raw.items() if tf in ('M1','M5')},
@@ -211,7 +214,7 @@ def prepare(service,symbol,raw,observed,*,bucket_cache=None,bucket_changes=None)
               'history_breaks':built.breaks,
               'issues':built.issues,'origins':built.origins,'calendar_parity':'unverified_tradingview'}
     if primary_native:
-        metadata['control_issues']=control_issues(built,native,calendar,observed)
+        metadata['control_issues']={} if direct else control_issues(built,native,calendar,observed)
         metadata['control_counts']={tf:len(built.series.get(tf,())) for tf in NATIVE_HIGHER}
         metadata['issues']={**{tf:issue for tf,issue in built.issues.items() if tf not in NATIVE_HIGHER},**native_issues}
         metadata['origins']={**built.origins,**{tf:'finam_native' for tf in NATIVE_HIGHER}}
@@ -306,12 +309,13 @@ def backfill(service,symbol,now,*,cancelled=lambda:False):
     if getattr(service.api,'provider_name','Finam')=='Binance':return {}
     try:calendar=service.calendar_factory(symbol)
     except CalendarUnavailable:return {'H4':'нет подтверждённого календаря инструмента'}
-    if native_higher_enabled(service.api) and futures.enabled(symbol,calendar):
+    direct=bool(getattr(service.api,'h1_only_h4_native_dwm',False))
+    if not direct and native_higher_enabled(service.api) and futures.enabled(symbol,calendar):
         return futures.backfill(service,symbol,now,cancelled=cancelled)
-    if native_higher_enabled(service.api) and moex.enabled(symbol):
+    if not direct and native_higher_enabled(service.api) and moex.enabled(symbol):
         result=moex.backfill(service,symbol,now,cancelled=cancelled)
         if result:return result
-    tf='M5' if calendar.profile in ('US_EQUITY_RTH','MOEX_STOCK_FULL') else 'H1'
+    tf='H1' if direct else ('M5' if calendar.profile in ('US_EQUITY_RTH','MOEX_STOCK_FULL') else 'H1')
     raw=service._series(symbol)
     bars=raw.get(tf,[])
     cursor=min((b.time for b in bars),default=now)

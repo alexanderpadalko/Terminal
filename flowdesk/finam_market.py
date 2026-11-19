@@ -234,7 +234,9 @@ class FinamMarketService:
         finally:self._scan_local.snapshot=previous
 
     def prepare_series(self,symbol,raw,observed):
-        cleaned=exclude_stock_closing_auction(raw,symbol.rsplit('@',1)[1])
+        # Direct Finam M5 means retaining even a mixed auction bar as-is.
+        direct=bool(getattr(self.api,'h1_only_h4_native_dwm',False))
+        cleaned=raw if direct else exclude_stock_closing_auction(raw,symbol.rsplit('@',1)[1])
         if hasattr(raw,'source_state'):
             cleaned=session_store.SourceSeries(cleaned,raw.source_state)
         preparation=getattr(raw,'chart_preparation',None)
@@ -344,6 +346,8 @@ class FinamMarketService:
 
     def refresh_series(self,symbol,frames,*,priority=0,cancelled=lambda:False):
         """Deduplicate refreshes by exact symbol/TF; do not lock the DB across HTTP."""
+        direct=bool(getattr(self.api,'h1_only_h4_native_dwm',False))
+        if direct:frames=tuple('H1' if tf=='H4' else tf for tf in frames)
         frames=tuple(tf for tf in frames if tf in SOURCE_TIMEFRAMES)
         policy=bool(getattr(self.api,'session_candles',False))
         if policy:
@@ -351,7 +355,9 @@ class FinamMarketService:
             # continuous Open. Preserve native archives separately.
             needed=[]
             for frame in frames:
-                if native_higher_enabled(self.api):
+                if direct:
+                    sources=(frame,)
+                elif native_higher_enabled(self.api):
                     sources=(('H1','M5') if frame=='H4' else
                              ('H1',frame) if session_future(symbol) and frame in NATIVE_HIGHER else
                              ('H1','D1',frame) if moex_trading(symbol) and frame in NATIVE_HIGHER else (frame,))
@@ -566,7 +572,8 @@ class FinamMarketService:
         if allow_http:
             progress(self.provider_name+": сверка последних свечей")
             errors=self.refresh_series(symbol,(timeframe,),cancelled=cancelled)
-            if self._tail(symbol,timeframe,1) or self._tail(symbol,'M5',1):
+            if (self._tail(symbol,timeframe,1) or self._tail(symbol,'M5',1)
+                    or self._tail(symbol,'H1',1)):
                 errors.update(self.refresh_series(symbol,(tf for tf in SOURCE_TIMEFRAMES if tf!=timeframe),cancelled=cancelled))
         delay=self.api.market_delay_minutes(mic)
         observed=self.clock()-timedelta(minutes=delay)
@@ -575,7 +582,8 @@ class FinamMarketService:
                 self.repair_source_evidence(symbol,raw,observed,cancelled=cancelled)):
             raw=self._series(symbol,chart=True)
             observed=self.clock()-timedelta(minutes=self.api.market_delay_minutes(mic))
-        if (allow_http and timeframe in NATIVE_HIGHER and native_higher_enabled(self.api)
+        if (allow_http and not getattr(self.api,'h1_only_h4_native_dwm',False)
+                and timeframe in NATIVE_HIGHER and native_higher_enabled(self.api)
                 and moex_trading(symbol) and (not moex.archive_ready(raw,symbol)
                     or not moex.opening_ready(raw,symbol,observed))):
             # This runs in the selected chart's cancellable worker at chart

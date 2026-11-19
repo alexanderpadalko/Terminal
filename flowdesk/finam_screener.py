@@ -214,7 +214,9 @@ def _backfill_higher_history(service, symbol, now, series, *,
         return {}
     if native_higher_enabled(service.api):
         from . import moex_trading_family as moex
-        if moex.enabled(symbol) and not moex.archive_ready(service._series(symbol),symbol):
+        if (not getattr(service.api,'h1_only_h4_native_dwm',False)
+                and moex.enabled(symbol)
+                and not moex.archive_ready(service._series(symbol),symbol)):
             return moex.backfill(service,symbol,now,cancelled=cancelled)
     state=getattr(service,"scanner_history_progress",None)
     if state is None:
@@ -315,7 +317,8 @@ def _bootstrap_moex_for_scan(service,symbol,raw,observed,*,cancelled):
     The existing per-symbol MOEX lock serializes scanner/chart preparation.
     No backfill is needed once the verified D/W/M family is available.
     """
-    if not native_higher_enabled(service.api):
+    if (not native_higher_enabled(service.api)
+            or getattr(service.api,'h1_only_h4_native_dwm',False)):
         return raw,{}
     from . import moex_trading_family as moex
     if not moex.enabled(symbol):

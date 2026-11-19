@@ -114,7 +114,7 @@ def _covered(intervals,start,end):
 
 
 class _LowerSource:
-    def __init__(self,series,coverage,observed_at,observed,calendar,*,bucket_cache=None):
+    def __init__(self,series,coverage,observed_at,observed,calendar,*,bucket_cache=None,allow_stock_mixed_h1=False):
         self.series={tf:normalize(series.get(tf,[])) for tf in LOWER}
         for tf,bars in self.series.items():
             limit=LOWER_INTERVALS[tf]
@@ -128,6 +128,7 @@ class _LowerSource:
         self.observed_at=observed_at
         self.observed=observed
         self.calendar=calendar
+        self.allow_stock_mixed_h1=allow_stock_mixed_h1
         self.bucket_cache = bucket_cache if bucket_cache is not None and bucket_cache.observed == observed else None
 
     def bucket(self,pieces,session_end,*,verified_closes=()):
@@ -149,7 +150,8 @@ class _LowerSource:
         for tf in LOWER:
             bars=self.series[tf];times=self.times[tf]
             if not bars:continue
-            if tf=='H1' and self.calendar.profile=='MOEX_STOCK_FULL':
+            if (tf=='H1' and self.calendar.profile=='MOEX_STOCK_FULL'
+                    and not self.allow_stock_mixed_h1):
                 # The application's existing source filter excludes the
                 # weekday closing auction. A mixed native hourly OHLC cannot
                 # be purged by removing five minutes from its timestamp.
@@ -214,6 +216,59 @@ def _period(day,tf):
     first=day.replace(day=1)
     following=first.replace(year=first.year+(first.month==12),month=first.month%12+1)
     return first,following-timedelta(days=1)
+
+
+def build_h4_from_finam_h1(raw,calendar,observed,*,coverage=None,
+                            observed_at=None,bucket_cache=None):
+    """Derive only H4, solely from unchanged Finam H1 and verified sessions.
+
+    Never inspect M5 for H4, patch native H1, or construct D/W/M. A mixed
+    stock H1 with auction trades is consumed as Finam delivered it: without
+    M5 it is mathematically impossible to subtract individual auction prints.
+    """
+    if observed.tzinfo is None:
+        raise ValueError('Observation must be timezone aware')
+    observed=observed.astimezone(UTC)
+    original={tf:normalize(raw.get(tf,())) for tf in ('M5','H1')}
+    result={tf:rows for tf,rows in original.items() if rows}
+    h1=original['H1']
+    if not h1:
+        return SessionSeries(result,{'H4':'lower_history_unavailable'},
+                             {'H4':'finam_h1_only'})
+    lower=_LowerSource({'H1':h1},coverage or {},observed_at or {},observed,
+                       calendar,bucket_cache=bucket_cache,
+                       allow_stock_mixed_h1=True)
+    first=h1[0].time.astimezone(calendar.zone).date()
+    last=observed.astimezone(calendar.zone).date()+timedelta(days=1)
+    h4=[];issues={};breaks={};pending=False
+    day=first
+    while day<=last:
+        checkpoint()
+        try:
+            session=calendar.session(day)
+        except CalendarUnavailable as exc:
+            issues.setdefault('H4',str(exc))
+            pending=True
+            day+=timedelta(days=1)
+            continue
+        day+=timedelta(days=1)
+        if session is None or session.start>=observed:
+            continue
+        for pieces in session.buckets(240):
+            start,end=pieces[0][0],pieces[-1][1]
+            if start>=observed:
+                continue
+            bar,origin=lower.bucket(pieces,session.end)
+            if bar is not None:
+                if pending and h4:
+                    breaks.setdefault('H4',[]).append(bar.time.isoformat())
+                pending=False
+                h4.append(bar)
+            elif origin!='no_trades' and end<=observed:
+                issues.setdefault('H4','incomplete_lower_coverage')
+                pending=True
+    if h4:result['H4']=normalize(h4)
+    return SessionSeries(result,issues,{'H4':'finam_h1_only'},breaks=breaks)
 
 
 def build_session_series(raw,calendar,observed,*,coverage=None,observed_at=None,bucket_cache=None):
