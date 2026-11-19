@@ -68,7 +68,7 @@ def analyze_timeframes(series: dict[str, list[Candle]], display_tf: str,
         previous_summary.update(getattr(saved,'summary_sources',{}))
     changed_contexts=set()
     if settings is not None:
-        for tf in ('MN1','W1','D1','H1'):
+        for tf in (('MN1','W1','D1','H1') if terminal else ('MN1','W1','D1','H4')):
             checkpoint()
             if series.get(tf):
                 bars=normalize(series[tf])
