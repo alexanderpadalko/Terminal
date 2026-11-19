@@ -43,7 +43,7 @@ def storage_stress(folder):
 
     def write(symbol):
         for tf in frames:
-            step = timedelta(minutes={"M5": 5, "H4": 240,
+            step = timedelta(minutes={"M5": 5, "H1": 60,
                                       "D1": 1440, "W1": 10080, "MN1": 43200}[tf])
             rows = [Candle(base + step * i, 100 + i, 102 + i, 99 + i,
                            101 + i, 1000 + i) for i in range(candles)]
