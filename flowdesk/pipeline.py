@@ -76,7 +76,7 @@ def analyze_timeframes(series: dict[str, list[Candle]], display_tf: str,
                 if not known:
                     continue
                 bars=known[-settings.liquidityHistoryBars:]
-                old=previous_summary.get(tf)
+                old=previous_summary.get(tf) or ((cached or {}).get(tf) if terminal and tf==display_tf else None)
                 dependency_changed=bool(set(HIGHER_SOURCES.get(tf,()))&changed_contexts)
                 result=None if dependency_changed else _reuse(old,bars,tf,asof)
                 limited[tf]=result or replay(bars,tf,asof=asof,higher_liquidity=limited,
