@@ -283,7 +283,8 @@ class TestFinamMarket(unittest.TestCase):
 
     def test_allow_http_seed_then_cache_without_network(self):
         first,_,_=self.service.view("AAPL","XNAS","M5",allow_http=True)
-        self.assertGreaterEqual(len(self.api.calls),6)
+        self.assertGreaterEqual(len(self.api.calls),5)
+        self.assertNotIn(('AAPL@XNAS','H4'),self.api.calls)
         self.api.calls.clear()
         again,_,_=self.service.view("AAPL","XNAS","M5",allow_http=False)
         self.assertEqual(first.candles,again.candles)

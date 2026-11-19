@@ -335,8 +335,8 @@ class TestSignalLogic(unittest.TestCase):
         self.assertEqual(result.directions[0],1)
         self.assertEqual(result.price,100)
         requested=[tf for _,tf in service.api.calls if tf!="quote"]
-        self.assertEqual(set(requested),{"H4","D1","W1","MN1"})
-        self.assertEqual(len(requested),8)
+        self.assertEqual(set(requested),{"D1","W1","MN1"})
+        self.assertEqual(len(requested),6)
         self.assertEqual(again.price_origin,"finam_last")
         self.assertNotIn("M5",requested)
 

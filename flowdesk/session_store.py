@@ -143,7 +143,7 @@ def prepare(service,symbol,raw,observed,*,bucket_cache=None,bucket_changes=None)
              'profile':'unknown','issues':issues,
              'origins':{tf:'finam_native' for tf in NATIVE_HIGHER} if primary_native and not (pilot_requested or ru) else {},
              'control_issues':{tf:'instrument_calendar_unknown' for tf in NATIVE_HIGHER} if primary_native else {}})
-    pilot=primary_native and futures.enabled(symbol,calendar)
+    pilot=primary_native and not direct and futures.enabled(symbol,calendar)
     if pilot:calendar=futures.calendar_for_family(calendar)
     versions=(AGGREGATION_VERSION,calendar.revision,NATIVE_POLICY_VERSION if primary_native else None)
     full_archive=bool(state and state.get('full_archive'))

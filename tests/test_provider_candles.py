@@ -143,8 +143,9 @@ class TestNativeHigher(unittest.TestCase):
         self.assertEqual(self.prepare()['MN1'],months())
         self.market.refresh_series(SYMBOL,('MN1',))
         self.assertEqual(len(self.api.calls),1)
+        self.api.h1_only_h4_native_dwm=True
         self.market.refresh_series(SYMBOL,('H4',))
-        self.assertEqual([tf for _,tf,_ in self.api.calls][1:],['H1','M5'])
+        self.assertEqual([tf for _,tf,_ in self.api.calls][1:],['H1'])
 
     def test_stream_subscriptions_and_repair_include_native_w_m_not_unused_h4(self):
         self.assertEqual(set(FinamAPI.stream_frames),{'M5','H1','D1','W1','MN1'})
@@ -185,7 +186,8 @@ class TestNativeHigher(unittest.TestCase):
         self.market._upsert(symbol,'MN1',months())
         _backfill_higher_history(self.market,symbol,NOW,self.market._series(symbol))
         frames=[tf for _,tf,_ in api.calls]
-        self.assertIn('MN1',frames);self.assertIn('M5',frames)
+        self.assertIn('MN1',frames);self.assertIn('H1',frames)
+        self.assertNotIn('M5',frames)
         self.assertLessEqual(len(frames),5)
         before=len(frames)
         _backfill_higher_history(self.market,symbol,NOW,self.market._series(symbol))
