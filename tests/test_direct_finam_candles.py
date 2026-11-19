@@ -139,7 +139,7 @@ class DirectFinamSourceTests(unittest.TestCase):
         symbol='S1Z6@RTSX'
         source=self.seed(symbol)
         with patch('flowdesk.pipeline.analyze',
-                   side_effect=AssertionError('technical replay executed')), \\
+                   side_effect=AssertionError('technical replay executed')), \
              patch('flowdesk.session_store.prepare',
                    side_effect=AssertionError('H4 aggregation executed')):
             main,parents,info=self.service.view('S1Z6','RTSX','H1',
