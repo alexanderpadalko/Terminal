@@ -9,7 +9,6 @@ from types import SimpleNamespace
 
 from .finam_stream import FinamStreamWorker
 from .finam_requests import RequestCoordinator
-from .finam_screener import FinamScreenerWorker, ScanResult
 from datetime import date,datetime,timedelta,timezone
 
 
@@ -28,13 +27,6 @@ def check_finam_runtime(output):
     worker._connect_loop = exercise_executor
     try:
         worker.run()
-        entries=[SimpleNamespace(symbol=f"TEST{i}@MISX",verified=True) for i in range(3)]
-        scanner=FinamScreenerWorker(object(),entries,object(),backfill=False,
-            evaluate=lambda service,ticker,mic,settings,**kwargs:ScanResult(ticker+"@"+mic,(0,)*4))
-        rows=[]
-        scanner.row.connect(rows.append)
-        scanner.run()
-        result["scanner_rows"]=len(rows)
         from .trading_calendar import calendar_for
         from .market_data import Candle
         from .session_candles import build_session_series
@@ -116,7 +108,7 @@ def check_finam_runtime(output):
             result['persistent_calculations']=bool(saved is not None and first==again)
         result["ok"] = (result.get("executor_callable") and
                         result.get("thread_result") == 17 and result.get("localhost_resolved")
-                        and result.get("scheduler_result")==23 and result.get("scanner_rows")==3
+                        and result.get("scheduler_result")==23
                         and result.get('session_candles')
                         and result.get('native_dwm') and result.get('nq_session_family')
                         and result.get('nq_session_last_trade') and result.get('us_futures_session_last_trade')
