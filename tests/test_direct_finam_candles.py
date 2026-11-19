@@ -135,5 +135,21 @@ class DirectFinamSourceTests(unittest.TestCase):
         result=stock.prepare_series(symbol,stock._series(symbol),now)
         self.assertEqual(result['M5'],[native])
 
+    def test_h1_chart_uses_normal_view_without_engine_or_other_frames(self):
+        symbol='S1Z6@RTSX'
+        source=self.seed(symbol)
+        with patch('flowdesk.pipeline.analyze',
+                   side_effect=AssertionError('technical replay executed')), \\
+             patch('flowdesk.session_store.prepare',
+                   side_effect=AssertionError('H4 aggregation executed')):
+            main,parents,info=self.service.view('S1Z6','RTSX','H1',
+                                                allow_http=True)
+        self.assertEqual(main.timeframe,'H1')
+        self.assertEqual(main.candles,source['H1'])
+        self.assertEqual((main.segments,main.flows,main.fvg,main.pairs,parents),
+                         ([],[],[],[],{}))
+        self.assertEqual([tf for _,tf in self.api.calls],['H1'])
+        self.assertEqual(info['tf'],'H1')
+
 if __name__=='__main__':
     unittest.main()

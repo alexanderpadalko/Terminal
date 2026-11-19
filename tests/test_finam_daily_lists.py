@@ -68,6 +68,15 @@ class DailyFuturesListsTest(unittest.TestCase):
                   for c in (*US_CONTRACTS,*RU_CONTRACTS)}
         self.assertTrue(FuturesListCache.complete(complete,now=self.now))
 
+    def test_fixed_cached_codes_survive_expiry_without_auto_roll(self):
+        self.cache.save(self.rows,now=self.now)
+        after=datetime(2027,4,18,12,tzinfo=timezone.utc)
+        # Retired expiry-based cache is invalid after the old roll date.
+        self.assertEqual(self.cache.load(now=after),{})
+        fixed=self.cache.load_fixed()
+        self.assertEqual(fixed[US_FUTURES+":"+US_CONTRACTS[0].display].symbol,'GCZ6@XCEC')
+        self.assertEqual(fixed[RU_FUTURES+":"+RU_CONTRACTS[0].display].symbol,'SiZ6@RTSX')
+
     def test_outage_does_not_erase_existing_verified_entries(self):
         self.cache.save(self.rows,now=self.now)
         self.cache.save({},now=self.now+timedelta(hours=2))
@@ -95,19 +104,6 @@ class DailyFuturesListsTest(unittest.TestCase):
         (Path(self.tmp.name)/"finam_futures_us_v1.json").write_text("{broken",encoding="utf-8")
         restored=self.cache.load(now=self.now)
         self.assertEqual(list(restored),[RU_FUTURES+":"+RU_CONTRACTS[0].display])
-
-    def test_catalog_daily_refresh_only_on_new_moscow_slot(self):
-        day=slot_date(self.now)
-        stub=SimpleNamespace(closing=False,_catalog_success_slot=day,
-                             _refresh_catalog=Mock())
-        with patch("flowdesk.finam_gui.read_secret",return_value="token"), \
-             patch("flowdesk.finam_gui.datetime") as utc:
-            utc.now.return_value=self.now
-            FinamWindow._daily_catalog_refresh(stub)
-            stub._refresh_catalog.assert_not_called()
-            stub._catalog_success_slot=day-timedelta(days=1)
-            FinamWindow._daily_catalog_refresh(stub)
-            stub._refresh_catalog.assert_called_once_with()
 
     def test_cache_verified_flag_must_be_a_boolean(self):
         from dataclasses import asdict

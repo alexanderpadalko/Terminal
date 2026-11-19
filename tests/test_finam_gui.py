@@ -380,24 +380,40 @@ class TestFinamGui(unittest.TestCase):
                              "Проверить повторно" in text for text in buttons))
         self.assertFalse(hasattr(self.window,"_show_expiry_report"))
 
-    def test_verified_us_ru_futures_update_before_moex_stocks(self):
-        from flowdesk.finam_universe import (
-            US_FUTURES, RU_FUTURES, RU_STOCKS, US_CONTRACTS, RU_CONTRACTS, Item)
-        original_stocks=list(self.window.universe[RU_STOCKS])
-        verified={
-            US_FUTURES+":"+US_CONTRACTS[0].display:
-                Item("GCZ2026","Золото",US_FUTURES,"GCZ6@XCEC",True,
-                     "действует до 2026-12-18 · Finam GetAsset"),
-            RU_FUTURES+":"+RU_CONTRACTS[0].display:
-                Item("SIZ2026","Доллар/рубль",RU_FUTURES,"SiZ6@RTSX",True,
-                     "действует до 2026-12-17 · Finam GetAsset")
-        }
-        self.window._futures_ready(verified)
-        self.assertEqual(self.window.universe[US_FUTURES][0].symbol,"GCZ6@XCEC")
-        self.assertEqual(self.window.universe[RU_FUTURES][0].symbol,"SiZ6@RTSX")
-        self.assertEqual(self.window.universe[RU_STOCKS],original_stocks)
-        self.assertTrue(self.window.daily_catalog_timer.isActive())
+    def test_fixed_watchlist_has_no_ranking_expiry_or_roll_jobs(self):
+        from flowdesk.finam_universe import US_FUTURES,RU_FUTURES,RU_STOCKS
+        self.assertFalse(hasattr(self.window,'daily_catalog_timer'))
+        self.assertFalse(hasattr(self.window,'catalog_worker'))
+        self.assertFalse(hasattr(self.window,'_refresh_catalog'))
+        self.assertFalse(hasattr(self.window,'_catalog_loaded'))
+        before={group:tuple(self.window.universe[group])
+                for group in (US_FUTURES,RU_FUTURES,RU_STOCKS)}
+        self.window._populate_universe()
+        self.assertEqual(before,{group:tuple(self.window.universe[group])
+                                 for group in before})
+        self.assertEqual(self.window.examples.count(),30)
+        self.assertTrue(all(not self.window.examples.item(i).text().count('до 18.12')
+                            for i in range(self.window.examples.count())))
 
+    def test_h1_uses_the_existing_chart_widget_without_indicator_drawing(self):
+        from flowdesk.engine import Analysis
+        from flowdesk.market_data import Candle
+        from datetime import datetime,timezone,timedelta
+        start=datetime(2026,11,19,8,tzinfo=timezone.utc)
+        rows=[Candle(start+timedelta(hours=i),101+i,105+i,98+i,103+i,10,
+                     scheduled_close=start+timedelta(hours=i+1)) for i in range(4)]
+        chart=self.window.chart
+        with patch('flowdesk.gui.vwap_series',side_effect=AssertionError('VWAP computed')), \\
+             patch('flowdesk.gui.select_fvg_display',side_effect=AssertionError('FVG computed')), \\
+             patch('flowdesk.gui.select_flow_display',side_effect=AssertionError('flow computed')), \\
+             patch('flowdesk.gui.inside_mother_bars',side_effect=AssertionError('inside computed')):
+            chart.set_analysis(Analysis(rows,[],[],[],[],'H1',asof=start+timedelta(hours=4)))
+            chart.repaint()
+        self.assertEqual(chart.analysis.candles,rows)
+        self.assertIsNone(chart.fvg_plan)
+        self.assertIsNone(chart.flow_plan)
+        self.assertEqual(chart.inside_bars,[])
+        self.assertEqual(chart.vwap,[])
 
     def test_instrument_sidebar_has_no_screener_and_preserves_every_row(self):
         from PySide6.QtCore import Qt
@@ -439,43 +455,6 @@ class TestFinamGui(unittest.TestCase):
             self.select("BTCUSDT","BINANCE")
         start.assert_not_called()
         self.assertIsNone(self.window.displayed_view)
-
-    def test_catalog_outage_does_not_restore_retired_crypto_rows(self):
-        self.window.catalog_error="Каталог Finam недоступен"
-        self.window._populate_universe()
-        rows=[self.window.examples.item(i).text() for i in range(self.window.examples.count())]
-        self.assertFalse(any("BTC" in text or "КРИПТА" in text for text in rows))
-
-    def test_manual_selection_cancels_deferred_saved_contract(self):
-        self.window._pending_restore="TSLA@XNGS"
-        with patch.object(self.window,"_load"), patch.object(self.window,"_start_stream"):
-            self.select("SBER")
-        self.assertIsNone(self.window._pending_restore)
-
-    def test_incomplete_expiry_refresh_is_retried_even_with_healthy_catalog(self):
-        from flowdesk.finam_universe import US_CONTRACTS,RU_CONTRACTS,RU_STOCKS,Item
-        from flowdesk.watchlist import slot_date
-        from datetime import datetime,timezone
-        # Exact catalog symbols with unknown expiry remain selectable, but
-        # they cannot mark the day's metadata check as completed.
-        rows={c.group+":"+c.display:Item(c.display,c.name,c.group,
-              c.aliases[0]+"@"+c.mics[0],True,
-              "вечный контракт, без ролловера" if ".P" in c.display else
-              "действует до 2027-12-18 · Finam GetAsset")
-              for c in (*US_CONTRACTS,*RU_CONTRACTS)}
-        key=US_CONTRACTS[0].group+":"+US_CONTRACTS[0].display
-        good=rows[key]
-        from dataclasses import replace
-        rows[key]=replace(good,source="экспирация не подтверждена; автопереход приостановлен")
-        payload={"assets":[],"finam_error":"","futures":rows,
-                 "stocks":self.window.universe[RU_STOCKS],"ranking_status":"MOEX: подтверждено"}
-        with patch.object(self.window.futures_list_cache,"load",return_value={}), \
-             patch.object(self.window,"_load"), patch.object(self.window,"_start_stream"):
-            self.window._catalog_loaded(payload)
-            self.assertIsNone(self.window._catalog_success_slot)
-            rows[key]=good
-            self.window._catalog_loaded(payload)
-            self.assertEqual(self.window._catalog_success_slot,slot_date(datetime.now(timezone.utc)))
 
     def test_finam_controls_are_absent_and_http_stream_are_on(self):
         from PySide6.QtWidgets import QPushButton, QCheckBox
@@ -620,18 +599,6 @@ class TestFinamGui(unittest.TestCase):
         ])
         self.assertIs(window.chart.analysis, before)
 
-    def test_known_future_expiry_is_visible_in_compact_sidebar(self):
-        from flowdesk.finam_universe import Item, US_FUTURES
-        entry=self.window.universe[US_FUTURES][0]
-        self.window.universe[US_FUTURES][0]=Item(
-            entry.label,entry.name,entry.group,"GCZ26@XCEC",True,
-            "действует до 2026-12-18 · Finam GetAsset")
-        self.window._populate_universe()
-        labels=[self.window.examples.item(i).text()
-                for i in range(self.window.examples.count())]
-        self.assertTrue(any("GCZ2026" in label and "до 18.12" in label
-                            for label in labels))
-
     def test_unlisted_stock_cannot_replace_selected_chart(self):
         self.select("SBER")
         self.settle()
@@ -639,18 +606,6 @@ class TestFinamGui(unittest.TestCase):
         self.select("AAPL","XNGS")
         self.assertIs(self.window.chart.analysis,chart)
         self.assertIn("отсутствует",self.window.status.text())
-
-    def test_catalog_enables_only_exact_matching_future(self):
-        from PySide6.QtCore import Qt
-        rows=[{"symbol":"GCZ6@XCEC","ticker":"GCZ6","mic":"XCEC",
-               "type":"TYPE_FUTURE","is_archived":False}]
-        self.window._catalog_loaded(rows)
-        cells=[self.window.examples.item(i) for i in range(self.window.examples.count())]
-        found=[row for row in cells if row.text().startswith("GCZ2026 ·")]
-        self.assertEqual(len(found),1)
-        self.assertEqual(found[0].data(Qt.ItemDataRole.UserRole),"GCZ6@XCEC")
-        blocked=[row for row in cells if row.text().startswith("BRNF2027 ·")]
-        self.assertEqual(blocked[0].data(Qt.ItemDataRole.UserRole),"")
 
     def test_finam_worker_repairs_lazy_executor_before_to_thread_and_dns(self):
         output=Path(self.temp.name)/"runtime.json"
@@ -667,18 +622,19 @@ class TestFinamGui(unittest.TestCase):
             self.assertEqual(other.symbol_edit.text(),"SBER")
             self.assertEqual(other.mic.currentText(),"MISX")
             self.assertEqual(other.ui_prefs.value("mic"),"XNGS")
-            self.assertEqual(other._pending_restore,"TSLA@XNGS")
+            self.assertIsNone(other._pending_restore)
         finally:
             other.close()
             other.deleteLater()
 
-    def test_old_h1_and_m1_preferences_migrate_to_h4(self):
-        for retired in ('H1','M1'):
-            self.window.ui_prefs.setValue('tf',retired)
+    def test_hourly_preference_is_available_while_m1_remains_retired(self):
+        for saved,expected in (('H1','H1'),('M1','H4')):
+            self.window.ui_prefs.setValue('tf',saved)
             other=FinamWindow(service=self.market,settings_store=self.window.settings_store)
             try:
-                self.assertEqual(other.tf.currentText(),'H4')
-                self.assertEqual(tuple(other.tf.buttons),('M5','H4','D1','W1','MN1'))
+                self.assertEqual(other.tf.currentText(),expected)
+                self.assertEqual(tuple(other.tf.buttons),
+                                 ('M5','H1','H4','D1','W1','MN1'))
             finally:
                 other.close()
                 other.deleteLater()
