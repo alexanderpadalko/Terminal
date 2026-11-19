@@ -147,6 +147,7 @@ class TerminalScopeTests(unittest.TestCase):
         from flowdesk.history_archive import FRAMES
         from test_finam_only import FakeAPI
         api=FakeAPI()
+        api.native_all_frames=True  # Production policy, unlike legacy fake tests.
         with tempfile.TemporaryDirectory() as folder:
             service=FinamMarketService(Path(folder)/'cache.sqlite',api=api,clock=lambda:NOW)
             service._upsert('SBER@MISX','M1',bars(1))

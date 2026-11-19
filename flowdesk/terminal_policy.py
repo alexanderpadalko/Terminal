@@ -2,6 +2,8 @@
 
 DISPLAY_TIMEFRAMES = ('M5', 'H4', 'D1', 'W1', 'MN1')
 SOURCE_TIMEFRAMES = ('M5', 'H4', 'D1', 'W1', 'MN1')
+# Offline legacy fixtures may still read past H1, but production never does.
+LEGACY_SOURCE_TIMEFRAMES = ('M5', 'H1', 'H4', 'D1', 'W1', 'MN1')
 FLOW_TIMEFRAMES = ('H4', 'D1', 'W1', 'MN1')
 SUMMARY_LABELS = ('H4', 'D', 'W', 'M')
 HTTP_REFRESH_SECONDS = 300

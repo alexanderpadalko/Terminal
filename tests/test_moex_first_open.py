@@ -24,6 +24,7 @@ class FirstOpenFeed(FinamAPI):
     # Regression fixture for the retired, still-readable MOEX family.
     # Production FinamAPI defaults to native D/W/M and H4 from H1.
     h1_only_h4_native_dwm=False
+    native_all_frames=False
     def __init__(self):
         super().__init__(secret_reader=lambda:'')
         self.calls=[];self.hook=None

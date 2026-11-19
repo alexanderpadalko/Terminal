@@ -21,6 +21,8 @@ from .session_store import record_response
 VERSION = 'FULL_ARCHIVE_v2_'
 FLOOR = datetime(1970, 1, 1, tzinfo=timezone.utc)
 FRAMES = ('MN1', 'W1', 'D1', 'H4', 'M5')
+# Legacy archive tests can replay old H1 windows; active Finam never requests it.
+LEGACY_FRAMES = ('MN1', 'W1', 'D1', 'H1', 'H4', 'M5')
 
 
 def backfill_window(service, symbol, *, cancelled=lambda: False, frame=None, excluded_frames=()):
@@ -42,8 +44,10 @@ def backfill_window(service, symbol, *, cancelled=lambda: False, frame=None, exc
         now = service.clock()
         generation = service._generation
         state = service.load_history_progress()
-        frames = (frame,) if frame else FRAMES
-        if any(tf not in FRAMES for tf in frames):
+        allowed = (FRAMES if getattr(service.api,'native_all_frames',False)
+                   else LEGACY_FRAMES)
+        frames = (frame,) if frame else allowed
+        if any(tf not in allowed for tf in frames):
             raise ValueError('Unknown archive timeframe')
         pending = [(tf, state.get((symbol, VERSION+tf), {})) for tf in frames]
         pending = [(tf, item) for tf, item in pending
@@ -54,7 +58,7 @@ def backfill_window(service, symbol, *, cancelled=lambda: False, frame=None, exc
         # the larger native windows; persisted turn counts survive restart.
         with closing(service._connection()) as db:
             turns = dict(db.execute('SELECT tf,turns FROM full_archive_turns WHERE symbol=?', (symbol,)))
-        tf, item = min(pending, key=lambda row: (turns.get(row[0], 0), FRAMES.index(row[0])))
+        tf, item = min(pending, key=lambda row: (turns.get(row[0], 0), allowed.index(row[0])))
         end = min(now, item.get('cursor', now))
         scope = getattr(service.api, 'request_scope', None)
         with scope(priority=30, cancelled=cancelled) if scope else nullcontext():

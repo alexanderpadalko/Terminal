@@ -9,7 +9,8 @@ import sqlite3
 import threading
 import math
 from .finam_api import FinamAPI, FinamAPIError, FRAMES, DEPTH_DAYS, parse_instant
-from .terminal_policy import DISPLAY_TIMEFRAMES, SOURCE_TIMEFRAMES, FLOW_TIMEFRAMES, POLICY_VERSION, HTTP_REFRESH_SECONDS
+from .terminal_policy import (DISPLAY_TIMEFRAMES, SOURCE_TIMEFRAMES, LEGACY_SOURCE_TIMEFRAMES,
+                              FLOW_TIMEFRAMES, POLICY_VERSION, HTTP_REFRESH_SECONDS)
 from .market_symbols import symbol_name
 from .market_data import Candle, normalize, candle_close_time
 from .pipeline import analyze_timeframes
@@ -142,7 +143,7 @@ class FinamMarketService:
             if getattr(self.api,'session_candles',False):
                 observed=self.clock()-timedelta(minutes=self.api.market_delay_minutes(symbol.rsplit('@',1)[1]))
                 revised=session_store.changed(db,symbol,timeframe,bars,observed,replace=changed or source=='http')
-                if revised and symbol==self._chart_sources.symbol and timeframe in SOURCE_TIMEFRAMES:
+                if revised and symbol==self._chart_sources.symbol and timeframe in self._source_frames():
                     start=end=None
                     if all(b.time.utcoffset()==timedelta(0) for b in bars):
                         start=min(b.time for b in bars).isoformat()
@@ -159,15 +160,23 @@ class FinamMarketService:
         db.commit()
         self._chart_sources.record(symbol,revision,frame,start,end)
 
+    def _source_frames(self):
+        # The production API has no H1. Historical/experimental fakes can
+        # still exercise the old session family without changing that rule.
+        return (SOURCE_TIMEFRAMES if getattr(self.api,'native_all_frames',False)
+                else LEGACY_SOURCE_TIMEFRAMES)
+
     def _series(self,symbol,*,chart=False):
         snapshot=getattr(self._scan_local,'snapshot',None)
         if chart and snapshot is None and getattr(self.api,'session_candles',False):
             return self._chart_series(symbol)
-        series={tf:[] for tf in SOURCE_TIMEFRAMES}
+        frames=self._source_frames()
+        series={tf:[] for tf in frames}
+        placeholders=','.join('?' for _ in frames)
         with closing(self._connection()) as db:
             db.execute('BEGIN')
             rows=db.execute("""SELECT tf,ts,o,h,l,c,v,closes_at FROM candles
-                WHERE symbol=? AND tf!='M1' ORDER BY ts""",(symbol,))
+                WHERE symbol=? AND tf IN ("""+placeholders+""") ORDER BY ts""",(symbol,*frames))
             for index,(tf,ts,o,h,l,c,v,ending) in enumerate(rows):
                 if index % 1024 == 0:
                     checkpoint()
@@ -178,7 +187,7 @@ class FinamMarketService:
             if getattr(self.api,'session_candles',False):
                 state=self._source_state(db,symbol)
                 state['observations']=db.execute('''SELECT tf,ts,observed_at FROM candle_source_observations
-                    WHERE symbol=? AND tf!='M1' ''',(symbol,)).fetchall()
+                    WHERE symbol=? AND tf IN ('''+placeholders+')',(symbol,*frames)).fetchall()
         result={tf:normalize(bars) for tf,bars in series.items() if bars}
         if snapshot is not None:
             # HTTP responses own the refreshed suffix even if a selected-chart
@@ -207,7 +216,7 @@ class FinamMarketService:
             with self.lock:
                 saved,changes=self._chart_sources.inputs(symbol,revision)
                 preparation=self._chart_preparation if self._chart_sources.symbol==symbol else None
-            frames=read_frames(db,symbol,saved,changes)
+            frames=read_frames(db,symbol,saved,changes,source_frames=self._source_frames())
         checkpoint()
         with self.lock:
             if preparation is self._chart_preparation:
@@ -290,8 +299,8 @@ class FinamMarketService:
 
     def mark_stream_reconnect(self,symbol):
         with self.lock:
-            frames=self.api.stream_frames if native_higher_enabled(self.api) else SOURCE_TIMEFRAMES
-            frames=tuple(tf for tf in frames if tf in SOURCE_TIMEFRAMES)
+            frames=self.api.stream_frames if native_higher_enabled(self.api) else self._source_frames()
+            frames=tuple(tf for tf in frames if tf in self._source_frames())
             self._repair.update((symbol,tf) for tf in frames)
             for tf in frames:
                 self._stream_updates.pop((symbol,tf),None)
@@ -327,7 +336,7 @@ class FinamMarketService:
         for event in events:
             if (event.kind!="candles" or
                 (event.symbol.upper(),event.board.upper())!=(ticker.upper(),mic.upper()) or
-                event.timeframe not in SOURCE_TIMEFRAMES or not event.candles):continue
+                event.timeframe not in self._source_frames() or not event.candles):continue
             prior=self._tail(symbol,event.timeframe,1)
             first=min(c.time for c in event.candles)
             if prior and first>candle_close_time(prior[-1],event.timeframe):
@@ -351,7 +360,7 @@ class FinamMarketService:
         direct=bool(getattr(self.api,'h1_only_h4_native_dwm',False))
         if direct and not native_all:
             frames=tuple('H1' if tf=='H4' else tf for tf in frames)
-        frames=tuple(tf for tf in frames if tf in SOURCE_TIMEFRAMES)
+        frames=tuple(tf for tf in frames if tf in self._source_frames())
         policy=bool(getattr(self.api,'session_candles',False))
         if policy:
             # US futures need H1 for session OHLCV; RU futures need it for

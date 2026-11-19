@@ -180,13 +180,13 @@ def _changed_ranges(ranges):
     return merged
 
 
-def read_frames(db, symbol, saved, changes):
+def read_frames(db, symbol, saved, changes, *, source_frames=SOURCE_TIMEFRAMES):
     dirty = {}
     for _, frame, start, end in changes:
-        if frame is not None:  # Coverage updates change no candle or receipt rows.
+        if frame is not None and frame in source_frames:
             dirty.setdefault(frame, []).append((start, end))
-    frames = {} if saved is None else dict(saved[1])
-    for frame in SOURCE_TIMEFRAMES if saved is None else dirty:
+    frames = {} if saved is None else {k:v for k,v in saved[1].items() if k in source_frames}
+    for frame in source_frames if saved is None else dirty:
         checkpoint()
         previous = frames.get(frame)
         if not previous or not previous[2]:
