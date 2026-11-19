@@ -53,7 +53,7 @@ class TerminalScopeTests(unittest.TestCase):
              patch('flowdesk.reference_engine.market_state',side_effect=AssertionError('retired market block')), \
              patch('flowdesk.engine._project_h1_flows',side_effect=AssertionError('retired projection')):
             main,parents=analyze_timeframes(series,'M5',asof=NOW,terminal=True)
-            self.assertEqual(set(calls),set(DISPLAY_TIMEFRAMES)-{'H1'})
+            self.assertEqual(set(calls),set(DISPLAY_TIMEFRAMES))
             self.assertEqual(set(parents),set(FLOW_TIMEFRAMES))
             self.assertEqual(set(main.summary_sources),set(FLOW_TIMEFRAMES))
             for source in (main,*parents.values(),*main.summary_sources.values()):
@@ -66,11 +66,8 @@ class TerminalScopeTests(unittest.TestCase):
             self.assertFalse(again.flows)
         with self.assertRaises(ValueError):
             analyze_timeframes(series,'M1',asof=NOW,terminal=True)
-        with patch('flowdesk.pipeline.analyze',side_effect=AssertionError('H1 computed')):
-            hourly,others=analyze_timeframes(series,'H1',asof=NOW,terminal=True)
-        self.assertEqual(hourly.candles,series['H1'])
-        self.assertEqual((hourly.segments,hourly.fvg,hourly.flows,hourly.pairs,others),
-                         ([],[],[],[],{}))
+        with self.assertRaises(ValueError):
+            analyze_timeframes(series,'H1',asof=NOW,terminal=True)
 
     def test_m5_skips_pair_engine_and_keeps_candles_zigzag_and_fvg(self):
         source=bars(5)
@@ -142,7 +139,7 @@ class TerminalScopeTests(unittest.TestCase):
             self.assertFalse(active.flows)
             self.assertFalse(active.market)
 
-    def test_m1_not_loaded_requested_subscribed_or_archived_old_rows_preserved(self):
+    def test_m1_h1_not_loaded_requested_or_subscribed_old_rows_preserved(self):
         from contextlib import closing
         from flowdesk.finam_market import FinamMarketService
         from flowdesk.finam_api import FinamAPI
@@ -153,18 +150,23 @@ class TerminalScopeTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             service=FinamMarketService(Path(folder)/'cache.sqlite',api=api,clock=lambda:NOW)
             service._upsert('SBER@MISX','M1',bars(1))
-            service.refresh_series('SBER@MISX',('M1',*SOURCE_TIMEFRAMES))
+            service._upsert('SBER@MISX','H1',bars(60))
+            service.refresh_series('SBER@MISX',('M1','H1',*SOURCE_TIMEFRAMES))
             self.assertNotIn('M1',service._series('SBER@MISX'))
-            self.assertIn('H1',service._series('SBER@MISX'))
+            self.assertNotIn('H1',service._series('SBER@MISX'))
             self.assertNotIn('M1',{tf for _,tf in api.calls})
+            self.assertNotIn('H1',{tf for _,tf in api.calls})
             with closing(service._connection()) as db:
                 self.assertEqual(db.execute("SELECT COUNT(*) FROM candles WHERE tf='M1'").fetchone()[0],12)
             with self.assertRaises(ValueError):
                 service.view('SBER','MISX','M1')
+            with self.assertRaises(ValueError):
+                service.view('SBER','MISX','H1')
         self.assertNotIn('M1',FRAMES)
-        for client in (FinamAPI,BinanceAPI):
-            self.assertNotIn('M1',client.stream_frames)
-            self.assertIn('H1',client.stream_frames)
+        self.assertNotIn('H1',FRAMES)
+        self.assertNotIn('M1',FinamAPI.stream_frames)
+        self.assertNotIn('H1',FinamAPI.stream_frames)
+        self.assertEqual(FinamAPI.stream_frames,SOURCE_TIMEFRAMES)
 
     def test_terminal_settings_remove_market_and_retired_frame_controls(self):
         from PySide6.QtWidgets import QApplication
@@ -185,14 +187,15 @@ class TerminalScopeTests(unittest.TestCase):
             self.assertFalse(restored.enableMarketStructureInput)
         finally:dialog.close()
 
-    def test_hourly_visible_but_not_analyzed_in_other_frames(self):
+    def test_hourly_retired_and_native_h4_visible(self):
         from PySide6.QtWidgets import QApplication
         from flowdesk.gui import TimeframeBar
         from flowdesk.chart_indicators import summary_rows
         app=QApplication.instance() or QApplication([])
         bar=TimeframeBar(frames=DISPLAY_TIMEFRAMES)
         self.assertEqual(tuple(bar.buttons),DISPLAY_TIMEFRAMES)
-        self.assertIn('H1',bar.buttons)
+        self.assertNotIn('H1',bar.buttons)
+        self.assertIn('H4',bar.buttons)
         self.assertNotIn('M1',bar.buttons)
         self.assertEqual(bar.currentText(),'H4')
         main,_=analyze_timeframes({'H4':bars(240)},'H4',asof=NOW,terminal=True)

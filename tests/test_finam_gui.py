@@ -395,26 +395,6 @@ class TestFinamGui(unittest.TestCase):
         self.assertTrue(all(not self.window.examples.item(i).text().count('до 18.12')
                             for i in range(self.window.examples.count())))
 
-    def test_h1_uses_the_existing_chart_widget_without_indicator_drawing(self):
-        from flowdesk.engine import Analysis
-        from flowdesk.market_data import Candle
-        from datetime import datetime,timezone,timedelta
-        start=datetime(2026,11,19,8,tzinfo=timezone.utc)
-        rows=[Candle(start+timedelta(hours=i),101+i,105+i,98+i,103+i,10,
-                     scheduled_close=start+timedelta(hours=i+1)) for i in range(4)]
-        chart=self.window.chart
-        with patch('flowdesk.gui.vwap_series',side_effect=AssertionError('VWAP computed')), \
-             patch('flowdesk.gui.select_fvg_display',side_effect=AssertionError('FVG computed')), \
-             patch('flowdesk.gui.select_flow_display',side_effect=AssertionError('flow computed')), \
-             patch('flowdesk.gui.inside_mother_bars',side_effect=AssertionError('inside computed')):
-            chart.set_analysis(Analysis(rows,[],[],[],[],'H1',asof=start+timedelta(hours=4)))
-            chart.repaint()
-        self.assertEqual(chart.analysis.candles,rows)
-        self.assertIsNone(chart.fvg_plan)
-        self.assertIsNone(chart.flow_plan)
-        self.assertEqual(chart.inside_bars,[])
-        self.assertEqual(chart.vwap,[])
-
     def test_instrument_sidebar_has_no_screener_and_preserves_every_row(self):
         from PySide6.QtCore import Qt
         from flowdesk.finam_universe import US_FUTURES,RU_FUTURES,RU_STOCKS
@@ -628,14 +608,14 @@ class TestFinamGui(unittest.TestCase):
             other.close()
             other.deleteLater()
 
-    def test_hourly_preference_is_available_while_m1_remains_retired(self):
-        for saved,expected in (('H1','H1'),('M1','H4')):
+    def test_retired_hourly_and_m1_preferences_migrate_to_h4(self):
+        for saved,expected in (('H1','H4'),('M1','H4')):
             self.window.ui_prefs.setValue('tf',saved)
             other=FinamWindow(service=self.market,settings_store=self.window.settings_store)
             try:
                 self.assertEqual(other.tf.currentText(),expected)
                 self.assertEqual(tuple(other.tf.buttons),
-                                 ('M5','H1','H4','D1','W1','MN1'))
+                                 ('M5','H4','D1','W1','MN1'))
             finally:
                 other.close()
                 other.deleteLater()

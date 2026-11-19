@@ -1,4 +1,4 @@
-"""Production Finam source policy: M5/H1/D/W/M native, H4 from H1 alone."""
+"""Production Finam source policy: native M5/H4/D/W/M; H1 is retired."""
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import tempfile
@@ -8,10 +8,9 @@ from unittest.mock import patch
 from flowdesk.finam_api import FinamAPI
 from flowdesk.finam_market import FinamMarketService
 from flowdesk.market_data import Candle, MOSCOW
-from flowdesk.provider_candles import NATIVE_POLICY_VERSION
-from flowdesk.terminal_policy import SOURCE_TIMEFRAMES
+from flowdesk.provider_candles import NATIVE_ALL_POLICY_VERSION
+from flowdesk.terminal_policy import SOURCE_TIMEFRAMES, DISPLAY_TIMEFRAMES
 from flowdesk import moex_trading_family as moex
-
 
 UTC=timezone.utc
 NOW=datetime(2026,11,18,12,tzinfo=UTC)
@@ -24,9 +23,10 @@ def candle(ts,ohlcv,end):
 
 class DirectFinamFixture:
     session_candles=True
-    h1_only_h4_native_dwm=True
+    native_all_frames=True
+    h1_only_h4_native_dwm=False
     native_higher_frames=('D1','W1','MN1')
-    stream_frames=('M5','H1','D1','W1','MN1')
+    stream_frames=('M5','H4','D1','W1','MN1')
     provider_name='Finam'
     def __init__(self):
         self.calls=[]
@@ -35,26 +35,18 @@ class DirectFinamFixture:
         return 0
     def bars(self,symbol,tf,*,start=None,end=None,now=None):
         self.calls.append((symbol,tf))
-        return [b for b in self.rows.get(tf,())
-                if (start is None or b.time>=start) and
-                   (end is None or b.time<end)]
+        return [bar for bar in self.rows.get(tf,())
+                if (start is None or bar.time>=start) and
+                   (end is None or bar.time<end)]
 
 
 def native_rows():
-    hours=[
-        candle(START+timedelta(hours=0),(100,110,98,105,11),START+timedelta(hours=1)),
-        candle(START+timedelta(hours=1),(105,120,102,115,12),START+timedelta(hours=2)),
-        candle(START+timedelta(hours=2),(115,117,95,105,13),START+timedelta(hours=3)),
-        candle(START+timedelta(hours=3),(105,108,100,103,14),START+timedelta(hours=4)),
-    ]
-    minute=candle(START,(10,999,1,90,999),START+timedelta(minutes=5))
-    # Finam's physical Saturday label must not migrate into Monday.
     saturday=datetime(2026,11,14,tzinfo=UTC)
     monday=datetime(2026,11,16,tzinfo=UTC)
     month=datetime(2026,11,1,tzinfo=UTC)
     return {
-        'M5':[minute],
-        'H1':hours,
+        'M5':[candle(START,(10,999,1,90,999),START+timedelta(minutes=5))],
+        'H4':[candle(START,(100,120,95,103,50),START+timedelta(hours=4))],
         'D1':[candle(saturday,(200,230,170,220,500),saturday+timedelta(days=1))],
         'W1':[candle(monday,(300,360,270,340,600),monday+timedelta(days=7))],
         'MN1':[candle(month,(400,470,370,440,700),datetime(2026,12,1,tzinfo=UTC))]
@@ -74,55 +66,62 @@ class DirectFinamSourceTests(unittest.TestCase):
             self.service._upsert(symbol,tf,items)
         return rows
 
-    def test_production_api_declares_native_sources_and_no_h4_request(self):
-        self.assertTrue(FinamAPI.h1_only_h4_native_dwm)
-        self.assertEqual(SOURCE_TIMEFRAMES,('M5','H1','D1','W1','MN1'))
-        self.service.refresh_series('GNZ6@RTSX',('H4',))
-        self.assertEqual([tf for _,tf in self.api.calls],['H1'])
+    def test_production_declares_five_native_sources_and_retires_h1(self):
+        self.assertTrue(FinamAPI.native_all_frames)
+        self.assertFalse(FinamAPI.h1_only_h4_native_dwm)
+        self.assertEqual(SOURCE_TIMEFRAMES,('M5','H4','D1','W1','MN1'))
+        self.assertEqual(DISPLAY_TIMEFRAMES,SOURCE_TIMEFRAMES)
+        self.assertEqual(FinamAPI.stream_frames,SOURCE_TIMEFRAMES)
+        self.service.refresh_series('GNZ6@RTSX',('H1','H4'))
+        self.assertEqual([tf for _,tf in self.api.calls],['H4'])
         self.api.calls.clear()
         self.service.refresh_series('GNZ6@RTSX',('D1','W1','MN1'))
         self.assertEqual([tf for _,tf in self.api.calls],['D1','W1','MN1'])
 
-    def test_h4_uses_only_hourly_prices_without_m5_or_native_h4(self):
+    def test_h4_is_exact_provider_ohlcv_not_m5_h1_or_old_reconstructed_h4(self):
         symbol='GNZ6@RTSX'
         raw=self.seed(symbol)
-        self.service._upsert(symbol,'H4',[candle(START,
-            (1,10000,0.1,9999,50000),START+timedelta(hours=4))])
-        prepared=self.service.prepare_series(symbol,self.service._series(symbol),NOW)
-        self.assertEqual(prepared.session_metadata['version'],NATIVE_POLICY_VERSION)
-        self.assertEqual(prepared.session_metadata['origins']['H4'],'finam_h1_only')
-        self.assertEqual(len(prepared['H4']),1)
-        bar=prepared['H4'][0]
-        self.assertEqual((bar.open,bar.high,bar.low,bar.close,bar.volume),
-                         (100,120,95,103,50))
-        self.assertEqual(bar.time,START)
-        self.assertEqual(bar.scheduled_close,START+timedelta(hours=4))
-        self.assertEqual(prepared['M5'],raw['M5'])
-        self.assertEqual(prepared['H1'],raw['H1'])
+        self.service._upsert(symbol,'H1',[candle(START,
+            (1,10000,0.1,9999,50000),START+timedelta(hours=1))])
+        with patch.object(self.service,'calendar_factory',
+                          side_effect=AssertionError('calendar must not run')), \
+             patch('flowdesk.session_candles.build_h4_from_finam_h1',
+                   side_effect=AssertionError('derived H4 must not run')):
+            series=self.service.prepare_series(symbol,self.service._series(symbol),NOW)
+        self.assertEqual(series.session_metadata['version'],NATIVE_ALL_POLICY_VERSION)
+        self.assertEqual(series.session_metadata['origins']['H4'],'finam_native')
+        self.assertEqual(series['H4'],raw['H4'])
+        self.assertEqual(series['M5'],raw['M5'])
+        self.assertNotIn('H1',self.service._series(symbol))
+        self.assertNotIn('H1',series)
 
-    def test_native_daily_weekly_monthly_unchanged_on_moex_and_cme(self):
-        for symbol in ('S1Z6@RTSX','GCZ6@XCEC'):
+    def test_h4_is_independent_of_missing_h1_and_dwm_are_original(self):
+        for symbol in ('S1Z6@RTSX','GCZ6@XCEC','SBER@MISX'):
             with self.subTest(symbol=symbol):
                 raw=self.seed(symbol)
                 result=self.service.prepare_series(symbol,self.service._series(symbol),NOW)
-                for tf in ('D1','W1','MN1'):
+                for tf in SOURCE_TIMEFRAMES:
                     self.assertEqual(result[tf],raw[tf])
                     self.assertEqual(result.session_metadata['origins'][tf],'finam_native')
                 self.assertEqual(result['D1'][0].time.weekday(),5)
                 self.assertNotIn('moex_staging',result.session_metadata)
                 self.assertNotIn('futures_staging',result.session_metadata)
 
-    def test_h4_requires_h1_but_native_dwm_does_not(self):
+    def test_provider_h4_requires_postclose_evidence_not_an_invented_candle(self):
+        from contextlib import closing
         symbol='MMZ6@RTSX'
         self.seed(symbol)
-        raw=self.service._series(symbol)
-        raw['H1']=[]
-        prepared=self.service.prepare_series(symbol,raw,NOW)
-        self.assertFalse(prepared.get('H4'))
-        self.assertEqual(prepared.session_metadata['issues']['H4'],
-                         'lower_history_unavailable')
-        for tf in ('D1','W1','MN1'):
-            self.assertTrue(prepared.get(tf))
+        stamp=native_rows()['H4'][0].time
+        with closing(self.service._connection()) as db,db:
+            db.execute('DELETE FROM candle_source_observations WHERE symbol=? AND tf=?',
+                       (symbol,'H4'))
+        series=self.service.prepare_series(symbol,self.service._series(symbol),NOW)
+        self.assertNotIn('H4',series)
+        self.assertEqual(series.session_metadata['issues']['H4'],
+                         'native_snapshot_unconfirmed')
+        self.service.refresh_series(symbol,('H4',))
+        # A successful provider fetch records evidence; no H1 request.
+        self.assertEqual([tf for _,tf in self.api.calls],['H4'])
 
     def test_stock_m5_auction_remains_native(self):
         symbol='SBER@MISX'
@@ -135,21 +134,19 @@ class DirectFinamSourceTests(unittest.TestCase):
         result=stock.prepare_series(symbol,stock._series(symbol),now)
         self.assertEqual(result['M5'],[native])
 
-    def test_h1_chart_uses_normal_view_without_engine_or_other_frames(self):
+    def test_h1_chart_is_rejected_and_h4_uses_source_in_normal_view(self):
         symbol='S1Z6@RTSX'
         source=self.seed(symbol)
-        with patch('flowdesk.pipeline.analyze',
-                   side_effect=AssertionError('technical replay executed')), \
-             patch('flowdesk.session_store.prepare',
-                   side_effect=AssertionError('H4 aggregation executed')):
-            main,parents,info=self.service.view('S1Z6','RTSX','H1',
-                                                allow_http=True)
-        self.assertEqual(main.timeframe,'H1')
-        self.assertEqual(main.candles,source['H1'])
-        self.assertEqual((main.segments,main.flows,main.fvg,main.pairs,parents),
-                         ([],[],[],[],{}))
-        self.assertEqual([tf for _,tf in self.api.calls],['H1'])
-        self.assertEqual(info['tf'],'H1')
+        self.api.rows=native_rows()
+        with self.assertRaises(ValueError):
+            self.service.view('S1Z6','RTSX','H1',allow_http=True)
+        with patch('flowdesk.session_candles.build_h4_from_finam_h1',
+                   side_effect=AssertionError('H4 reconstruction ran')):
+            main,parents,info=self.service.view('S1Z6','RTSX','H4',allow_http=True)
+        self.assertEqual(main.timeframe,'H4')
+        self.assertEqual(main.candles,source['H4'])
+        self.assertFalse(any(tf=='H1' for _,tf in self.api.calls))
+        self.assertEqual(info['tf'],'H4')
 
 if __name__=='__main__':
     unittest.main()
