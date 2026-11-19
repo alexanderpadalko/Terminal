@@ -619,8 +619,9 @@ class TestFinamGui(unittest.TestCase):
         self.window.ui_prefs.setValue("mic","XNAS")
         other=FinamWindow(service=self.market,settings_store=self.window.settings_store)
         try:
-            self.assertEqual(other.symbol_edit.text(),"SBER")
-            self.assertEqual(other.mic.currentText(),"MISX")
+            from flowdesk.finam_universe import RU_STOCKS
+            fallback=other.universe[RU_STOCKS][0].symbol
+            self.assertEqual(other.symbol_edit.text()+"@"+other.mic.currentText(),fallback)
             self.assertEqual(other.ui_prefs.value("mic"),"XNGS")
             self.assertIsNone(other._pending_restore)
         finally:
