@@ -41,7 +41,8 @@ class FullArchiveTests(unittest.TestCase):
         self.symbol='CRZ6@RTSX'
 
     def test_legacy_archive_frames_move_and_resume_after_restart(self):
-        self.assertNotIn('H1',FRAMES)  # Production history never archives H1.
+        self.assertIn('H1',FRAMES)  # Active Finam history uses native hourly candles.
+        self.assertNotIn('H4',FRAMES)  # Retired H4 is available only to legacy fixtures.
         for _ in LEGACY_FRAMES:
             backfill_window(self.service,self.symbol)
         self.assertEqual([c[1] for c in self.api.calls],list(LEGACY_FRAMES))
