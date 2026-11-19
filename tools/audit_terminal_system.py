@@ -18,7 +18,6 @@ import time
 from flowdesk.finam_api import FinamAPI, FinamAPIError
 from flowdesk.finam_market import FinamMarketService
 from flowdesk.finam_requests import RequestCoordinator
-from flowdesk.finam_screener import quote_age_problem, quote_last
 from flowdesk.finam_stream import interpret_packet
 from flowdesk.market_data import Candle
 from flowdesk.settings import MemorySettingsStore
@@ -103,23 +102,6 @@ def network_and_market_guards():
     check(denied == 3, "trade endpoint unexpectedly admitted")
 
     clock = datetime(2026, 11, 14, 12, tzinfo=timezone.utc)
-    recent = {"quote": [{"symbol": "SBER@MISX", "last": {"value": "110"},
-                         "timestamp": "2026-11-14T11:59:30Z"}]}
-    weekend = {"quote": [{"symbol": "SBER@MISX", "last": {"value": "110"},
-                          "timestamp": "2026-11-13T11:59:30Z"}]}
-    old = {"quote": [{"symbol": "SBER@MISX", "last": {"value": "110"},
-                      "timestamp": "2026-11-07T11:59:30Z"}]}
-    check(not quote_age_problem(recent, clock, "SBER@MISX"),
-          "recent LAST incorrectly rejected")
-    check(not quote_age_problem(weekend, clock, "SBER@MISX"),
-          "previous-session LAST incorrectly rejected")
-    check(quote_age_problem(old, clock, "SBER@MISX"),
-          "over-seven-day LAST incorrectly accepted")
-    mixed = {"quote": [{"last": 999},
-                       {"symbol": "SBER@MISX", "last": {"value": "110"}}]}
-    check(quote_last(mixed, "SBER@MISX") == 110,
-          "wrong symbol quote selected")
-
     scope = {"type": "ERROR", "subscription_type": "BARS",
              "subscription_key": "SBER@MISX:TIME_FRAME_H1",
              "error_info": {"message": "password=NEVER_LOG_ME"}}
@@ -137,7 +119,7 @@ def network_and_market_guards():
     rights = api.permission_summary()
     check(rights["status"] == "verified", "rights state lost")
     check("account_id" not in json.dumps(rights), "account ID exposed")
-    return {"trade_account_calls_blocked": denied, "stale_quote_rejected": True,
+    return {"trade_account_calls_blocked": denied,
             "market_scope_isolation": True, "safe_permissions": True}
 
 
@@ -171,6 +153,10 @@ def gui_geometry():
                                    GROUP_LABELS[RU_STOCKS]],
                       "wrong market group order")
                 check(not hasattr(window, "search"), "removed search control still present")
+                for removed in ("screener_timer","screener_worker","screen_buttons",
+                                "scan_progress","history_worker"):
+                    check(not hasattr(window,removed),"removed screener still active")
+                check(window.examples.count()==30, "curated instrument list changed")
                 check(window.examples.viewport().width() > 100,
                       "instrument list not visible")
                 observed.append({"width": width, "height": height,
