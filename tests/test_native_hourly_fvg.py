@@ -29,7 +29,7 @@ def zones(bounds, frame="H1", *, exclude_gaps=False):
 
 class NativeHourlyFvgInsideTests(unittest.TestCase):
     def test_clean_three_bar_bullish_fvg_is_accepted(self):
-        sample = [(90, 80), (105, 95), (120, 100), (130, 106)]
+        sample = [(110, 100), (105, 95), (120, 100), (130, 106)]
         made = zones(sample)
         self.assertEqual([(item.start, item.created, item.side) for item in made],
                          [(1, 3, 1)])
@@ -41,7 +41,7 @@ class NativeHourlyFvgInsideTests(unittest.TestCase):
         examples = {
             "first": [(120, 80), (105, 95), (115, 98), (130, 106)],
             "second": [(90, 80), (105, 95), (103, 96), (125, 106)],
-            "third": [(90, 80), (105, 95), (120, 100), (118, 106)],
+            "third": [(110, 100), (105, 95), (120, 99), (118, 106)],
         }
         for position, source in examples.items():
             with self.subTest(position=position):
