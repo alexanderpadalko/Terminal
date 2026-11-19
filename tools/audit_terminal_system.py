@@ -30,20 +30,21 @@ def check(condition, label):
 
 
 def storage_stress(folder):
-    """Write the configured Finam symbol count across seven frames and verify WAL."""
+    """Write the configured Finam instruments across five raw frames and verify WAL."""
     path = folder / "stress.sqlite3"
     service = FinamMarketService(path)
     base = datetime(2026, 11, 14, 12, tzinfo=timezone.utc)
     from flowdesk.finam_universe import US_CONTRACTS, RU_CONTRACTS, STOCK_DISPLAY_LIMIT
     instrument_count=len(US_CONTRACTS)+len(RU_CONTRACTS)+STOCK_DISPLAY_LIMIT
     symbols = [f"T{i:02d}@RTSX" for i in range(instrument_count)]
-    frames = ("M5", "H1", "H4", "D1", "W1", "MN1")
+    from flowdesk.terminal_policy import SOURCE_TIMEFRAMES
+    frames = SOURCE_TIMEFRAMES
     candles = 40
     start = time.perf_counter()
 
     def write(symbol):
         for tf in frames:
-            step = timedelta(minutes={"M1": 1, "M5": 5, "H1": 60, "H4": 240,
+            step = timedelta(minutes={"M5": 5, "H1": 60,
                                       "D1": 1440, "W1": 10080, "MN1": 43200}[tf])
             rows = [Candle(base + step * i, 100 + i, 102 + i, 99 + i,
                            101 + i, 1000 + i) for i in range(candles)]

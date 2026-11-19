@@ -21,8 +21,9 @@ import time
 import tracemalloc
 
 
-FRAMES = ("M5", "H1", "H4", "D1", "W1", "MN1")
-STEPS = {"M1": 1, "M5": 5, "H1": 60, "H4": 240,
+from flowdesk.terminal_policy import SOURCE_TIMEFRAMES
+FRAMES = SOURCE_TIMEFRAMES
+STEPS = {"M5": 5, "H1": 60,
          "D1": 1440, "W1": 10080, "MN1": 43200}
 
 
@@ -179,7 +180,7 @@ def main():
     tracemalloc.start()
     report={"audit_schema":1,"mode":"offline_synthetic",
             "external_requests":False,"secrets_used":False,
-            "coverage":"27 Finam instruments, including ED and 5 MOEX additions; 6 source frames, 5 chart frames"}
+            "coverage":"27 Finam instruments, including ED and 5 MOEX additions; 5 Finam source frames, 5 chart frames"}
     try:
         with tempfile.TemporaryDirectory(prefix="flowdesk-extended-audit-") as folder:
             root=Path(folder)
