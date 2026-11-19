@@ -335,21 +335,6 @@ class CandleChart(QWidget):
         self.update()
 
     def set_analysis(self, analysis: Analysis, parents: dict[str, Analysis] | None = None):
-        if self.terminal and analysis.timeframe=='H1':
-            # The existing chart widget shows only native candles, no technical
-            # selectors, FVG, structure, VWAP, flows or inside-bar processing.
-            self.analysis,self.parents=analysis,{}
-            self.fvg_plan=self.flow_plan=None
-            self.vwap,self.vwap_previous=[],[]
-            self.times=[bar.time.timestamp() for bar in analysis.candles]
-            self.inside_bars=[]
-            self._confirmed_segments=self._developing_segments=[]
-            self._vwap_key=self._segment_key=None
-            self._hovered_index=None
-            self.viewport.count=min(self.viewport.count,max(1,len(analysis.candles)))
-            self.offset=0
-            self.update()
-            return
         changed=(self.analysis is None or self.analysis.candles!=analysis.candles)
         self.analysis = analysis
         self.parents = parents or {}
@@ -683,7 +668,6 @@ class CandleChart(QWidget):
             p.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, self.empty_text)
             return
         candles = self.analysis.candles
-        plain_h1=self.terminal and self.analysis.timeframe=='H1'
         first, last = self.window()
         if last <= first:
             return
@@ -703,7 +687,7 @@ class CandleChart(QWidget):
             if cfg.vwapShowPrevious:
                 plotted.extend(value for start,end,value in self.vwap_previous if start<last and end>=first)
             if plotted:lowest,highest=min(lowest,min(plotted)),max(highest,max(plotted))
-        if not plain_h1 and self.include_flow_in_scale and self.flow_plan.state is not None:
+        if self.include_flow_in_scale and self.flow_plan.state is not None:
             st = self.flow_plan.state
             if st.lo is not None:
                 lowest, highest = min(lowest, st.lo), max(highest, st.hi)
@@ -756,7 +740,7 @@ class CandleChart(QWidget):
         # FVG backgrounds and edges: local zones preserve break candle bounds.
         # Labels are de-duplicated by position for adjacent/overlapping zones.
         self._zone_labels = []
-        if self.show_fvg and not plain_h1:
+        if self.show_fvg:
             for zone in self.fvg_plan.zones:
                 # Source timestamps are period boundaries, not the open of
                 # the breaking bar. A broken zone ends at its confirmed close.
@@ -781,7 +765,7 @@ class CandleChart(QWidget):
             # not just the immediately preceding candle.
             # Finam defaults to the dark chart theme. Inside candles must
             # be hollow in both modes, not only the light reference theme.
-            hollow = (not plain_h1 and cfg.ibEnabled and i < len(self.inside_bars)
+            hollow = (cfg.ibEnabled and i < len(self.inside_bars)
                       and self.inside_bars[i])
             wick_color=colors.get("wick_up" if rising else "wick_down")
             if wick_color is None:
@@ -815,7 +799,7 @@ class CandleChart(QWidget):
         # confirmed solid legs and developing dashed leg must stay legible
         # where their lines cross a filled candle body or wick.
         # Structure with confirmed segments and provisional outside legs.
-        if self.show_structure and not plain_h1:
+        if self.show_structure:
             segments=self._confirmed_segments
             if cfg.showDevelopingLeg:
                 segments=segments+self._developing_segments
@@ -838,7 +822,7 @@ class CandleChart(QWidget):
                 p.setPen(pen)
                 p.drawLine(QPointF(x(a), y(ya)), QPointF(x(b), y(yb)))
         # Current and previous flow 0, 0.4, 0.5, 0.6, 1.0.
-        if self.show_flow and not plain_h1:
+        if self.show_flow:
             for level in self.flow_plan.levels:
                 if level.previous and not self.show_previous:continue
                 a=bisect.bisect_left(self.times,level.start.timestamp())
@@ -859,9 +843,9 @@ class CandleChart(QWidget):
                     p.drawText(QRectF(right_x-190,Y-p.fontMetrics().height()-3,184,p.fontMetrics().height()),
                                int(Qt.AlignmentFlag.AlignRight),caption)
         if not self.terminal:draw_market(self,p,x,y,first,last)
-        if not plain_h1:draw_vwap(self,p,x,y,first,last)
+        draw_vwap(self,p,x,y,first,last)
         p.restore()
-        if not plain_h1:draw_overlays(self,p)
+        draw_overlays(self,p)
         return colors,candles,first,last,x,y,lowest,highest
 
     def _paint_cursor(self,p,context):
@@ -918,10 +902,9 @@ class CandleChart(QWidget):
                 tag = QRectF(tag_x, self.bottom + 5, tag_width, 22)
                 p.fillRect(tag, colors["tooltip_bg"])
                 p.drawText(tag, int(Qt.AlignmentFlag.AlignCenter), caption)
-        if not (self.terminal and self.analysis.timeframe=='H1'):
-            self._paint_vwap_price_tags(p,context,last_price_y,
-                                        hover_on_chart and abs(self.cursor_y-last_price_y)<22,
-                                        hover_on_chart)
+        self._paint_vwap_price_tags(p,context,last_price_y,
+                                    hover_on_chart and abs(self.cursor_y-last_price_y)<22,
+                                    hover_on_chart)
 
     def _paint_vwap_price_tags(self,p,context,last_price_y,price_hidden,hover_on_chart):
         """Draw latest session and previous VWAP on the right price ruler."""

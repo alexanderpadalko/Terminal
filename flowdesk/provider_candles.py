@@ -6,6 +6,7 @@ from .market_data import candle_close_time, normalize
 
 NATIVE_HIGHER = ('D1', 'W1', 'MN1')
 NATIVE_POLICY_VERSION = 'finam-native-dwm-1'
+NATIVE_ALL_POLICY_VERSION = 'finam-native-m5-h4-dwm-1'
 UTC = timezone.utc
 
 
@@ -14,7 +15,7 @@ def native_higher_enabled(api):
             tuple(getattr(api, 'native_higher_frames', ())) == NATIVE_HIGHER)
 
 
-def native_higher_series(raw, observed, observations):
+def native_higher_series(raw, observed, observations, *, frames=NATIVE_HIGHER):
     """Keep each provider TF whole, without filling gaps from derived bars.
 
     A known saved draft needs a post-close snapshot before publication as
@@ -24,7 +25,7 @@ def native_higher_series(raw, observed, observations):
     """
     result = {}; issues = {}
     unknown = datetime.min.replace(tzinfo=UTC)
-    for tf in NATIVE_HIGHER:
+    for tf in frames:
         rows = normalize(raw.get(tf, ()))
         accepted = []
         pending_gap = False

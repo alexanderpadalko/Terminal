@@ -110,7 +110,35 @@ def _candle(row):
         trading_date=date.fromisoformat(row['trading_date']) if row.get('trading_date') else None)
 
 
+def prepare_native_finam(service,symbol,raw,observed):
+    """Return only source OHLCV from Finam; never consult session calendars.
+
+    M5 remains exactly as delivered. H4/D/W/M require the same post-close
+    receipt evidence as formerly native D/W/M. An unconfirmed old bar is
+    not replaced by derived candles or by another futures contract.
+    """
+    from .provider_candles import NATIVE_ALL_POLICY_VERSION
+    state=getattr(raw,'source_state',None)
+    observations={}
+    for i,(tf,ts,stamp) in enumerate(state.get('observations',()) if state else ()):
+        if i%1024==0:checkpoint()
+        if tf in ('H4','D1','W1','MN1'):
+            observations[(tf,datetime.fromisoformat(ts))]=datetime.fromisoformat(stamp)
+    native,issues=native_higher_series(
+        raw,observed,observations,frames=('H4','D1','W1','MN1'))
+    result={'M5':raw['M5']} if raw.get('M5') else {}
+    result.update(native)
+    metadata={'version':NATIVE_ALL_POLICY_VERSION,
+              'profile':'finam_native','policy':NATIVE_ALL_POLICY_VERSION,
+              'issues':issues,'origins':{tf:'finam_native' for tf in result},
+              'control_issues':{},'history_breaks':{},
+              'calendar_parity':'not_applicable'}
+    return PreparedSeries(result,metadata)
+
+
 def prepare(service,symbol,raw,observed,*,bucket_cache=None,bucket_changes=None):
+    if getattr(service.api,'native_all_frames',False):
+        return prepare_native_finam(service,symbol,raw,observed)
     if not getattr(service.api,'session_candles',False):return raw
     primary_native=native_higher_enabled(service.api)
     direct=primary_native and bool(getattr(service.api,'h1_only_h4_native_dwm',False))
@@ -306,6 +334,8 @@ def prepare(service,symbol,raw,observed,*,bucket_cache=None,bucket_changes=None)
 
 def backfill(service,symbol,now,*,cancelled=lambda:False):
     """One bounded source window per background pass, persistent across restarts."""
+    if getattr(service.api,'native_all_frames',False):
+        return {}
     if getattr(service.api,'provider_name','Finam')=='Binance':return {}
     try:calendar=service.calendar_factory(symbol)
     except CalendarUnavailable:return {'H4':'нет подтверждённого календаря инструмента'}

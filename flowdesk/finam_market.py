@@ -234,11 +234,9 @@ class FinamMarketService:
         finally:self._scan_local.snapshot=previous
 
     def prepare_series(self,symbol,raw,observed,*,display_tf=None):
-        if display_tf=='H1':
-            # Only the selected native H1 candles; do not aggregate H4/D/W/M.
-            return {'H1':list(raw.get('H1',()))}
-        # Direct Finam M5 means retaining even a mixed auction bar as-is.
-        direct=bool(getattr(self.api,'h1_only_h4_native_dwm',False))
+        # Active native sources retain all provider OHLCV including stock auctions.
+        direct=(bool(getattr(self.api,'h1_only_h4_native_dwm',False)) or
+                bool(getattr(self.api,'native_all_frames',False)))
         cleaned=raw if direct else exclude_stock_closing_auction(raw,symbol.rsplit('@',1)[1])
         if hasattr(raw,'source_state'):
             cleaned=session_store.SourceSeries(cleaned,raw.source_state)
@@ -349,8 +347,10 @@ class FinamMarketService:
 
     def refresh_series(self,symbol,frames,*,priority=0,cancelled=lambda:False):
         """Deduplicate refreshes by exact symbol/TF; do not lock the DB across HTTP."""
+        native_all=bool(getattr(self.api,'native_all_frames',False))
         direct=bool(getattr(self.api,'h1_only_h4_native_dwm',False))
-        if direct:frames=tuple('H1' if tf=='H4' else tf for tf in frames)
+        if direct and not native_all:
+            frames=tuple('H1' if tf=='H4' else tf for tf in frames)
         frames=tuple(tf for tf in frames if tf in SOURCE_TIMEFRAMES)
         policy=bool(getattr(self.api,'session_candles',False))
         if policy:
@@ -358,7 +358,7 @@ class FinamMarketService:
             # continuous Open. Preserve native archives separately.
             needed=[]
             for frame in frames:
-                if direct:
+                if native_all or direct:
                     sources=(frame,)
                 elif native_higher_enabled(self.api):
                     sources=(('H1','M5') if frame=='H4' else
@@ -457,10 +457,6 @@ class FinamMarketService:
 
     def analyze_cached(self,symbol,timeframe,series,settings,observed,*,terminal=True):
         """Active product scope by default; terminal=False is offline reference only."""
-        if terminal and timeframe=='H1':
-            # Same analysis entry point, no technical replay or persisted calculations.
-            return analyze_timeframes({'H1':series.get('H1',())},'H1',
-                                      asof=observed,terminal=True)
         if terminal and timeframe not in DISPLAY_TIMEFRAMES:
             raise ValueError('Таймфрейм недоступен в терминале')
         lock=self._key_lock(self._analysis_locks,(symbol,timeframe))
@@ -579,18 +575,18 @@ class FinamMarketService:
         if allow_http:
             progress(self.provider_name+": сверка последних свечей")
             errors=self.refresh_series(symbol,(timeframe,),cancelled=cancelled)
-            if (timeframe!='H1' and
-                    (self._tail(symbol,timeframe,1) or self._tail(symbol,'M5',1)
-                     or self._tail(symbol,'H1',1))):
+            if self._tail(symbol,timeframe,1) or self._tail(symbol,'M5',1):
                 errors.update(self.refresh_series(symbol,(tf for tf in SOURCE_TIMEFRAMES if tf!=timeframe),cancelled=cancelled))
         delay=self.api.market_delay_minutes(mic)
         observed=self.clock()-timedelta(minutes=delay)
         raw=self._series(symbol,chart=True)
-        if (allow_http and timeframe!='H1' and 'H1' not in errors and
+        if (allow_http and not getattr(self.api,'native_all_frames',False) and
+                'H1' not in errors and
                 self.repair_source_evidence(symbol,raw,observed,cancelled=cancelled)):
             raw=self._series(symbol,chart=True)
             observed=self.clock()-timedelta(minutes=self.api.market_delay_minutes(mic))
-        if (allow_http and not getattr(self.api,'h1_only_h4_native_dwm',False)
+        if (allow_http and not getattr(self.api,'native_all_frames',False)
+                and not getattr(self.api,'h1_only_h4_native_dwm',False)
                 and timeframe in NATIVE_HIGHER and native_higher_enabled(self.api)
                 and moex_trading(symbol) and (not moex.archive_ready(raw,symbol)
                     or not moex.opening_ready(raw,symbol,observed))):
@@ -624,8 +620,7 @@ class FinamMarketService:
                     'calendar_source_conflict':'дата исходной свечи противоречит календарю торгов',
                 }.get(issue,reason)
             raise RuntimeError(f"{self.provider_name} · {symbol} · {timeframe}: {reason}")
-        progress("Finam: только свечи H1" if timeframe=='H1'
-                 else "Finam: расчёт потоков v2.11")
+        progress("Finam: расчёт потоков v2.11")
         main,parents=self.analyze_cached(symbol,timeframe,series,settings,observed,terminal=True)
         with self.lock:
             prior=self.latest_stream_at.get(symbol)

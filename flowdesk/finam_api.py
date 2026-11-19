@@ -130,11 +130,12 @@ def finam_bar(row, timeframe):
 class FinamAPI:
     """Thread-safe finite-life JWT obtained from local secret; never printed."""
     session_candles = True
-    # Production candle policy: H4 is derived solely from Finam H1;
-    # M5, H1, D1, W1, MN1 are the unchanged provider OHLCV sources.
-    h1_only_h4_native_dwm = True
+    # Active terminal uses only provider OHLCV: M5, H4, D, W, M.
+    # H1 is not subscribed or requested in the active application.
+    native_all_frames = True
+    h1_only_h4_native_dwm = False  # Retained only for old offline fixtures.
     native_higher_frames=('D1','W1','MN1')
-    stream_frames=('M5','H1','D1','W1','MN1')
+    stream_frames=('M5','H4','D1','W1','MN1')
     def __init__(self, *, opener=None, secret_reader=None, clock=None, coordinator=None):
         self.opener = opener or urlopen
         self.secret_reader = secret_reader or read_secret
