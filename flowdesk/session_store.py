@@ -4,6 +4,7 @@ from datetime import date, datetime, timedelta, timezone
 import hashlib
 import json
 
+from .cancellation import checkpoint
 from .market_data import Candle, candle_close_time, serialize_candle
 from .session_candles import AGGREGATION_VERSION, SessionSeries, build_session_series
 from .provider_candles import (NATIVE_HIGHER, NATIVE_POLICY_VERSION, native_higher_enabled,
@@ -113,8 +114,12 @@ def prepare(service,symbol,raw,observed):
     ru=primary_native and moex.enabled(symbol)
     state=getattr(raw,'source_state',None)
     def source_observations():
-        return {(tf,datetime.fromisoformat(ts)):datetime.fromisoformat(stamp)
-                for tf,ts,stamp in (state['observations'] if state else ())}
+        observations={}
+        for index,(tf,ts,stamp) in enumerate(state['observations'] if state else ()):
+            if index % 1024 == 0:
+                checkpoint()
+            observations[(tf,datetime.fromisoformat(ts))]=datetime.fromisoformat(stamp)
+        return observations
     factory=getattr(service,'calendar_factory',calendar_for)
     try:
         calendar=factory(symbol)
@@ -159,12 +164,14 @@ def prepare(service,symbol,raw,observed):
             prior=datetime.fromisoformat(saved[2])
             if prior<=observed and prior.replace(second=0,microsecond=0)==observed.replace(second=0,microsecond=0):
                 try:
+                    checkpoint()
                     data=json.loads(saved[3])
                     if not isinstance(data['metadata'],dict) or data['metadata'].get('policy')!=policy:
                         raise ValueError('Invalid derived metadata')
                     result={tf:bars for tf,bars in raw.items() if tf not in ('H1','H4','D1','W1','MN1')}
                     result.update({tf:[_candle(b) for b in bars] for tf,bars in data['derived'].items()
                                    if tf in ('H1','H4','D1','W1','MN1')})
+                    checkpoint()
                     return PreparedSeries(result,data['metadata'])
                 except (ValueError,TypeError,KeyError):
                     pass  # Damaged derived data is rebuilt from untouched raw bars.
@@ -180,13 +187,17 @@ def prepare(service,symbol,raw,observed):
     if state is not None:
         unknown=datetime.min.replace(tzinfo=timezone.utc)
         for tf,bars in raw.items():
-            for bar in bars:observed_at.setdefault((tf,bar.time),unknown)
+            for index,bar in enumerate(bars):
+                if index % 1024 == 0:
+                    checkpoint()
+                observed_at.setdefault((tf,bar.time),unknown)
     try:
         built=build_session_series(raw,calendar,observed,coverage=coverage,observed_at=observed_at)
     except (ValueError,OverflowError):
         if not primary_native:raise
         built=SessionSeries({tf:bars for tf,bars in raw.items() if tf in ('M1','M5')},
             {tf:'control_source_invalid' for tf in ('H1','H4',*NATIVE_HIGHER)})
+    checkpoint()
     metadata={'version':NATIVE_POLICY_VERSION if primary_native else built.version,
               'profile':calendar.profile,'policy':policy,
               'history_breaks':built.breaks,
@@ -211,6 +222,7 @@ def prepare(service,symbol,raw,observed):
             metadata['origins']={tf:value for tf,value in metadata['origins'].items() if tf not in NATIVE_HIGHER}
             metadata['control_issues']={}
             try:
+                checkpoint()
                 if ru:
                     candidate,status,detail=moex.build_family(raw,symbol,observed,
                         observations=observed_at,archive_verified=moex.archive_ready(raw,symbol),coverage=coverage)
@@ -258,6 +270,7 @@ def prepare(service,symbol,raw,observed):
                             **{tf:origin for tf in NATIVE_HIGHER}}
                         metadata['issues']={**metadata['issues'],**{tf:status for tf in NATIVE_HIGHER}}
                 except (ValueError,KeyError,TypeError,AttributeError):pass
+    checkpoint()
     from .diagnostics_log import log_candle_policy
     signature=(policy,tuple(sorted(metadata['issues'].items())),tuple(sorted(metadata.get('control_issues',{}).items())))
     with service.lock:
@@ -271,6 +284,7 @@ def prepare(service,symbol,raw,observed):
     payload=json.dumps({'derived':{tf:[serialize_candle(b) for b in bars]
         for tf,bars in built.series.items() if tf in ('H1','H4','D1','W1','MN1')},'metadata':metadata})
     with service.lock,closing(service._connection()) as db,db:
+        checkpoint()
         # Do not publish a cache whose source changed during computation.
         current=db.execute('SELECT revision FROM candle_source_revisions WHERE symbol=?',(symbol,)).fetchone()
         if revision>=0 and (current[0] if current else 0)==revision:

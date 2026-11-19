@@ -1,4 +1,4 @@
-"""Cooperative cancellation for a worker's HTTP pages and retry pauses."""
+"""Cooperative cancellation for work performed on the current thread."""
 from contextlib import contextmanager
 import threading
 import time
@@ -7,11 +7,16 @@ _state = threading.local()
 
 
 class Cancelled(BaseException):
-    """A shutdown request, not an HTTP error eligible for cache fallback."""
+    """A worker interruption that bypasses recoverable data errors."""
+
+
+def is_cancelled():
+    cancelled = getattr(_state, 'cancelled', None)
+    return cancelled is not None and cancelled()
 
 
 def checkpoint():
-    if getattr(_state, 'cancelled', lambda: False)():
+    if is_cancelled():
         raise Cancelled()
 
 

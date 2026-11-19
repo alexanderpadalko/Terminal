@@ -3,6 +3,7 @@ from bisect import bisect_left
 from collections import deque
 from datetime import datetime, timedelta
 
+from .cancellation import checkpoint
 from .market_data import Candle, normalize
 from .terminal_policy import SOURCE_TIMEFRAMES
 
@@ -60,6 +61,7 @@ def read_frames(db, symbol, saved, changes):
 
     frames = {} if saved is None else dict(saved[1])
     for frame in SOURCE_TIMEFRAMES if saved is None else dirty:
+        checkpoint()
         previous = frames.get(frame)
         start = dirty.get(frame)
         if not previous or not previous[2]:
@@ -88,15 +90,19 @@ def _read_frame(db, symbol, frame, start):
         params += (start,)
     bars = []
     canonical = True
-    for stamp, o, h, low, c, volume, end in db.execute(
-            f'SELECT ts,o,h,l,c,v,closes_at FROM candles {where} ORDER BY ts', params):
+    rows = db.execute(f'SELECT ts,o,h,l,c,v,closes_at FROM candles {where} ORDER BY ts', params)
+    for index, (stamp, o, h, low, c, volume, end) in enumerate(rows):
+        if index % 1024 == 0:
+            checkpoint()
         opened = datetime.fromisoformat(stamp)
         canonical = canonical and _canonical(stamp, opened)
         bars.append(Candle(opened, o, h, low, c, volume, datetime.fromisoformat(end) if end else None))
     observations = []
     receipts = {}
-    for stamp, received in db.execute(
-            f'SELECT ts,observed_at FROM candle_source_observations {where} ORDER BY ts', params):
+    rows = db.execute(f'SELECT ts,observed_at FROM candle_source_observations {where} ORDER BY ts', params)
+    for index, (stamp, received) in enumerate(rows):
+        if index % 1024 == 0:
+            checkpoint()
         # An archive reply provides one receipt time for an entire batch.
         observations.append((frame, stamp, receipts.setdefault(received, received)))
         # Check orphan or legacy rows too before relying on UTC text order.

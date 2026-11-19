@@ -9,6 +9,7 @@ do not silently rewrite a mixed H1/H4/D/W/M OHLC by guessing prices.
 from __future__ import annotations
 
 from datetime import date, time
+from .cancellation import checkpoint
 from .market_data import MOSCOW
 
 _EFFECTIVE = date(2026, 3, 23)
@@ -37,9 +38,15 @@ def exclude_stock_closing_auction(series, mic):
     """
     if mic.upper() not in _STOCK_MICS:
         return series
-    return {
-        tf: ([bar for bar in bars
-              if not is_stock_closing_auction_bar(bar, tf, mic)]
-             if tf in ("M1", "M5") else bars)
-        for tf, bars in series.items()
-    }
+    filtered = dict(series)
+    for tf in ("M1", "M5"):
+        if tf not in series:
+            continue
+        kept = []
+        for index, bar in enumerate(series[tf]):
+            if index % 1024 == 0:
+                checkpoint()
+            if not is_stock_closing_auction_bar(bar, tf, mic):
+                kept.append(bar)
+        filtered[tf] = kept
+    return filtered

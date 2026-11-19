@@ -10,6 +10,7 @@ from datetime import datetime
 
 from .engine import analyze
 from .market_data import candle_close_time
+from .cancellation import checkpoint
 
 
 def analyze_history(bars, tf, *, breaks=(), cached=None, **kwargs):
@@ -22,6 +23,7 @@ def analyze_history(bars, tf, *, breaks=(), cached=None, **kwargs):
     previous={block.candles[0].time:(start,end,block)
               for start,end,block in getattr(cached,'history_blocks',()) if block.candles}
     for start,end in zip([0]+boundaries,boundaries+[len(bars)]):
+        checkpoint()
         chunk=bars[start:end]
         saved=previous.get(chunk[0].time)
         old_start,old_end,old=saved if saved else (0,0,None)
@@ -70,6 +72,7 @@ def analyze_history(bars, tf, *, breaks=(), cached=None, **kwargs):
                                       for z in result.confirmed_fvg]
         results.append(result)
         blocks.append((start,end,result))
+    checkpoint()
     last=results[-1]
     result=replace(last,candles=bars,
         segments=[s for r in results for s in r.segments],

@@ -99,7 +99,13 @@ class Candle:
 
 def normalize(candles: list[Candle]) -> list[Candle]:
     """Chronological order, last value wins when timestamps repeat."""
-    return sorted({x.time.astimezone(UTC): x for x in candles}.values(), key=lambda x: x.time.astimezone(UTC))
+    by_time = {}
+    for index, candle in enumerate(candles):
+        if index % 1024 == 0:
+            checkpoint()
+        by_time[candle.time.astimezone(UTC)] = candle
+    checkpoint()
+    return [by_time[stamp] for stamp in sorted(by_time)]
 
 
 def serialize_candle(c: Candle) -> dict:

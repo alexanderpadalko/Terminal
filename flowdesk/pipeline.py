@@ -10,6 +10,7 @@ from .market_data import Candle, TIMEFRAMES, normalize,candle_close_time
 from .liquidity import HIGHER_SOURCES
 from .history_analysis import analyze_history
 from .terminal_policy import DISPLAY_TIMEFRAMES
+from .cancellation import checkpoint
 
 
 def _closed(source):
@@ -68,6 +69,7 @@ def analyze_timeframes(series: dict[str, list[Candle]], display_tf: str,
     changed_contexts=set()
     if settings is not None:
         for tf in ('MN1','W1','D1','H4'):
+            checkpoint()
             if series.get(tf):
                 bars=normalize(series[tf])
                 known=bars[:bisect_right(bars,asof,key=lambda bar:bar.time)]
@@ -83,6 +85,7 @@ def analyze_timeframes(series: dict[str, list[Candle]], display_tf: str,
                 if dependency_changed or not _same_closed(old,limited[tf]):changed_contexts.add(tf)
     reused=set()
     for tf in reversed(frames[frames.index(display_tf):]):
+        checkpoint()
         if not series.get(tf):
             continue
         bars=normalize(series[tf])
@@ -125,6 +128,7 @@ def analyze_timeframes(series: dict[str, list[Candle]], display_tf: str,
                     higher_liquidity=limited,settings=settings,
                     minimum_tick=minimum_tick)
                 summary['H1'].session_info=dict((provenance or {}).get('H1',{}))
+        checkpoint()
         for result in analyses.values():
             # Do not retain an Analysis -> summary -> same Analysis cycle.
             result.summary_sources={tf:source for tf,source in summary.items() if source is not result}

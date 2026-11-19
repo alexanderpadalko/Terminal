@@ -85,6 +85,7 @@ class FinamLoadWorker(QThread):
         self.timeframe, self.settings = timeframe, settings
         self.allow_http, self.refresh, self.events = allow_http, refresh, events
         self.defer_chart = defer_chart
+        self.superseded = False
 
     def run(self):
         scope=getattr(getattr(self.service,"api",None),"request_scope",None)
@@ -938,7 +939,16 @@ class FinamWindow(QMainWindow):
             self.feed.setText(f"Finam · {ticker}@{mic} · {request[2]} · ожидаем данные")
         self.ui_prefs.setValue("tf",self.tf.currentText())
         if self.loader is not None:
+            pending = self.pending_load
+            if pending is not None and pending[:2] == request[:2]:
+                request = (*request[:3], refresh or pending[3], pending[4] + request[4])
             self.pending_load=request
+            worker = self.loader
+            if not worker.superseded and (worker.ticker, worker.mic, worker.timeframe) != self.current_view:
+                worker.superseded = True
+                worker.requestInterruption()
+            if worker.superseded:
+                self.status.setText(f"Finam: открытие {ticker}@{mic} · {request[2]}")
             return
         # HTTP checks and chart loads share one worker. A pending HTTP check
         # is served by this load or remains queued behind an active worker.
@@ -961,7 +971,8 @@ class FinamWindow(QMainWindow):
         self.loader.start()
 
     def _loaded(self,main,parents,info):
-        if self.closing or self.isMinimized() or (info["symbol"],info["board"],info["tf"])!=self.current_view:
+        if (self.closing or self.isMinimized() or not self._current_load_signal() or
+                (info["symbol"], info["board"], info["tf"]) != self.current_view):
             return
         # Read the user's latest view on delivery, including gestures made
         # while HTTP/reconnect work was in flight. New charts still reframe.
@@ -1000,7 +1011,10 @@ class FinamWindow(QMainWindow):
 
     def _current_load_signal(self):
         worker=self.sender()
-        return worker is None or (worker.ticker,worker.mic,worker.timeframe)==self.current_view
+        # Interruption can reset when QThread finishes, before Qt delivers a queued signal.
+        return worker is None or (
+            worker is self.loader and not worker.superseded and
+            (worker.ticker, worker.mic, worker.timeframe) == self.current_view)
 
     def _load_progress(self,message):
         if not self.closing and not self.isMinimized() and self._current_load_signal():
@@ -1023,8 +1037,9 @@ class FinamWindow(QMainWindow):
 
     def _load_finished(self):
         thread=self.sender()
-        if thread is self.loader:
-            self.loader=None
+        if thread is None or thread is not self.loader:
+            return
+        self.loader=None
         thread.deleteLater()
         if self.closing:
             self._finish_close()
@@ -1037,7 +1052,10 @@ class FinamWindow(QMainWindow):
             blocked=self.tf.blockSignals(True)
             self.tf.setCurrentText(req[2])
             self.tf.blockSignals(blocked)
-            self._load(refresh=req[3],events=req[4])
+            repeat_refresh = (thread.superseded and thread.refresh and
+                              (thread.ticker, thread.mic) == req[:2])
+            self._load(refresh=req[3] or self._http_refresh_pending or repeat_refresh,
+                       events=req[4] + self._take_pending_bars())
         elif self._http_refresh_pending:
             self._http_refresh()
         elif self._restore_refresh_pending and not self.isMinimized():

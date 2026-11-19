@@ -5,6 +5,7 @@ from datetime import timedelta
 from pathlib import Path
 import sqlite3
 import tempfile
+from threading import Event
 import unittest
 from unittest.mock import patch
 
@@ -124,6 +125,47 @@ class DurableCalculationsTests(unittest.TestCase):
         new=service.calculations.load('EDZ6@RTSX','H4')
         self.assertEqual(old[0],new[0])
         numeric(self,old[1][0],new[1][0])
+
+    def test_cancelled_snapshot_write_keeps_old_row_and_allows_immediate_retry(self):
+        from flowdesk.calculation_store import _encoded_records
+
+        service = self.service()
+        symbol = 'EDZ6@RTSX'
+        service.analyze_cached(symbol, 'H4', {'H4': self.rows}, self.cfg, self.now)
+        store = CalculationStore(service.calculations.path)
+        key, before = store.load(symbol, 'H4')
+        changed = [replace(self.rows[0], low=self.rows[0].low - 1), *self.rows[1:]]
+        after = analyze_timeframes({'H4': changed}, 'H4', asof=self.now, settings=self.cfg, terminal=True)
+        cancelled = Event()
+
+        def interrupt_writing(value):
+            for index, chunk in enumerate(_encoded_records(value)):
+                if index == 5:
+                    cancelled.set()
+                yield chunk
+
+        with patch('flowdesk.calculation_store._encoded_records', side_effect=interrupt_writing):
+            with self.assertRaises(InterruptedError):
+                store.save(symbol, 'H4', key, after, cancelled=cancelled.is_set)
+        numeric(self, store.load(symbol, 'H4')[1][0], before[0])
+
+        store.save(symbol, 'H4', key, after)
+        numeric(self, store.load(symbol, 'H4')[1][0], after[0])
+
+    def test_cancelled_snapshot_read_propagates_and_preserves_snapshot(self):
+        service = self.service()
+        symbol = 'EDZ6@RTSX'
+        before = service.analyze_cached(symbol, 'H4', {'H4': self.rows}, self.cfg, self.now)
+        stopping = Event()
+
+        def interrupt_reading(raw, *, cancelled=None):
+            stopping.set()
+            return decode(raw, cancelled=cancelled)
+
+        with patch('flowdesk.calculation_store.decode', side_effect=interrupt_reading):
+            with self.assertRaises(InterruptedError):
+                service.calculations.load(symbol, 'H4', cancelled=stopping.is_set)
+        numeric(self, service.calculations.load(symbol, 'H4')[1][0], before[0])
 
     def test_over_limit_snapshot_is_retried_only_when_closed_history_changes(self):
         service=self.service()

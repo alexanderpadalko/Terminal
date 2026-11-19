@@ -170,6 +170,76 @@ class TestFinamGui(unittest.TestCase):
         self.assertEqual(self.window.analysis.timeframe,"H4")
         self.assertEqual(self.window.displayed_view,("SBER","MISX","H4"))
 
+    def test_rapid_return_cancels_old_chart_and_preserves_stream_and_http_updates(self):
+        from dataclasses import replace
+        from datetime import datetime, timezone
+        from flowdesk.finam_stream import FinamEvent
+
+        self.select("SBER")
+        self.window.tf.setCurrentText("M5")
+        self.settle()
+        window = self.window
+        old = FakeMarket().view("SBER", "MISX", "M5", refresh=False)
+        first, last = old[0].candles[-2:]
+        event = FinamEvent("candles", "SBER", "MISX", 1, datetime.now(timezone.utc),
+                           timeframe="M5", candles=(first,))
+        later = replace(event, candles=(last,))
+        began = threading.Event()
+        finish = threading.Event()
+        calls = []
+        interruption = []
+        original = self.market.view
+
+        def view(ticker, mic, tf, **kwargs):
+            calls.append((tf, kwargs["refresh"]))
+            if len(calls) == 1:
+                worker = window.loader
+                worker.progress.emit("stale progress")
+                worker.failed.emit("stale failure")
+                worker.loaded.emit(*old)
+                began.set()
+                finish.wait(8)
+                interruption.append(kwargs["cancelled"]())
+                if interruption[-1]:
+                    raise InterruptedError()
+            return original(ticker, mic, tf, **kwargs)
+
+        with patch.object(self.market, "view", side_effect=view), \
+             patch.object(self.market, "ingest_stream", create=True) as ingest:
+            window.pending_bars[("M5", first.time)] = event
+            window._flush()
+            try:
+                self.assertTrue(began.wait(3))
+                worker = window.loader
+                with patch("flowdesk.finam_gui.read_secret", return_value="test"):
+                    window._http_refresh()
+                    window._http_refresh()
+                self.assertFalse(worker.superseded)
+                window.tf.setCurrentText("D1")
+                self.assertTrue(worker.isInterruptionRequested())
+                window.pending_bars[("M5", last.time)] = later
+                window.tf.setCurrentText("M5")
+                self.assertIs(window.loader, worker)
+                self.assertEqual(calls, [("M5", False)])
+
+                # Signals from the old worker can already be waiting when
+                # the selected ticker and timeframe match it again.
+                status = window.status.text()
+                self.app.processEvents()
+                self.assertEqual(window.status.text(), status)
+                self.assertIsNone(window.displayed_view)
+            finally:
+                finish.set()
+                self.settle()
+            self.assertEqual(interruption, [True])
+            self.assertEqual(calls, [("M5", False), ("M5", True)])
+            self.assertEqual([call.args for call in ingest.call_args_list], [
+                ("SBER", "MISX", (event,)), ("SBER", "MISX", (later,)),
+            ])
+        self.assertEqual(window.displayed_view, ("SBER", "MISX", "M5"))
+        self.assertFalse(window.pending_bars)
+        self.assertFalse(window._http_refresh_pending)
+
     def test_new_chart_centers_last_candle_on_initial_display_and_tf_change(self):
         chart=self.window.chart
         def assert_last_centered():
@@ -305,7 +375,9 @@ class TestFinamGui(unittest.TestCase):
     def test_stale_failure_does_not_replace_newer_selection(self):
         self.market.block_symbol="GAZP"
         self.select("GAZP","MISX")
+        worker=self.window.loader
         self.select("SBER")
+        self.assertTrue(worker.superseded)
         self.market.release.set()
         self.settle()
         self.assertIsNotNone(self.window.chart.analysis)

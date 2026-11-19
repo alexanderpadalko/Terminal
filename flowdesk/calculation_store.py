@@ -39,6 +39,11 @@ class SnapshotTooLarge(ValueError):
     """The derived graph exceeded this store's limits during encoding."""
 
 
+def _check_cancelled(cancelled):
+    if cancelled is not None and cancelled():
+        raise InterruptedError()
+
+
 @lru_cache(maxsize=1)
 def model_version():
     folder=Path(__file__).parent
@@ -131,13 +136,15 @@ def _encoded_records(value):
         yield (dumps(node)+'\n').encode()
 
 
-def encode(value, *, compressed=False):
+def encode(value, *, compressed=False, cancelled=None):
     """Enforce size limits while writing, before allocating oversized snapshots."""
     output=bytearray()
     buffer=bytearray()
     zipper=zlib.compressobj(level=1) if compressed else None
     raw_size=0
-    for chunk in _encoded_records(value):
+    for index, chunk in enumerate(_encoded_records(value)):
+        if index % JSON_BATCH == 0:
+            _check_cancelled(cancelled)
         raw_size+=len(chunk)
         if raw_size>MAX_RAW:raise SnapshotTooLarge('Calculation snapshot exceeds the raw limit')
         if zipper is None:
@@ -148,6 +155,7 @@ def encode(value, *, compressed=False):
             output.extend(zipper.compress(buffer))
             buffer.clear()
             if len(output)>MAX_ENTRY:raise SnapshotTooLarge('Calculation snapshot exceeds the disk limit')
+    _check_cancelled(cancelled)
     if zipper is not None:
         output.extend(zipper.compress(buffer))
         output.extend(zipper.flush())
@@ -155,9 +163,10 @@ def encode(value, *, compressed=False):
     return bytes(output)
 
 
-def decode(raw):
+def decode(raw, *, cancelled=None):
     from .reference_runtime import ReferenceContext
     from .settings import IndicatorSettings
+    _check_cancelled(cancelled)
     if isinstance(raw,str):raw=raw.encode()
     if len(raw)>MAX_RAW:raise ValueError('Snapshot exceeds the raw limit')
     header_end=raw.find(b'\n')
@@ -168,12 +177,16 @@ def decode(raw):
     # never holds an entire parsed JSON tree beside the restored graph.
     offsets=array('I',[header_end+1])
     while offsets[-1]<len(raw):
+        if len(offsets) % JSON_BATCH == 0:
+            _check_cancelled(cancelled)
         if len(offsets)>MAX_NODES:raise ValueError('Snapshot has too many objects')
         end=raw.find(b'\n',offsets[-1])
         if end<0:raise ValueError('Truncated snapshot')
         offsets.append(end+1)
     memo={};pending=set();strings={};times={}
+    records_read = 0
     def get(item):
+        nonlocal records_read
         if type(item) is str:return strings.setdefault(item,item)
         if item is None or type(item) in (bool,int,float):return item
         if type(item) is not dict:raise ValueError('Snapshot value')
@@ -192,6 +205,9 @@ def decode(raw):
         if not 0<=index<len(offsets)-1:raise ValueError('Snapshot index')
         if index in memo:return memo[index]
         if index in pending:raise ValueError('Immutable snapshot cycle')
+        records_read += 1
+        if records_read % JSON_BATCH == 0:
+            _check_cancelled(cancelled)
         pending.add(index)
         kind,data,*extra=json.loads(raw[offsets[index]:offsets[index+1]])
         if kind in ('list','dict','deque'):
@@ -218,7 +234,10 @@ def decode(raw):
                 object.__setattr__(result,key,value)
         memo[index]=result;pending.remove(index)
         return result
-    try:return get(payload['root'])
+    try:
+        result = get(payload['root'])
+        _check_cancelled(cancelled)
+        return result
     finally:get=None  # Do not retain the decoded graph until cyclic GC runs.
 
 
@@ -239,45 +258,53 @@ class CalculationStore:
             raise
         return db
 
-    def load(self,symbol,tf):
+    def load(self,symbol,tf,*,cancelled=None):
         try:
+            _check_cancelled(cancelled)
             with self._lock,closing(self._connect()) as db:
                 row=db.execute('SELECT model,digest,payload FROM snapshots WHERE symbol=? AND tf=?',(symbol,tf)).fetchone()
+            _check_cancelled(cancelled)
             if not row or row[0]!=model_version() or len(row[2])>MAX_ENTRY:return None
             if hashlib.sha256(row[2]).hexdigest()!=row[1]:return None
             stream=zlib.decompressobj();raw=stream.decompress(row[2],MAX_RAW+1)
             if len(raw)>MAX_RAW or stream.unconsumed_tail or not stream.eof:return None
-            value=decode(raw)
+            value=decode(raw,cancelled=cancelled)
             from .engine import Analysis
             key,result=value
             if (type(key) is not tuple or len(key)!=4 or type(result) is not tuple or
                     len(result)!=2 or not isinstance(result[0],Analysis) or
                     result[0].timeframe!=tf or type(result[1]) is not dict):return None
             return value
+        except InterruptedError:
+            raise
         except (OSError,sqlite3.Error,ValueError,TypeError,KeyError,IndexError,AttributeError,OverflowError,RecursionError,zlib.error):
             return None
 
-    def save(self,symbol,tf,key,result):
+    def save(self,symbol,tf,key,result,*,cancelled=None):
         from .engine import Analysis
+        _check_cancelled(cancelled)
         if not isinstance(result[0],Analysis):return
         identity=(symbol,tf);now=time.monotonic()
         with self._lock:
             if now-self._attempted.get(identity,-float('inf'))<30:return
             self._attempted[identity]=now
-        # Live-only changes do not rewrite a large snapshot every second.
         from .market_data import candle_close_time
-        sources={result[0].timeframe:result[0],**result[1]}
-        digest=hashlib.sha256(repr((key[0],key[-1],result[0].session_info)).encode())
-        for frame,item in sorted(sources.items()):
-            digest.update(frame.encode()+b'\0')
-            for bar in item.candles:
-                if item.asof is None or candle_close_time(bar,frame)<=item.asof:
-                    digest.update(repr(bar).encode()+b'\0')
-        signature=digest.hexdigest()
-        if self._handled.get(identity)==signature:return
         try:
-            payload=encode((key,result),compressed=True)
+            # Live-only changes do not rewrite a large snapshot every second.
+            sources={result[0].timeframe:result[0],**result[1]}
+            digest=hashlib.sha256(repr((key[0],key[-1],result[0].session_info)).encode())
+            for frame,item in sorted(sources.items()):
+                digest.update(frame.encode()+b'\0')
+                for index,bar in enumerate(item.candles):
+                    if index % JSON_BATCH == 0:
+                        _check_cancelled(cancelled)
+                    if item.asof is None or candle_close_time(bar,frame)<=item.asof:
+                        digest.update(repr(bar).encode()+b'\0')
+            signature=digest.hexdigest()
+            if self._handled.get(identity)==signature:return
+            payload=encode((key,result),compressed=True,cancelled=cancelled)
             with self._lock,closing(self._connect()) as db,db:
+                _check_cancelled(cancelled)
                 db.execute('INSERT OR REPLACE INTO snapshots VALUES(?,?,?,?,?,?)',
                            (symbol,tf,model_version(),hashlib.sha256(payload).hexdigest(),payload,time.time()))
                 rows=db.execute('SELECT symbol,tf,LENGTH(payload) FROM snapshots ORDER BY touched DESC').fetchall()
@@ -286,7 +313,14 @@ class CalculationStore:
                     total+=size
                     if i>=MAX_ENTRIES or total>MAX_TOTAL:
                         db.execute('DELETE FROM snapshots WHERE symbol=? AND tf=?',(name,frame))
+                _check_cancelled(cancelled)
             self._handled[identity]=signature
+        except InterruptedError:
+            # A later request for the same chart can retry immediately.
+            with self._lock:
+                if self._attempted.get(identity) == now:
+                    del self._attempted[identity]
+            raise
         except SnapshotTooLarge:
             # A changing draft alone should not repeatedly serialize a
             # closed history that is already too large to persist.

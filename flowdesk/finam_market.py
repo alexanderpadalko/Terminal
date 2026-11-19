@@ -22,6 +22,7 @@ from .moex_trading_family import enabled as moex_trading, PROGRESS as MOEX_PROGR
 from . import moex_trading_family as moex
 from .calculation_store import CalculationStore
 from .chart_source_cache import ChartSourceCache, read_frames
+from .cancellation import Cancelled, checkpoint, is_cancelled, scope as cancellation_scope
 
 TTL_SECONDS = {"M1":60,"M5":300,"H1":300,"H4":900,"D1":1800,"W1":3600,"MN1":14400}
 STREAM_VERIFY_SECONDS = HTTP_REFRESH_SECONDS
@@ -146,7 +147,9 @@ class FinamMarketService:
             db.execute('BEGIN')
             rows=db.execute("""SELECT tf,ts,o,h,l,c,v,closes_at FROM candles
                 WHERE symbol=? AND tf!='M1' ORDER BY ts""",(symbol,))
-            for tf,ts,o,h,l,c,v,ending in rows:
+            for index,(tf,ts,o,h,l,c,v,ending) in enumerate(rows):
+                if index % 1024 == 0:
+                    checkpoint()
                 if tf in series:
                     series[tf].append(Candle(datetime.fromisoformat(ts),o,h,l,c,v,
                         datetime.fromisoformat(ending) if ending else None))
@@ -183,6 +186,7 @@ class FinamMarketService:
             with self.lock:
                 saved,changes=self._chart_sources.inputs(symbol,revision)
             frames=read_frames(db,symbol,saved,changes)
+        checkpoint()
         with self.lock:
             self._chart_sources.publish(symbol,revision,frames)
         state['observations']=[row for _,observations,_ in frames.values() for row in observations]
@@ -396,19 +400,29 @@ class FinamMarketService:
         if terminal and timeframe not in DISPLAY_TIMEFRAMES:
             raise ValueError('Таймфрейм недоступен в терминале')
         lock=self._key_lock(self._analysis_locks,(symbol,timeframe))
-        with lock:
+        self._acquire(lock,is_cancelled)
+        try:
             # All OHLCV and scheduled closes participate, including historical corrections.
             needed=set(FLOW_TIMEFRAMES if terminal else ('H1','H4','D1','W1','MN1'))
             if timeframe in ('M1','M5'):needed.add('M5')
             if timeframe=='M1':needed.add('M1')
-            fingerprint=tuple((tf,tuple(bars),sum(b.time<=observed for b in bars),
-                               sum(candle_close_time(b,tf)<=observed for b in bars))
-                              for tf,bars in sorted(series.items()) if tf in needed)
+            fingerprints=[]
+            for tf,bars in sorted(series.items()):
+                if tf not in needed:
+                    continue
+                opened=closed=0
+                for index,bar in enumerate(bars):
+                    if index % 1024 == 0:
+                        checkpoint()
+                    opened+=bar.time<=observed
+                    closed+=candle_close_time(bar,tf)<=observed
+                fingerprints.append((tf,tuple(bars),opened,closed))
+            fingerprint=tuple(fingerprints)
             session_meta=getattr(series,'session_metadata',{})
             cache_id=(symbol,timeframe)
             with self.lock:cached=self.analysis_cache.get(cache_id)
             if cached is None and terminal:
-                cached=self.calculations.load(symbol,timeframe)
+                cached=self.calculations.load(symbol,timeframe,cancelled=is_cancelled)
             getter=getattr(self.api,'cached_tick_size',None)
             try:tick=getter(symbol) if callable(getter) else None
             except Exception:tick=None  # Metadata failure cannot hide price history.
@@ -416,6 +430,7 @@ class FinamMarketService:
                 tick=getattr(cached[1][0],'minimum_tick',.01) if cached else .01
             key=(settings.calculation_key(),fingerprint,repr(session_meta),
                  (POLICY_VERSION if terminal else 'reference',float(tick)))
+            checkpoint()
             if cached and cached[0]==key and cached[1][0].asof<=observed:
                 with self.lock:
                     self.analysis_cache[cache_id]=cached
@@ -440,12 +455,17 @@ class FinamMarketService:
                 previous={cached[1][0].timeframe:cached[1][0],**cached[1][1]}
             result=analyze_timeframes(series,timeframe,asof=observed,settings=settings,
                                       provenance=provenance,cached=previous,terminal=terminal)
+            checkpoint()
+            if terminal:
+                self.calculations.save(symbol,timeframe,key,result,cancelled=is_cancelled)
+            checkpoint()
             with self.lock:
                 self.analysis_cache[cache_id]=(key,result)
                 self.analysis_cache.move_to_end(cache_id)
                 self._trim_analysis_cache()
-            if terminal:self.calculations.save(symbol,timeframe,key,result)
             return result
+        finally:
+            lock.release()
 
     def _trim_analysis_cache(self):
         """Bound retained calculation objects, never trim stored/chart candles."""
@@ -476,6 +496,14 @@ class FinamMarketService:
 
     def view(self,ticker,mic,timeframe,*,refresh=False,allow_http=False,settings=None,
              progress=None,cancelled=lambda:False,**ignored):
+        try:
+            with cancellation_scope(cancelled):
+                return self._view(ticker,mic,timeframe,allow_http=allow_http,settings=settings,
+                                  progress=progress,cancelled=cancelled)
+        except Cancelled as exc:
+            raise InterruptedError() from exc
+
+    def _view(self,ticker,mic,timeframe,*,allow_http,settings,progress,cancelled):
         symbol=symbol_name(ticker,mic)
         if timeframe not in DISPLAY_TIMEFRAMES:raise ValueError("Таймфрейм недоступен в терминале")
         with self.lock:

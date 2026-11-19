@@ -9,6 +9,7 @@ from dataclasses import dataclass, field,replace
 from datetime import date, datetime, time, timedelta, timezone
 from math import isclose
 
+from .cancellation import checkpoint
 from .market_data import Candle, candle_close_time, normalize
 from .trading_calendar import CalendarUnavailable
 
@@ -48,8 +49,11 @@ class _LowerSource:
         self.series={tf:normalize(series.get(tf,[])) for tf in LOWER}
         for tf,bars in self.series.items():
             limit=timedelta(minutes={'M1':1,'M5':5,'H1':60}[tf])
-            if any(candle_close_time(b,tf).astimezone(UTC)-b.time.astimezone(UTC)>limit for b in bars):
-                raise ValueError('Invalid source candle interval')
+            for index,bar in enumerate(bars):
+                if index % 1024 == 0:
+                    checkpoint()
+                if candle_close_time(bar,tf).astimezone(UTC)-bar.time.astimezone(UTC)>limit:
+                    raise ValueError('Invalid source candle interval')
         self.times={tf:[b.time for b in bars] for tf,bars in self.series.items()}
         self.coverage=coverage
         self.observed_at=observed_at
@@ -173,6 +177,7 @@ def build_session_series(raw,calendar,observed,*,coverage=None,observed_at=None)
         return None
     cursor=first
     while cursor<=last:
+        checkpoint()
         try:session=calendar.session(cursor)
         except CalendarUnavailable as exc:
             if cursor<=observed.astimezone(calendar.zone).date():
@@ -262,6 +267,7 @@ def build_session_series(raw,calendar,observed,*,coverage=None,observed_at=None)
         assembled=[];period_gap=False
         periods=sorted({_period(day,tf) for day in days})
         for begin,finish in periods:
+            checkpoint()
             try:
                 # Unknown future interior holidays do not invalidate today's
                 # provisional OHLC if both period boundaries are verified.

@@ -7,7 +7,8 @@ from pathlib import Path
 from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
 
-from flowdesk.engine import analyze
+from flowdesk.cancellation import Cancelled, scope
+from flowdesk.engine import StructureEngine, analyze
 from flowdesk.market_data import Candle
 from flowdesk.pipeline import analyze_timeframes
 from flowdesk.settings import IndicatorSettings, ApplicationSettings
@@ -23,6 +24,24 @@ def bars(minutes, count=12):
 
 
 class TerminalScopeTests(unittest.TestCase):
+    def test_cancellation_stops_m5_replay_before_the_full_history(self):
+        rows = bars(5, count=600)
+        step = StructureEngine.step
+        completed = 0
+
+        def track(engine, candle, index):
+            nonlocal completed
+            completed += 1
+            return step(engine, candle, index)
+
+        with patch.object(StructureEngine, 'step', autospec=True, side_effect=track):
+            with self.assertRaises(Cancelled), scope(lambda: completed >= 10):
+                analyze_timeframes({'M5': rows}, 'M5', asof=NOW, terminal=True)
+        self.assertGreaterEqual(completed, 10)
+        self.assertLess(completed, len(rows))
+        main, _ = analyze_timeframes({'M5': rows}, 'M5', asof=NOW, terminal=True)
+        self.assertEqual(main.candles, rows)
+
     def test_pipeline_never_analyzes_h1_m1_or_market_block(self):
         series={tf:bars(step) for tf,step in
                 [('M1',1),('M5',5),('H1',60),('H4',240),('D1',1440),('W1',10080),('MN1',43200)]}

@@ -3,6 +3,7 @@ from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from threading import Event
 from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
@@ -88,3 +89,21 @@ class ChartSourceCacheTests(unittest.TestCase):
         with patch.object(chart_source_cache, 'MAX_ROWS', 1):
             self.chart_source()
         self.assertIsNone(self.market._chart_sources.snapshot)
+
+    def test_interrupted_view_does_not_publish_partial_sources(self):
+        cancelled = Event()
+
+        def interrupt_after_reading(*args, **kwargs):
+            cancelled.set()
+            return Candle(*args, **kwargs)
+
+        with patch.object(chart_source_cache, 'Candle', side_effect=interrupt_after_reading), \
+                patch.object(self.market, 'prepare_series', wraps=self.market.prepare_series) as prepare:
+            with self.assertRaises(InterruptedError):
+                self.market.view('SBER', 'MISX', 'M5', cancelled=cancelled.is_set)
+            prepare.assert_not_called()
+        self.assertIsNone(self.market._chart_sources.snapshot)
+        self.assertEqual(self.market._series(self.symbol)['M5'], self.bars)
+
+        analysis, _, _ = self.market.view('SBER', 'MISX', 'M5')
+        self.assertEqual(analysis.candles[-1], self.bars[-1])
