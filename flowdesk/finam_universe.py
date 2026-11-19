@@ -146,6 +146,34 @@ def compose_universe(assets=(),*,watchlist=None):
             RU_FUTURES:contracts(RU_CONTRACTS)},status
 
 
+def fixed_universe(*, watchlist=None, saved_futures=None):
+    """Keep the existing contracts and locally saved stock top-10 unchanged.
+
+    This function performs no network calls, expiry checks, or rollover.
+    Showing a fixed ticker does not confirm that Finam still trades it.
+    """
+    saved_futures=saved_futures or {}
+    stocks,status=cached_top10(watchlist=watchlist)
+    def contracts(source):
+        result=[]
+        for contract in source:
+            alias=(contract.aliases[0] if '.P' in contract.display
+                   else contract.aliases[-1])
+            symbol=alias+'@'+contract.mics[0]
+            saved=saved_futures.get(contract.group+':'+contract.display)
+            if isinstance(saved,Item) and saved.verified and '@' in saved.symbol:
+                ticker,mic=saved.symbol.upper().split('@',1)
+                if (ticker in {_canonical(code) for code in contract.aliases}
+                        and mic in contract.mics):
+                    symbol=saved.symbol
+            result.append(Item(contract.display,contract.name,contract.group,
+                               symbol,True,'фиксированный тикер; без ролловера'))
+        return result
+    return {US_FUTURES:contracts(US_CONTRACTS),
+            RU_FUTURES:contracts(RU_CONTRACTS),
+            RU_STOCKS:stocks},status
+
+
 def is_in_universe(symbol, universe):
     """Match normalized internal symbols without rewriting catalog/API casing."""
     normalized=symbol.upper()

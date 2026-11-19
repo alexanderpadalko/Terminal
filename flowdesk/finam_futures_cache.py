@@ -126,6 +126,39 @@ class FuturesListCache:
                 continue
         return result
 
+    def load_fixed(self):
+        """Reuse saved exact series identifiers without expiry checks.
+
+        Expired futures remain visible and selectable until the user changes
+        this fixed universe. Only the configured alias and MIC are accepted.
+        """
+        result={}
+        for group,contracts in GROUP_CONTRACTS.items():
+            try:
+                data=json.loads(self._path(group).read_text(encoding='utf-8'))
+                if not isinstance(data,dict) or data.get('schema')!=1:
+                    continue
+                saved=data.get('contracts',{})
+                if not isinstance(saved,dict):
+                    continue
+                for contract in contracts:
+                    key=group+':'+contract.display
+                    row=saved.get(key)
+                    if not isinstance(row,dict):
+                        continue
+                    symbol=row.get('symbol')
+                    if not isinstance(symbol,str) or not SAFE_SYMBOL.fullmatch(symbol.upper()):
+                        continue
+                    ticker,mic=symbol.upper().split('@',1)
+                    if (ticker not in {alias.upper() for alias in contract.aliases}
+                            or mic not in contract.mics):
+                        continue
+                    result[key]=Item(contract.display,contract.name,group,
+                                     symbol,True,'сохранённый фиксированный код')
+            except (OSError,ValueError,TypeError):
+                continue
+        return result
+
     def save(self, futures, *, now=None):
         now = now or datetime.now(timezone.utc)
         for group, contracts in GROUP_CONTRACTS.items():
