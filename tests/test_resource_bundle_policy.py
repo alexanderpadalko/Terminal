@@ -9,7 +9,6 @@ import tempfile
 import unittest
 
 from flowdesk.finam_market import FinamMarketService
-from flowdesk.finam_screener import scan_one,FinamScreenerWorker
 from flowdesk.finam_universe import compose_universe,RU_FUTURES
 from flowdesk.moex_reference import refresh_top10
 from flowdesk.watchlist import WatchlistService,HISTORY_POLICY
@@ -95,5 +94,6 @@ class ResourceBundlePolicyTests(unittest.TestCase):
         with self.assertRaises(ValueError):routed.for_symbol('BTCUSDT@BINANCE')
         self.assertFalse((self.path/'binance_candles_v1.sqlite3').exists())
 
-    def test_screener_does_not_run_a_second_archive_scan_by_default(self):
-        self.assertFalse(FinamScreenerWorker(object(),(),None).backfill)
+    def test_screener_module_is_removed_from_application(self):
+        import importlib.util
+        self.assertIsNone(importlib.util.find_spec("flowdesk.finam_screener"))

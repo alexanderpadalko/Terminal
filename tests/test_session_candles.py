@@ -355,18 +355,6 @@ class SessionFeed:
 
 
 class TestSessionStore(unittest.TestCase):
-    def test_scanner_reports_unknown_when_session_h1_cannot_be_built(self):
-        from flowdesk.finam_screener import scan_one
-        now=datetime(2026,11,12,14,tzinfo=UTC)
-        service=SimpleNamespace(clock=lambda:now,
-            api=SimpleNamespace(market_delay_minutes=lambda mic:0),
-            latest_quote=lambda *a,**kw:{},refresh_series=lambda *a,**kw:{},
-            _series=lambda *a:{'H1':[Candle(now,1,2,0,1)]},
-            prepare_series=lambda *a:{})
-        result=scan_one(service,'SBER','MISX',None)
-        self.assertFalse(any(result.directions))
-        self.assertEqual(result.error_code,'history_unavailable')
-
     def test_restart_version_invalidation_and_raw_history_are_independent(self):
         cal=calendar_for('SBER@MISX');s=cal.session(date(2026,11,12));rows=lower(s)
         with tempfile.TemporaryDirectory() as folder:

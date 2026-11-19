@@ -17,7 +17,6 @@ from flowdesk.market_symbols import symbol_name
 from flowdesk.finam_api import symbol_name as finam_symbol_name
 from flowdesk.finam_market import FinamMarketService
 from flowdesk.finam_requests import RequestCoordinator
-from flowdesk.finam_screener import FinamScreenerWorker,ScanResult
 from flowdesk.finam_universe import Item
 from flowdesk.market_data import Candle
 from flowdesk.exchange_time import exchange_clock
@@ -152,20 +151,3 @@ class TestBinance(unittest.TestCase):
         self.assertEqual(clock.zone.key,"UTC")
         self.assertEqual(clock.vwap_session_key(NOW),NOW.date())
 
-    def test_crypto_and_finam_are_stored_and_scanned_separately(self):
-        with tempfile.TemporaryDirectory() as temp:
-            finam=FinamMarketService(Path(temp)/"finam.sqlite3",api=SimpleNamespace())
-            crypto=FinamMarketService(Path(temp)/"binance.sqlite3",api=self.api(opener=Mock()))
-            services=MarketServices(finam=finam,crypto=crypto,directory=temp,legacy_crypto=True)
-            bar=Candle(NOW,100,110,90,105,25)
-            crypto._upsert("BTCUSDT@BINANCE","H1",[bar])
-            self.assertFalse(finam._series("BTCUSDT@BINANCE"))
-            seen=[]
-            def evaluate(service,ticker,venue,settings,**kwargs):
-                seen.append((service,ticker,venue));return ScanResult(ticker+"@"+venue,(0,)*5)
-            entries=[Item("BTCUSDT.P","Bitcoin","crypto","BTCUSDT@BINANCE",True),
-                     Item("SBER","Sber","stocks","SBER@MISX",True)]
-            worker=FinamScreenerWorker(services,entries,object(),evaluate=evaluate,backfill=False)
-            worker.run()
-            self.assertIn((crypto,"BTCUSDT","BINANCE"),seen)
-            self.assertIn((finam,"SBER","MISX"),seen)

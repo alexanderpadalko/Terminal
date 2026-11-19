@@ -11,7 +11,6 @@ from flowdesk.engine import analyze
 from flowdesk.history_analysis import analyze_history
 from flowdesk.history_archive import HistoryArchiveWorker
 from flowdesk.finam_market import FinamMarketService
-from flowdesk.finam_screener import scan_one
 from flowdesk.market_data import Candle
 from flowdesk.pipeline import analyze_timeframes
 from flowdesk.session_candles import _LowerSource
@@ -99,11 +98,6 @@ class ResourceTests(unittest.TestCase):
         self.assertEqual(len(self.service.analysis_cache),2)
         self.assertIn((symbol,'H1'),self.service.analysis_cache)
         self.assertEqual(self.service._series(symbol)['H1'],rows)
-
-    def test_scanner_reads_source_archive_once_per_instrument(self):
-        with patch.object(self.service,'_series',wraps=self.service._series) as read:
-            scan_one(self.service,'TEST','RTSX',self.settings)
-        self.assertEqual(read.call_count,1)
 
     def test_chart_reuses_unaffected_buckets_and_matches_full_after_old_correction(self):
         symbol='SBER@MISX'

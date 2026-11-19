@@ -11,7 +11,6 @@ from flowdesk.market_data import Candle, MOSCOW
 from flowdesk.provider_candles import NATIVE_POLICY_VERSION
 from flowdesk.terminal_policy import SOURCE_TIMEFRAMES
 from flowdesk import moex_trading_family as moex
-from flowdesk.finam_screener import _bootstrap_moex_for_scan
 
 
 UTC=timezone.utc
@@ -135,16 +134,6 @@ class DirectFinamSourceTests(unittest.TestCase):
         stock._upsert(symbol,'M5',[native])
         result=stock.prepare_series(symbol,stock._series(symbol),now)
         self.assertEqual(result['M5'],[native])
-
-    def test_scanner_never_starts_moex_reconstruction(self):
-        symbol='NRX6@RTSX'
-        raw=self.service._series(symbol)
-        with patch.object(moex,'backfill',side_effect=AssertionError('obsolete backfill')):
-            same,problems=_bootstrap_moex_for_scan(self.service,symbol,raw,NOW,
-                                                   cancelled=lambda:False)
-        self.assertIs(same,raw)
-        self.assertEqual(problems,{})
-
 
 if __name__=='__main__':
     unittest.main()
