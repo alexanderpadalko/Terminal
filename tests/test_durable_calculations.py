@@ -25,72 +25,72 @@ class DurableCalculationsTests(unittest.TestCase):
     def setUp(self):
         self.folder=tempfile.TemporaryDirectory();self.addCleanup(self.folder.cleanup)
         self.path=Path(self.folder.name)/'source.sqlite'
-        self.rows=bars('H4',100);self.cfg=IndicatorSettings()
+        self.rows=bars('H1',100);self.cfg=IndicatorSettings()
         self.now=self.rows[-1].time+timedelta(minutes=20)
 
     def service(self):return FinamMarketService(self.path,api=FakeAPI(),clock=lambda:self.now)
 
     def test_restart_reuses_finished_calculation_and_populates_memory_cache(self):
         source=self.service()
-        before=source.analyze_cached('EDZ6@RTSX','H4',{'H4':self.rows},self.cfg,self.now)
+        before=source.analyze_cached('EDZ6@RTSX','H1',{'H1':self.rows},self.cfg,self.now)
         self.assertTrue(source.calculations.path.is_file())
         restarted=self.service()
         with patch('flowdesk.finam_market.analyze_timeframes',side_effect=AssertionError('unnecessary replay')):
-            after=restarted.analyze_cached('EDZ6@RTSX','H4',{'H4':self.rows},self.cfg,self.now)
-            again=restarted.analyze_cached('EDZ6@RTSX','H4',{'H4':self.rows},self.cfg,self.now)
+            after=restarted.analyze_cached('EDZ6@RTSX','H1',{'H1':self.rows},self.cfg,self.now)
+            again=restarted.analyze_cached('EDZ6@RTSX','H1',{'H1':self.rows},self.cfg,self.now)
         numeric(self,before[0],after[0]);self.assertIs(after,again)
         self.assertEqual(len(restarted.analysis_cache),1)
 
     def test_restart_continues_across_new_closed_candle_and_matches_full_replay(self):
-        before=self.service().analyze_cached('EDZ6@RTSX','H4',{'H4':self.rows},self.cfg,self.now)[0]
+        before=self.service().analyze_cached('EDZ6@RTSX','H1',{'H1':self.rows},self.cfg,self.now)[0]
         changed=self.rows[:-1]+[replace(self.rows[-1],close=self.rows[-1].close+.2)]
         changed.append(replace(changed[-1],time=changed[-1].time+timedelta(hours=4)))
         later=self.now+timedelta(hours=4)
         step=PinnedFlowEngine.step
         with patch.object(PinnedFlowEngine,'step',autospec=True,side_effect=step) as calls:
-            got=self.service().analyze_cached('EDZ6@RTSX','H4',{'H4':changed},self.cfg,later)[0]
+            got=self.service().analyze_cached('EDZ6@RTSX','H1',{'H1':changed},self.cfg,later)[0]
         self.assertLessEqual(calls.call_count,4)  # Full chart plus limited higher context.
-        fresh=analyze_timeframes({'H4':changed},'H4',asof=later,settings=self.cfg,terminal=True)[0]
+        fresh=analyze_timeframes({'H1':changed},'H1',asof=later,settings=self.cfg,terminal=True)[0]
         numeric(self,got,fresh)
         self.assertGreater(len(got.replay_checkpoint.candles),len(before.replay_checkpoint.candles))
 
     def test_fully_closed_archive_has_a_resumable_checkpoint(self):
-        observed=candle_close_time(self.rows[-1],'H4')+timedelta(minutes=1)
-        before=analyze(self.rows,'H4',asof=observed,settings=self.cfg,market_structure=False,incremental=True)
+        observed=candle_close_time(self.rows[-1],'H1')+timedelta(minutes=1)
+        before=analyze(self.rows,'H1',asof=observed,settings=self.cfg,market_structure=False,incremental=True)
         self.assertEqual(len(before.replay_checkpoint.candles),len(self.rows))
-        newer=[*self.rows,replace(self.rows[-1],time=candle_close_time(self.rows[-1],'H4'))]
+        newer=[*self.rows,replace(self.rows[-1],time=candle_close_time(self.rows[-1],'H1'))]
         restored=decode(encode(before))
-        got=analyze(newer,'H4',asof=observed,settings=self.cfg,market_structure=False,incremental=True,cached=restored)
-        fresh=analyze(newer,'H4',asof=observed,settings=self.cfg,market_structure=False)
+        got=analyze(newer,'H1',asof=observed,settings=self.cfg,market_structure=False,incremental=True,cached=restored)
+        fresh=analyze(newer,'H1',asof=observed,settings=self.cfg,market_structure=False)
         numeric(self,got,fresh)
 
     def test_corrected_closed_history_forces_complete_numeric_replay(self):
-        self.service().analyze_cached('EDZ6@RTSX','H4',{'H4':self.rows},self.cfg,self.now)
+        self.service().analyze_cached('EDZ6@RTSX','H1',{'H1':self.rows},self.cfg,self.now)
         changed=list(self.rows);changed[3]=replace(changed[3],low=changed[3].low-5)
         step=PinnedFlowEngine.step
         with patch.object(PinnedFlowEngine,'step',autospec=True,side_effect=step) as calls:
-            got=self.service().analyze_cached('EDZ6@RTSX','H4',{'H4':changed},self.cfg,self.now)[0]
+            got=self.service().analyze_cached('EDZ6@RTSX','H1',{'H1':changed},self.cfg,self.now)[0]
         self.assertGreaterEqual(calls.call_count,len(changed)-1)
-        numeric(self,got,analyze_timeframes({'H4':changed},'H4',asof=self.now,settings=self.cfg,terminal=True)[0])
+        numeric(self,got,analyze_timeframes({'H1':changed},'H1',asof=self.now,settings=self.cfg,terminal=True)[0])
 
     def test_changed_settings_or_backwards_clock_never_reuses_old_result(self):
-        self.service().analyze_cached('EDZ6@RTSX','H4',{'H4':self.rows},self.cfg,self.now)
+        self.service().analyze_cached('EDZ6@RTSX','H1',{'H1':self.rows},self.cfg,self.now)
         for cfg,observed in ((self.cfg.changed(fvgExcludeGaps=False),self.now),
                              (self.cfg,self.now-timedelta(hours=5))):
-            got=self.service().analyze_cached('EDZ6@RTSX','H4',{'H4':self.rows},cfg,observed)[0]
-            numeric(self,got,analyze_timeframes({'H4':self.rows},'H4',asof=observed,settings=cfg,terminal=True)[0])
+            got=self.service().analyze_cached('EDZ6@RTSX','H1',{'H1':self.rows},cfg,observed)[0]
+            numeric(self,got,analyze_timeframes({'H1':self.rows},'H1',asof=observed,settings=cfg,terminal=True)[0])
 
     def test_bad_snapshot_or_changed_program_is_a_cache_miss(self):
         service=self.service()
-        service.analyze_cached('EDZ6@RTSX','H4',{'H4':self.rows},self.cfg,self.now)
+        service.analyze_cached('EDZ6@RTSX','H1',{'H1':self.rows},self.cfg,self.now)
         with closing(sqlite3.connect(service.calculations.path)) as db,db:
             db.execute("UPDATE snapshots SET model='other program'")
-        self.assertIsNone(service.calculations.load('EDZ6@RTSX','H4'))
+        self.assertIsNone(service.calculations.load('EDZ6@RTSX','H1'))
         with closing(sqlite3.connect(service.calculations.path)) as db,db:
             db.execute("UPDATE snapshots SET payload=X'1234',model=?",(model_version(),))
-        self.assertIsNone(service.calculations.load('EDZ6@RTSX','H4'))
+        self.assertIsNone(service.calculations.load('EDZ6@RTSX','H1'))
         service.calculations.path.write_bytes(b'broken derived cache')
-        self.assertIsNone(CalculationStore(service.calculations.path).load('EDZ6@RTSX','H4'))
+        self.assertIsNone(CalculationStore(service.calculations.path).load('EDZ6@RTSX','H1'))
 
     def test_unknown_serialized_classes_are_rejected(self):
         import json
@@ -114,15 +114,15 @@ class DurableCalculationsTests(unittest.TestCase):
 
     def test_bounded_encoding_keeps_previous_valid_disk_snapshot(self):
         service=self.service()
-        service.analyze_cached('EDZ6@RTSX','H4',{'H4':self.rows},self.cfg,self.now)
-        old=service.calculations.load('EDZ6@RTSX','H4')
+        service.analyze_cached('EDZ6@RTSX','H1',{'H1':self.rows},self.cfg,self.now)
+        old=service.calculations.load('EDZ6@RTSX','H1')
         self.assertIsNotNone(old)
         with patch('flowdesk.calculation_store.MAX_RAW', 64):
             with self.assertRaises(ValueError):
                 encode(self.rows, compressed=True)
             changed=self.rows[:-1]+[replace(self.rows[-1],high=self.rows[-1].high+1)]
-            self.service().analyze_cached('EDZ6@RTSX','H4',{'H4':changed},self.cfg,self.now+timedelta(hours=1))
-        new=service.calculations.load('EDZ6@RTSX','H4')
+            self.service().analyze_cached('EDZ6@RTSX','H1',{'H1':changed},self.cfg,self.now+timedelta(hours=1))
+        new=service.calculations.load('EDZ6@RTSX','H1')
         self.assertEqual(old[0],new[0])
         numeric(self,old[1][0],new[1][0])
 
@@ -131,11 +131,11 @@ class DurableCalculationsTests(unittest.TestCase):
 
         service = self.service()
         symbol = 'EDZ6@RTSX'
-        service.analyze_cached(symbol, 'H4', {'H4': self.rows}, self.cfg, self.now)
+        service.analyze_cached(symbol, 'H1', {'H1': self.rows}, self.cfg, self.now)
         store = CalculationStore(service.calculations.path)
-        key, before = store.load(symbol, 'H4')
+        key, before = store.load(symbol, 'H1')
         changed = [replace(self.rows[0], low=self.rows[0].low - 1), *self.rows[1:]]
-        after = analyze_timeframes({'H4': changed}, 'H4', asof=self.now, settings=self.cfg, terminal=True)
+        after = analyze_timeframes({'H1': changed}, 'H1', asof=self.now, settings=self.cfg, terminal=True)
         cancelled = Event()
 
         def interrupt_writing(value):
@@ -146,16 +146,16 @@ class DurableCalculationsTests(unittest.TestCase):
 
         with patch('flowdesk.calculation_store._encoded_records', side_effect=interrupt_writing):
             with self.assertRaises(InterruptedError):
-                store.save(symbol, 'H4', key, after, cancelled=cancelled.is_set)
-        numeric(self, store.load(symbol, 'H4')[1][0], before[0])
+                store.save(symbol, 'H1', key, after, cancelled=cancelled.is_set)
+        numeric(self, store.load(symbol, 'H1')[1][0], before[0])
 
-        store.save(symbol, 'H4', key, after)
-        numeric(self, store.load(symbol, 'H4')[1][0], after[0])
+        store.save(symbol, 'H1', key, after)
+        numeric(self, store.load(symbol, 'H1')[1][0], after[0])
 
     def test_cancelled_snapshot_read_propagates_and_preserves_snapshot(self):
         service = self.service()
         symbol = 'EDZ6@RTSX'
-        before = service.analyze_cached(symbol, 'H4', {'H4': self.rows}, self.cfg, self.now)
+        before = service.analyze_cached(symbol, 'H1', {'H1': self.rows}, self.cfg, self.now)
         stopping = Event()
 
         def interrupt_reading(raw, *, cancelled=None):
@@ -164,8 +164,8 @@ class DurableCalculationsTests(unittest.TestCase):
 
         with patch('flowdesk.calculation_store.decode', side_effect=interrupt_reading):
             with self.assertRaises(InterruptedError):
-                service.calculations.load(symbol, 'H4', cancelled=stopping.is_set)
-        numeric(self, service.calculations.load(symbol, 'H4')[1][0], before[0])
+                service.calculations.load(symbol, 'H1', cancelled=stopping.is_set)
+        numeric(self, service.calculations.load(symbol, 'H1')[1][0], before[0])
 
     def test_over_limit_snapshot_is_retried_only_when_closed_history_changes(self):
         service=self.service()
@@ -176,7 +176,7 @@ class DurableCalculationsTests(unittest.TestCase):
               patch('flowdesk.calculation_store.encode', wraps=encode) as writes):
             for rows in (original, new_draft, correction):
                 service.calculations._attempted.clear()
-                service.analyze_cached('EDZ6@RTSX', 'H4', {'H4': rows}, self.cfg, self.now)
+                service.analyze_cached('EDZ6@RTSX', 'H1', {'H1': rows}, self.cfg, self.now)
         self.assertEqual(writes.call_count, 2)
 
     def test_frozen_model_revision_does_not_require_python_source_files(self):
@@ -209,7 +209,7 @@ class DurableCalculationsTests(unittest.TestCase):
         import gc,weakref
         enabled=gc.isenabled();gc.disable()
         try:
-            result=analyze(self.rows,'H4',asof=self.now,market_structure=False,incremental=True)
+            result=analyze(self.rows,'H1',asof=self.now,market_structure=False,incremental=True)
             context=weakref.ref(result.replay_checkpoint.engines[-1].context)
             payload=encode(result)
             del result
@@ -224,26 +224,26 @@ class DurableCalculationsTests(unittest.TestCase):
     def test_verified_tick_is_used_persisted_and_invalidates_older_precision(self):
         service=self.service()
         service.api.cached_tick_size=lambda symbol:.0001
-        first=service.analyze_cached('EDZ6@RTSX','H4',{'H4':self.rows},self.cfg,self.now)[0]
+        first=service.analyze_cached('EDZ6@RTSX','H1',{'H1':self.rows},self.cfg,self.now)[0]
         self.assertEqual(first.minimum_tick,.0001)
-        self.assertEqual(self.service().analyze_cached('EDZ6@RTSX','H4',{'H4':self.rows},self.cfg,self.now)[0].minimum_tick,.0001)
+        self.assertEqual(self.service().analyze_cached('EDZ6@RTSX','H1',{'H1':self.rows},self.cfg,self.now)[0].minimum_tick,.0001)
         service.api.cached_tick_size=lambda symbol:.001
-        changed=service.analyze_cached('EDZ6@RTSX','H4',{'H4':self.rows},self.cfg,self.now)[0]
+        changed=service.analyze_cached('EDZ6@RTSX','H1',{'H1':self.rows},self.cfg,self.now)[0]
         self.assertIsNot(first,changed)
         self.assertEqual(changed.minimum_tick,.001)
 
     def test_no_closed_candle_never_creates_a_confirmed_checkpoint(self):
         row=self.rows[-1]
-        result=analyze([row],'H4',asof=row.time,settings=self.cfg,market_structure=False,incremental=True)
+        result=analyze([row],'H1',asof=row.time,settings=self.cfg,market_structure=False,incremental=True)
         self.assertIsNone(result.replay_checkpoint)
 
     def test_unconfirmed_ticks_do_not_rewrite_disk_snapshot(self):
         service=self.service()
-        service.analyze_cached('EDZ6@RTSX','H4',{'H4':self.rows},self.cfg,self.now)
+        service.analyze_cached('EDZ6@RTSX','H1',{'H1':self.rows},self.cfg,self.now)
         with closing(sqlite3.connect(service.calculations.path)) as db:
             prior=db.execute('SELECT digest,touched FROM snapshots').fetchone()
         changed=self.rows[:-1]+[replace(self.rows[-1],high=self.rows[-1].high+1)]
-        service.analyze_cached('EDZ6@RTSX','H4',{'H4':changed},self.cfg,self.now+timedelta(seconds=1))
+        service.analyze_cached('EDZ6@RTSX','H1',{'H1':changed},self.cfg,self.now+timedelta(seconds=1))
         with closing(sqlite3.connect(service.calculations.path)) as db:
             self.assertEqual(db.execute('SELECT digest,touched FROM snapshots').fetchone(),prior)
 
@@ -255,17 +255,17 @@ class DurableCalculationsTests(unittest.TestCase):
             step=timedelta(minutes=minutes)
             return [Candle(end-step*(count-i),100+i%7,103+i%7,98+i%7,101+i%7,10,
                            scheduled_close=end-step*(count-i-1)) for i in range(count)]
-        series={tf:source(step) for tf,step in [('H4',240),('D1',1440),('W1',10080),('MN1',43200)]}
-        first,parents=analyze_timeframes(series,'H4',asof=end,settings=self.cfg,terminal=True)
-        previous=decode(encode({'H4':first,**parents}))
+        series={tf:source(step) for tf,step in [('H1',60),('D1',1440),('W1',10080),('MN1',43200)]}
+        first,parents=analyze_timeframes(series,'H1',asof=end,settings=self.cfg,terminal=True)
+        previous=decode(encode({'H1':first,**parents}))
         newer={tf:[*rows,replace(rows[-1],time=end,scheduled_close=end+timedelta(minutes=step))]
-               for (tf,rows),step in zip(series.items(),(240,1440,10080,43200))}
+               for (tf,rows),step in zip(series.items(),(60,1440,10080,43200))}
         later=end+timedelta(hours=5)
         for correction in (False,True):
             changed={tf:list(rows) for tf,rows in newer.items()}
             if correction:changed['D1'][2]=replace(changed['D1'][2],high=200)
-            actual,actual_parents=analyze_timeframes(changed,'H4',asof=later,settings=self.cfg,
+            actual,actual_parents=analyze_timeframes(changed,'H1',asof=later,settings=self.cfg,
                                                     cached=previous,terminal=True)
-            fresh,fresh_parents=analyze_timeframes(changed,'H4',asof=later,settings=self.cfg,terminal=True)
-            for tf,item in {'H4':actual,**actual_parents}.items():
-                numeric(self,item,{'H4':fresh,**fresh_parents}[tf])
+            fresh,fresh_parents=analyze_timeframes(changed,'H1',asof=later,settings=self.cfg,terminal=True)
+            for tf,item in {'H1':actual,**actual_parents}.items():
+                numeric(self,item,{'H1':fresh,**fresh_parents}[tf])
