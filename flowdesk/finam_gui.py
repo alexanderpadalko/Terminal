@@ -9,14 +9,13 @@ from pathlib import Path
 import sqlite3
 import re
 import sys
-from time import monotonic
 
 from PySide6.QtCore import QEvent, QSettings, QThread, QTimer, Qt, Signal, QSize
 from PySide6.QtWidgets import (
     QApplication, QComboBox, QHBoxLayout, QLabel, QLineEdit,
     QMainWindow, QMessageBox, QPushButton, QVBoxLayout, QWidget,
     QListWidget, QListWidgetItem, QInputDialog, QSplitter, QFormLayout, QFrame,
-    QToolButton, QSizePolicy, QStyledItemDelegate, QStyleOptionViewItem, QStyle
+    QSizePolicy
 )
 
 from . import __version__
@@ -36,8 +35,6 @@ from .watchlist import slot_date
 from .qt_gc import install_gui_gc
 from .diagnostics_log import log_event, log_snapshot
 from .finam_stream import FinamStreamWorker
-from .finam_screener import FinamScreenerWorker, ScanResult, LABELS, unknown
-from .history_archive import HistoryArchiveWorker
 from .gui import CandleChart, TimeframeBar
 from .terminal_policy import DISPLAY_TIMEFRAMES, HTTP_REFRESH_SECONDS
 from .settings import IndicatorSettings, ApplicationSettings, SettingsStore
@@ -52,25 +49,6 @@ EXAMPLES = (
     ("TSLA","XNGS","Tesla · NASDAQ"),
     ("IBM","XNYS","IBM · NYSE"),
 )
-
-
-class SignalRowDelegate(QStyledItemDelegate):
-    """Draw Qt row selection without drawing text under custom badge widgets.
-
-    A selected QListWidget item uses the palette's highlighted-text color,
-    overriding even a transparent item foreground. Preserve item.text() for
-    search and accessibility while excluding only the *native* text painting.
-    """
-
-    def paint(self, painter, option, index):
-        if not index.data(Qt.ItemDataRole.UserRole + 2):
-            return super().paint(painter, option, index)
-        visual = QStyleOptionViewItem(option)
-        self.initStyleOption(visual, index)
-        visual.text = ""
-        style = visual.widget.style() if visual.widget else QApplication.style()
-        style.drawControl(QStyle.ControlElement.CE_ItemViewItem,
-                          visual, painter, visual.widget)
 
 
 class FinamLoadWorker(QThread):
@@ -166,13 +144,6 @@ class FinamWindow(QMainWindow):
         self.catalog_worker = None
         self.catalog_ready = False
         self.catalog_error = ""
-        self.screen_results = {}
-        self.screener_worker = None
-        self.history_worker = None
-        self._history_dirty=set()
-        self.screener_rescan_requested = False
-        self._screener_next_at=0.0
-        self.screener_pending = set()
         self.futures_list_cache = FuturesListCache()
         self._catalog_success_slot = None
         self._catalog_attempt_at = None
@@ -192,13 +163,6 @@ class FinamWindow(QMainWindow):
         self.http_timer = QTimer(self)
         self.http_timer.setInterval(self.app_settings.refresh_seconds*1000)
         self.http_timer.timeout.connect(self._http_refresh)
-        self.screener_timer=QTimer(self)
-        self.screener_timer.setInterval(300000)
-        self.screener_timer.timeout.connect(self._start_screener)
-        self.history_chart_timer=QTimer(self)
-        self.history_chart_timer.setSingleShot(True)
-        self.history_chart_timer.setInterval(30000)
-        self.history_chart_timer.timeout.connect(self._history_chart_refresh)
         self.daily_catalog_timer = QTimer(self)
         self.daily_catalog_timer.setInterval(60000)
         self.daily_catalog_timer.timeout.connect(self._daily_catalog_refresh)
@@ -283,29 +247,9 @@ class FinamWindow(QMainWindow):
         side.setMaximumWidth(600)
         self.instrument_panel=side
         right=QVBoxLayout(side)
-        title=QLabel("Инструменты · только выбранные")
+        title=QLabel("Инструменты")
         title.setStyleSheet("font-weight:700")
         right.addWidget(title)
-        # Embedded signal filter: five independent toggle buttons; empty
-        # selection leaves the entire existing universe visible.
-        screener_bar=QHBoxLayout()
-        screener_bar.setSpacing(4)
-        self.screen_buttons={}
-        for timeframe in LABELS:
-            control=QToolButton(side)
-            control.setText(timeframe)
-            control.setCheckable(True)
-            control.setFixedHeight(27)
-            control.setMinimumWidth(32)
-            control.setToolTip("Фильтр: действующий рабочий FVG "+timeframe)
-            control.toggled.connect(self._on_screen_filter_changed)
-            screener_bar.addWidget(control)
-            self.screen_buttons[timeframe]=control
-        screener_bar.addStretch()
-        right.addLayout(screener_bar)
-        self.scan_progress=QLabel("Проверка ещё не запускалась",side)
-        self.scan_progress.setStyleSheet("color:#a2a9b3;font-size:11px;")
-        right.addWidget(self.scan_progress)
         # Preserve private controls for internal navigation and existing tests.
         # Do not expose a manual entry that bypasses the user's fixed universe.
         self.symbol_edit=QLineEdit(side)
@@ -320,10 +264,7 @@ class FinamWindow(QMainWindow):
         self.open_button.hide()
         self.examples=QListWidget(side)
         self.examples.setObjectName("instrumentList")
-        # Custom signal widgets must fit the viewport, not the intrinsic
-        # width of a long Russian label or a multi-timeframe explanation.
         self.examples.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self.examples.setItemDelegate(SignalRowDelegate(self.examples))
         self.examples.itemActivated.connect(self._example)
         self.examples.itemClicked.connect(self._example)
         right.addWidget(self.examples,1)
@@ -355,329 +296,60 @@ class FinamWindow(QMainWindow):
           QListWidget#instrumentList::item:selected:!active {background:#30465b;
             border:1px solid #8d9db0;}
         """)
-        self._on_screen_filter_changed()
-
-    def _selected_screen_timeframes(self):
-        return tuple(tf for tf,button in self.screen_buttons.items()
-                     if button.isChecked())
-
-    def _on_screen_filter_changed(self, _checked=False):
-        active=any(b.isChecked() for b in self.screen_buttons.values())
-        for button in self.screen_buttons.values():
-            button.setStyleSheet(
-                "QToolButton {background:"+("#1a334e" if button.isChecked()
-                else "#272b34")+";border:1px solid "+
-                ("#6a97d0" if button.isChecked() else "#4c5564")+
-                ";color:#e3eaff;border-radius:3px;padding:3px;}")
         self._populate_universe()
 
-    def _screen_outcome(self, entry, selected):
-        if not selected:
-            return "normal"
-        if not entry.verified:
-            return "unknown"
-        result=self.screen_results.get(entry.symbol.upper())
-        if result is None:
-            return "unknown"
-        if result.matched(selected):
-            return "matched"
-        unavailable=any(result.as_map().get(tf) is None and not result.flow_unformed(tf)
-                        for tf in selected)
-        return "unknown" if unavailable else "excluded"
 
-    def _add_screen_item(self, entry, group, *, no_data=False):
+    def _add_instrument_item(self, entry, group):
+        """Show one curated instrument without FVG scanning or signal badges."""
         pending=(not entry.verified and not self.catalog_ready and
                  not self.catalog_error and group!=RU_STOCKS)
         state=(" · поиск Finam…" if pending else
-               " · каталог недоступен" if self.catalog_error and
-               group!=RU_STOCKS else
+               " · каталог недоступен" if self.catalog_error and group!=RU_STOCKS else
                " · не подтверждён Finam" if not entry.verified else "")
         if entry.verified and "сохранённый список; сверка Finam" in entry.source:
             state+=" · кэш"
         if entry.verified and "экспирация не подтверждена" in entry.source:
             state+=" · эксп. ?"
         elif entry.verified and group!=RU_STOCKS:
-            known=re.search(r"(?:действует до |новая дата )(\d{4}-\d{2}-\d{2})",
+            known=re.search(r"(?:действует до |новая дата )(\\d{4}-\\d{2}-\\d{2})",
                             entry.source)
             if known:
                 stamp=known.group(1)
                 state+=" · до "+stamp[8:10]+"."+stamp[5:7]
-        title=entry.label+" · "+entry.name+state
-        row=QListWidgetItem(title)
-        row.setData(Qt.ItemDataRole.UserRole,entry.symbol if entry.verified else "")
+        item=QListWidgetItem(entry.label+" · "+entry.name+state)
+        item.setData(Qt.ItemDataRole.UserRole,entry.symbol if entry.verified else "")
         if not entry.verified:
-            row.setFlags(Qt.ItemFlag.NoItemFlags)
-            row.setForeground(Qt.GlobalColor.gray)
-            row.setToolTip("Точный тикер@MIC не подтверждён Finam")
+            item.setFlags(Qt.ItemFlag.NoItemFlags)
+            item.setForeground(Qt.GlobalColor.gray)
+            item.setToolTip("Точный тикер@MIC не подтверждён Finam")
         else:
-            row.setToolTip(entry.symbol)
-        self.examples.addItem(row)
-        result=self.screen_results.get(entry.symbol.upper())
-        selected=self._selected_screen_timeframes()
-        # No selected TF means this is a normal watchlist: absolutely no
-        # color badges or misleading stale signal decorations.
-        signals=result.as_map() if result is not None and selected else {}
-        marked=[(tf,direction) for tf,direction in signals.items()
-                if direction in (-1,1)]
-        if not marked and not no_data:
-            return
-        widget=QWidget(self.examples)
-        widget.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents,True)
-        widget.setStyleSheet("QWidget {background:transparent;}")
-        row_layout=QHBoxLayout(widget)
-        row_layout.setContentsMargins(5,0,4,0)
-        row_layout.setSpacing(3)
-        description=QLabel(title,widget)
-        description.setStyleSheet("color:"+("#999" if not entry.verified
-                                   else "#e8e8e8")+";background:transparent;")
-        description.setMinimumWidth(0)
-        description.setSizePolicy(QSizePolicy.Policy.Ignored,
-                                  QSizePolicy.Policy.Preferred)
-        description.setToolTip(title)
-        row_layout.addWidget(description,1)
-        for tf,signal in marked:
-            badge=QLabel(tf,widget)
-            badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            badge.setFixedWidth(25)
-            badge.setFixedHeight(19)
-            shade="#07543f" if signal==1 else "#772631"
-            ink="#70e9b9" if signal==1 else "#ffb2bd"
-            badge.setStyleSheet(
-                f"background:{shade};color:{ink};border-radius:3px;"
-                "font-weight:700;font-size:10px;")
-            badge.setToolTip(tf+(" · LONG" if signal==1 else " · SHORT"))
-            row_layout.addWidget(badge)
-        missing=[tf for tf in selected if result is None or
-                 (signals.get(tf) is None and not result.flow_unformed(tf))]
-        if no_data and missing:
-            # Explain *which selected timeframe* cannot be assessed. A W
-            # result may be unknown even though another valid TF signal is shown.
-            reasons=result.reason_map() if result is not None else {}
-            explanations=[]
-            short_labels=[]
-            for tf in missing:
-                reason=reasons.get(tf) or (
-                    "проверка Finam" if self.screener_worker is not None
-                    else "ожидает проверки")
-                if not entry.verified:
-                    reason="тикер не подтверждён Finam"
-                explanations.append(f"{tf}: {reason}")
-                short_labels.append(f"{tf}: {reason}")
-            if not explanations:
-                explanations=["история недоступна"]
-                short_labels=["нет свечей"]
-            compact=", ".join(short_labels)
-            neutral=QLabel(compact,widget)
-            neutral.setObjectName("screenerMissing")
-            neutral.setStyleSheet(
-                "background:#393d43;color:#c1c6cf;border:1px solid #6c727c;"
-                "border-radius:3px;padding:3px;font-size:10px;")
-            neutral.setToolTip("\n".join(explanations))
-            # Keep the entire counter/diagnostic readable and wrap inside
-            # the available space instead of cropping the last TF.
-            neutral.setFixedWidth(180)
-            neutral.setWordWrap(True)
-            row_layout.addWidget(neutral)
-        # Width must not enter QListWidget content-size calculation: that
-        # otherwise clips the rightmost badge when selecting a long symbol.
-        row.setSizeHint(QSize(0, max(27, widget.sizeHint().height())))
-        # QListWidget normally paints item.text() UNDER the custom row
-        # widget. Keep item.text() intact for keyboard navigation,
-        # accessibility and existing tests, but hide native glyphs; only the QLabel paints
-        # the instrument name (once), alongside the colored TF badges.
-        row.setForeground(Qt.GlobalColor.transparent)
-        row.setData(Qt.ItemDataRole.UserRole + 2, True)
-        self.examples.setItemWidget(row,widget)
+            item.setToolTip(entry.symbol)
+        self.examples.addItem(item)
 
     def _populate_universe(self):
-        """Curated instruments; filter by selected working FVG only."""
-        selected=self._selected_screen_timeframes()
-        current_item=self.examples.currentItem()
-        selected_symbol=(current_item.data(Qt.ItemDataRole.UserRole)
-                         if current_item is not None else None)
-        selected_label=current_item.text() if current_item is not None else ""
+        """Unfiltered list of existing US/RU futures and top-10 MOEX stocks."""
+        selected=self.examples.currentItem()
+        symbol=selected.data(Qt.ItemDataRole.UserRole) if selected else None
+        label=selected.text().split(" · ",1)[0] if selected else ""
         scroll=self.examples.verticalScrollBar().value()
         self.examples.setUpdatesEnabled(False)
         self.examples.clear()
-        self._sections=[]
-        no_data=[]
         for group in (US_FUTURES,RU_FUTURES,RU_STOCKS):
             header=QListWidgetItem(GROUP_LABELS[group])
             header.setFlags(Qt.ItemFlag.NoItemFlags)
             header.setForeground(Qt.GlobalColor.gray)
             self.examples.addItem(header)
-            self._sections.append(header)
             for entry in self.universe[group]:
-                decision=self._screen_outcome(entry,selected)
-                if decision=="excluded":
-                    continue
-                if decision=="unknown":
-                    no_data.append((entry,group))
-                    continue
-                self._add_screen_item(entry,group)
-        if selected and no_data:
-            header=QListWidgetItem("НЕТ ДАННЫХ · "+str(len(no_data)))
-            header.setFlags(Qt.ItemFlag.NoItemFlags)
-            header.setForeground(Qt.GlobalColor.gray)
-            self.examples.addItem(header)
-            self._sections.append(header)
-            for entry,group in no_data:
-                self._add_screen_item(entry,group,no_data=True)
-        self._hide_empty_sections()
-        if selected_label:
-            for index in range(self.examples.count()):
-                item=self.examples.item(index)
-                if not item.isHidden() and (
-                    selected_symbol and item.data(Qt.ItemDataRole.UserRole)==selected_symbol
-                    or not selected_symbol and item.text()==selected_label):
+                self._add_instrument_item(entry,group)
+        if label:
+            for i in range(self.examples.count()):
+                item=self.examples.item(i)
+                if (symbol and item.data(Qt.ItemDataRole.UserRole)==symbol or
+                        item.text().split(" · ",1)[0]==label):
                     self.examples.setCurrentItem(item)
                     break
         self.examples.verticalScrollBar().setValue(scroll)
         self.examples.setUpdatesEnabled(True)
-
-    def _hide_empty_sections(self):
-        """Hide section headings without instruments under an active TF filter."""
-        visible_count=0
-        pending_header=None
-        for i in range(self.examples.count()):
-            item=self.examples.item(i)
-            if item in self._sections:
-                if pending_header is not None:
-                    pending_header.setHidden(visible_count==0)
-                pending_header=item
-                visible_count=0
-            else:
-                visible_count+=1
-        if pending_header is not None:
-            pending_header.setHidden(visible_count==0)
-
-    def _request_screener_scan(self):
-        if self.screener_worker is not None:
-            self.screener_rescan_requested=True
-            self.screener_worker.requestInterruption()
-        else:
-            self._start_screener()
-
-    def _start_screener(self):
-        finam_enabled=bool(read_secret())
-        if (self.closing or self.screener_worker is not None or
-                not self.catalog_ready or not finam_enabled):
-            return
-        remaining=self._screener_next_at-monotonic()
-        if remaining>0:
-            self.screener_timer.start(max(1,int(remaining*1000)+1))
-            return
-        entries=tuple(row for group in (US_FUTURES,RU_STOCKS,RU_FUTURES)
-                      for row in self.universe[group])
-        # Si and Eu appeared indefinitely as pending because a full 38x6
-        # sequential REST scan reached Russian futures last. Prioritise those
-        # two verified contracts, preserving the order of all other rows.
-        priority={"SIZ2026":0, "EUZ2026":1}
-        entries=tuple(sorted(entries,key=lambda item:(
-            priority.get(item.label,2) if item.group==RU_FUTURES else 2)))
-        if not entries:
-            return
-        self._screener_next_at=monotonic()+300
-        self.screener_timer.start(300000)
-        self.screener_rescan_requested=False
-        self.screener_pending={entry.symbol.upper() for entry in entries
-                               if entry.verified and entry.symbol}
-        worker=FinamScreenerWorker(self.service,entries,
-                                  self.indicator_settings,self)
-        self.screener_worker=worker
-        self._screener_progress(0,len(entries))
-        worker.row.connect(self._screener_row)
-        worker.progress.connect(self._screener_progress)
-        worker.finished.connect(self._screener_finished)
-        worker.start()
-
-    def _start_history(self):
-        if self.closing:
-            return
-        finam_enabled=bool(read_secret())
-        if not finam_enabled:return
-        entries=tuple(row for group in (US_FUTURES,RU_STOCKS,RU_FUTURES)
-                      for row in self.universe[group])
-        symbols=tuple(dict.fromkeys(row.symbol.upper() for row in entries if row.verified and '@' in row.symbol))
-        if self.history_worker is not None:
-            if set(self.history_worker.symbols)!=set(symbols):
-                self.history_worker.requestInterruption()
-            return
-        if not symbols:
-            return
-        worker=HistoryArchiveWorker(self.service,entries,self)
-        self.history_worker=worker
-        worker.changed.connect(self._history_changed)
-        worker.finished.connect(self._history_finished)
-        worker.start()
-
-    def _history_changed(self,symbol):
-        self._history_dirty.add(symbol)
-        if not self.closing and not self.isMinimized() and self.current and '@'.join(self.current)==symbol:
-            # Coalesce successive source windows; delivery still preserves
-            # the user's latest timestamp/zoom through _loaded().
-            if not self.history_chart_timer.isActive():
-                self.history_chart_timer.start()
-
-    def _history_chart_refresh(self):
-        if self.closing or self.isMinimized() or not self.current_view or '@'.join(self.current) not in self._history_dirty:
-            return
-        if self.loader is not None:
-            self.history_chart_timer.start()
-        else:
-            self._history_dirty.discard('@'.join(self.current))
-            self._load(refresh=False)
-
-    def _history_finished(self):
-        worker=self.sender()
-        if worker is not self.history_worker:
-            return
-        restart=worker.isInterruptionRequested() and not self.closing
-        self.history_worker=None
-        worker.deleteLater()
-        if self.closing:
-            self._finish_close()
-        elif restart:
-            QTimer.singleShot(0,self._start_history)
-
-    def _screener_progress(self,completed,total):
-        if not self.closing:
-            self.scan_progress.setText(f"Проверено {completed} из {total}")
-
-    def _screener_row(self,result):
-        if self.closing or self.screener_rescan_requested:
-            return
-        if not isinstance(result,ScanResult):
-            return
-        # A rollover may change the exact ticker@MIC while the scan runs.
-        if not is_in_universe(result.symbol,self.universe):
-            return
-        self.screen_results[result.symbol.upper()]=result
-        self.screener_pending.discard(result.symbol.upper())
-        self._populate_universe()
-
-    def _screener_finished(self):
-        worker=self.sender()
-        if worker is not self.screener_worker:
-            return
-        self.screener_worker=None
-        worker.deleteLater()
-        # Do not leave Si/Eu (or any other contract) permanently in the
-        # misleading "ожидает проверки" state if a pass ended early.
-        if not self.closing and not self.screener_rescan_requested:
-            for symbol in self.screener_pending:
-                if is_in_universe(symbol,self.universe):
-                    self.screen_results[symbol]=unknown(symbol,"scan_incomplete")
-            if self.screener_pending:
-                self._populate_universe()
-        self.screener_pending.clear()
-        if self.closing:
-            self._finish_close()
-        elif self.screener_rescan_requested:
-            self.screener_rescan_requested=False
-            QTimer.singleShot(0,self._start_screener)
-        else:
-            self._start_history()
 
     def _daily_catalog_refresh(self):
         if self.closing or not read_secret():
@@ -742,10 +414,7 @@ class FinamWindow(QMainWindow):
                 and "ошибка MOEX" not in self.ranking_status
                 and FuturesListCache.complete(fresh)):
             self._catalog_success_slot=slot_date(datetime.now(timezone.utc))
-        self.screen_results.clear()  # Do not reuse stale contract/roll signals.
         self._populate_universe()
-        self._request_screener_scan()
-        self.screener_timer.start()
         if self._pending_restore:
             restored=self._pending_restore
             self._pending_restore=None
@@ -825,10 +494,7 @@ class FinamWindow(QMainWindow):
         self._schedule_http()
         self._start_stream()
         if recalculate:
-            self.screen_results.clear()
-            self._populate_universe()
             self._load(refresh=False)
-            self._request_screener_scan()
 
     def _token_dialog(self,parent=None):
         token, ok=QInputDialog.getText(parent or self,"Finam Trade API",
@@ -852,8 +518,6 @@ class FinamWindow(QMainWindow):
         self._start_stream()
         self._refresh_catalog(force=True)
         self._schedule_http()
-        self.screen_results.clear()
-        self._request_screener_scan()
 
     def _backup_stores(self):
         if not self.closing:
@@ -954,8 +618,6 @@ class FinamWindow(QMainWindow):
         # is served by this load or remains queued behind an active worker.
         self._http_refresh_pending=False
         defer_chart = self.isMinimized()
-        if self._restore_refresh_pending and not defer_chart:
-            self._history_dirty.discard('@'.join(self.current))
         self._restore_refresh_pending = defer_chart
         market=(self.service.for_market(mic) if callable(getattr(self.service,"for_market",None))
                 else self.service)
@@ -1217,7 +879,6 @@ class FinamWindow(QMainWindow):
             return
         if self.isMinimized():
             self._restore_refresh_pending = self.current_view is not None
-            self.history_chart_timer.stop()
         elif event.oldState() & Qt.WindowState.WindowMinimized:
             self._refresh_restored_chart()
             self._indicator()
@@ -1255,8 +916,7 @@ class FinamWindow(QMainWindow):
 
     def _finish_close(self):
         if (self.loader is None and self.stream is None and
-                self.catalog_worker is None and self.screener_worker is None and
-                self.history_worker is None and
+                self.catalog_worker is None and
                 not getattr(self,"_retiring",[])):
             QApplication.instance().quit()
 
@@ -1264,21 +924,14 @@ class FinamWindow(QMainWindow):
         self.closing=True
         self.feed_timer.stop()
         self.http_timer.stop()
-        self.screener_timer.stop()
-        self.history_chart_timer.stop()
         self.daily_catalog_timer.stop()
         self.storage_backup_timer.stop()
         self._stop_stream()
-        if self.screener_worker is not None:
-            self.screener_worker.requestInterruption()
-        if self.history_worker is not None:
-            self.history_worker.requestInterruption()
         if self.loader is not None:
             self.loader.requestInterruption()
         if self.catalog_worker is not None:
             self.catalog_worker.requestInterruption()
         if (self.loader is not None or self.catalog_worker is not None or
-                self.screener_worker is not None or self.history_worker is not None or
                 getattr(self,"_retiring",[])):
             event.ignore()
             self.hide()
