@@ -6,7 +6,6 @@ import unittest
 
 from flowdesk.chart_indicators import summary_rows
 from flowdesk.engine import Analysis, PairEngine, StructureEngine
-from flowdesk.finam_screener import select_working_fvg_signals
 from flowdesk.market_data import Candle, candle_close_time
 from flowdesk.reference_engine import PinnedFlowEngine
 from flowdesk.reference_runtime import program
@@ -126,9 +125,6 @@ class TestWorkingFvgV214(unittest.TestCase):
         chart.summary_sources={"H4":chart}
         self.assertEqual(summary_rows(chart)[0]["flow"], 1)
         self.assertEqual(summary_rows(chart)[0]["fvg"], 0)
-        self.assertEqual(
-            select_working_fvg_signals(chart, 100).as_map()["H4"],0
-        )
         self.assertTrue("рабочий FVG: пробит" in state.diagnosis)
 
 if __name__=="__main__":

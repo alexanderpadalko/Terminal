@@ -15,7 +15,6 @@ from flowdesk.finam_requests import RequestCoordinator
 from flowdesk.finam_api import FinamAPI,FinamAPIError
 from flowdesk.finam_market import FinamMarketService
 from flowdesk.finam_stream import FinamEvent
-from flowdesk.finam_screener import FinamScreenerWorker,ScanResult,scan_one
 from flowdesk.finam_rotation import expiry_date,resolve_futures
 from flowdesk.market_data import Candle
 from flowdesk.settings import IndicatorSettings
@@ -192,48 +191,6 @@ class TestSharedHistory(unittest.TestCase):
         self.service.save_history_progress(self.symbol,"MN1",saved)
         restarted=FinamMarketService(self.path,api=self.api,clock=lambda:self.now)
         self.assertEqual(restarted.load_history_progress()[(self.symbol,"MN1")],saved)
-
-    def test_scanner_only_fetches_m5_when_last_quote_is_absent(self):
-        scan_one(self.service,"SIZ6","RTSX",IndicatorSettings())
-        self.assertNotIn("M5",[tf for _,tf,_ in self.api.calls])
-        self.service.invalidate_network_cache()
-        self.api.latest_quote=lambda symbol:{"symbol":symbol}
-        scan_one(self.service,"SIZ6","RTSX",IndicatorSettings())
-        self.assertIn("M5",[tf for _,tf,_ in self.api.calls])
-
-class TestParallelScanner(unittest.TestCase):
-    def test_cancelled_pass_closes_its_background_executors(self):
-        entered=threading.Event()
-        def evaluate(service,ticker,mic,settings,*,cancelled):
-            entered.set()
-            while not cancelled():time.sleep(.005)
-            raise InterruptedError()
-        worker=FinamScreenerWorker(object(),[
-            SimpleNamespace(symbol=f"T{i}@RTSX",verified=True) for i in range(6)],
-            object(),evaluate=evaluate,backfill=False)
-        worker.start()
-        try:
-            self.assertTrue(entered.wait(2))
-        finally:
-            worker.requestInterruption()
-            self.assertTrue(worker.wait(2000))
-        self.assertFalse(any(t.name.startswith("FinamScan") for t in threading.enumerate()))
-
-    def test_three_instruments_run_concurrently_and_publish_progress(self):
-        barrier=threading.Barrier(3);lock=threading.Lock();active=[0,0]
-        def evaluate(service,ticker,mic,settings,**kwargs):
-            with lock:
-                active[0]+=1;active[1]=max(active)
-            if int(ticker[1:])<3:barrier.wait(timeout=3)
-            with lock:active[0]-=1
-            return ScanResult(ticker+"@"+mic,(0,)*5)
-        items=[SimpleNamespace(symbol=f"T{i}@RTSX",verified=True) for i in range(5)]
-        rows=[];progress=[]
-        worker=FinamScreenerWorker(object(),items,object(),evaluate=evaluate,backfill=False)
-        worker.row.connect(rows.append);worker.progress.connect(lambda a,b:progress.append((a,b)))
-        worker.run()
-        self.assertEqual(active[1],3);self.assertEqual(len(rows),5)
-        self.assertEqual(progress,[(i,5) for i in range(6)])
 
 class TestFinamOnlyExpiry(unittest.TestCase):
     def test_startup_reads_only_selected_card_until_its_roll_day(self):

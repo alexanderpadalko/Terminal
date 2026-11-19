@@ -10,7 +10,6 @@ import unittest
 
 from flowdesk.chart_indicators import summary_rows
 from flowdesk.engine import Analysis, FVG, FlowState
-from flowdesk.finam_screener import select_working_fvg_signals
 from flowdesk.fvg_display import working_zone
 from flowdesk.fvg_summary import REFERENCE_SHA256, summary_fvg_side
 from flowdesk.market_data import Candle
@@ -67,11 +66,10 @@ class TestSummaryV213(unittest.TestCase):
                 self.assertEqual(actual,flow(snapshot,price))
                 self.assertEqual(actual,higher(level,price))
 
-    def test_all_five_columns_and_screener_share_the_rule(self):
+    def test_all_chart_summary_columns_share_the_rule(self):
         main=source('H1')
         main.summary_sources={tf:source(tf) for tf in ('H4','D1','W1','MN1')}
         self.assertEqual([row['fvg'] for row in summary_rows(main)],[1]*5)
-        self.assertEqual(select_working_fvg_signals(main,100).directions,(1,)*4)
 
     def test_si_visible_older_zone_does_not_replace_the_broken_selected_guard(self):
         guard=FVG(2,3,4,82947,82930,-1,broken=5)
@@ -85,7 +83,6 @@ class TestSummaryV213(unittest.TestCase):
         for chart in (main,h4):
             row=next(row for row in summary_rows(chart) if row['timeframe']=='H4')
             self.assertEqual((row['flow'],row['fvg']),(-1,0))
-            self.assertEqual(select_working_fvg_signals(chart,83029).as_map()['H4'],0)
 
     def test_higher_source_publishes_replacement_and_break_only_on_close(self):
         h4=source()

@@ -11,7 +11,6 @@ from unittest.mock import patch
 
 from flowdesk.finam_api import FinamAPI, finam_bar
 from flowdesk.finam_market import FinamMarketService
-from flowdesk.finam_screener import scan_one, _backfill_higher_history
 from flowdesk.market_data import Candle
 from flowdesk.provider_candles import native_higher_series, NATIVE_HIGHER, NATIVE_POLICY_VERSION
 from flowdesk.settings import IndicatorSettings
@@ -159,39 +158,6 @@ class TestNativeHigher(unittest.TestCase):
         other=FinamMarketService(Path(self.temp.name)/'other.sqlite',api=NativeFeed(),clock=lambda:NOW)
         for chunk in (rows[:3],rows[2:5],rows[4:]):other._upsert(SYMBOL,'MN1',chunk)
         self.assertEqual(self.prepare()['MN1'],other.prepare_series(SYMBOL,other._series(SYMBOL),NOW)['MN1'])
-
-    def test_screener_can_analyze_native_higher_when_canonical_h1_is_unavailable(self):
-        self.market._upsert(SYMBOL,'MN1',months())
-        self.market.refresh_series=lambda *a,**kw:{}
-        result=scan_one(self.market,'SBER','MISX',IndicatorSettings())
-        self.assertEqual(result.error_code,'')
-        self.assertIsNotNone(result.directions[-1])
-        self.assertEqual(result.price_origin,'finam_last')
-        self.market.latest_quote=lambda *a,**kw:{}
-        self.market._quotes.clear()
-        self.assertEqual(scan_one(self.market,'SBER','MISX',IndicatorSettings()).error_code,'price_unavailable')
-
-    def test_native_archive_and_session_h4_backfill_share_bounded_background_budget(self):
-        class Archive(FinamAPI):
-            def __init__(self):
-                super().__init__(secret_reader=lambda:'')
-                self.calls=[]
-            def market_delay_minutes(self,mic):return 0
-            def bars(self,symbol,tf,**kw):
-                self.calls.append((symbol,tf,kw));return []
-        api=Archive();self.market.api=api
-        # Generic native policy still has the original five-request budget;
-        # curated US futures have their own versioned bootstrap tests.
-        symbol=SYMBOL
-        self.market._upsert(symbol,'MN1',months())
-        _backfill_higher_history(self.market,symbol,NOW,self.market._series(symbol))
-        frames=[tf for _,tf,_ in api.calls]
-        self.assertIn('MN1',frames);self.assertIn('H1',frames)
-        self.assertNotIn('M5',frames)
-        self.assertLessEqual(len(frames),5)
-        before=len(frames)
-        _backfill_higher_history(self.market,symbol,NOW,self.market._series(symbol))
-        self.assertEqual(len(api.calls),before)
 
     def test_control_diagnostics_are_safe_and_separate_from_primary_failures(self):
         path=Path(self.temp.name)/'diag.log'
