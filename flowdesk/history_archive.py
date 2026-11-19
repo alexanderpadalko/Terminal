@@ -20,8 +20,8 @@ from .session_store import record_response
 
 VERSION = 'FULL_ARCHIVE_v2_'
 FLOOR = datetime(1970, 1, 1, tzinfo=timezone.utc)
-FRAMES = ('MN1', 'W1', 'D1', 'H4', 'M5')
-# Legacy archive tests can replay old H1 windows; active Finam never requests it.
+FRAMES = ('MN1', 'W1', 'D1', 'H1', 'M5')
+# Legacy archive tests may still replay H4; active Finam never requests H4.
 LEGACY_FRAMES = ('MN1', 'W1', 'D1', 'H1', 'H4', 'M5')
 
 
