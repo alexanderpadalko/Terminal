@@ -349,29 +349,6 @@ class TestFinamGui(unittest.TestCase):
         self.assertEqual(chart.analysis.candles[chart.window()[1]-1].time,anchor)
         self.assertEqual(chart.viewport.bounds(len(chart.times)),(bounds[0]+1,bounds[1]+1))
 
-    def test_archive_updates_wait_for_current_loader_and_coalesce(self):
-        self.select('SBER');self.settle()
-        self.window._history_changed('SBER@MISX')
-        self.assertTrue(self.window.history_chart_timer.isActive())
-        self.window.loader=object()
-        try:
-            with patch.object(self.window,'_load') as load:
-                self.window._history_chart_refresh()
-                load.assert_not_called()
-        finally:self.window.loader=None
-        with patch.object(self.window,'_load') as load:
-            self.window._history_chart_refresh()
-            self.window._history_chart_refresh()
-            load.assert_called_once_with(refresh=False)
-        self.window.history_chart_timer.stop()
-
-    def test_archive_update_of_other_symbol_does_not_reload_selected_chart(self):
-        self.select('SBER');self.settle()
-        with patch.object(self.window,'_load') as load:
-            self.window._history_changed('GAZP@MISX')
-            self.window._history_chart_refresh()
-            load.assert_not_called()
-
     def test_stale_failure_does_not_replace_newer_selection(self):
         self.market.block_symbol="GAZP"
         self.select("GAZP","MISX")
@@ -421,25 +398,40 @@ class TestFinamGui(unittest.TestCase):
         self.assertEqual(self.window.universe[RU_STOCKS],original_stocks)
         self.assertTrue(self.window.daily_catalog_timer.isActive())
 
+
+    def test_instrument_sidebar_has_no_screener_and_preserves_every_row(self):
+        from PySide6.QtCore import Qt
+        from flowdesk.finam_universe import US_FUTURES,RU_FUTURES,RU_STOCKS
+        self.assertEqual(self.window.examples.count(),30)
+        self.assertEqual([len(self.window.universe[g]) for g in
+                          (US_FUTURES,RU_FUTURES,RU_STOCKS)],[4,13,10])
+        for removed in ('screener_worker','screener_timer','screen_buttons',
+                        'screen_results','scan_progress','history_worker',
+                        '_request_screener_scan','_start_screener'):
+            self.assertFalse(hasattr(self.window,removed),removed)
+        for i in range(self.window.examples.count()):
+            item=self.window.examples.item(i)
+            self.assertFalse(item.isHidden())
+            self.assertIsNone(self.window.examples.itemWidget(item))
+            self.assertFalse(item.text().startswith('НЕТ ДАННЫХ'))
+        self.assertEqual(self.window.examples.objectName(),'instrumentList')
+        self.assertGreaterEqual(self.window.instrument_panel.minimumWidth(),360)
+        sber=next(self.window.examples.item(i) for i in
+                  range(self.window.examples.count()) if
+                  self.window.examples.item(i).text().startswith('SBER · '))
+        self.assertEqual(sber.data(Qt.ItemDataRole.UserRole),'SBER@MISX')
+        self.window.examples.setCurrentItem(sber)
+        self.window._populate_universe()
+        self.assertEqual(self.window.examples.currentItem().data(
+            Qt.ItemDataRole.UserRole),'SBER@MISX')
+        self.assertEqual(self.window.examples.count(),30)
+
     def test_sidebar_starts_with_futures_then_top_ten_stocks(self):
         from flowdesk.finam_universe import US_FUTURES,RU_FUTURES,RU_STOCKS,GROUP_LABELS
         headings=[self.window.examples.item(i).text() for i in range(self.window.examples.count())
                   if self.window.examples.item(i).text() in GROUP_LABELS.values()]
         self.assertEqual(headings,[GROUP_LABELS[g] for g in (US_FUTURES,RU_FUTURES,RU_STOCKS)])
         self.assertEqual(self.window.examples.item(1).text().split(" · ")[0],"GCZ2026")
-
-    def test_sidebar_has_no_text_search_but_keeps_tf_signal_filters(self):
-        from PySide6.QtWidgets import QLineEdit
-        self.assertFalse(hasattr(self.window,"search"))
-        self.assertFalse(hasattr(self.window,"_filter_universe"))
-        self.assertFalse(any("Поиск в выбранном списке" in field.placeholderText()
-                             for field in self.window.findChildren(QLineEdit)))
-        self.assertEqual(set(self.window.screen_buttons), {"H4","D","W","M"})
-        self.assertEqual(self.window.examples.count(),30)
-        self.window.screen_buttons["H4"].setChecked(True)
-        self.assertLessEqual(self.window.examples.count(),31)
-        self.window.screen_buttons["H4"].setChecked(False)
-        self.assertEqual(self.window.examples.count(),30)
 
     def test_crypto_selection_cannot_start_a_network_connection(self):
         self.assertNotIn("BINANCE",[self.window.mic.itemText(i) for i in range(self.window.mic.count())])
@@ -477,8 +469,7 @@ class TestFinamGui(unittest.TestCase):
         rows[key]=replace(good,source="экспирация не подтверждена; автопереход приостановлен")
         payload={"assets":[],"finam_error":"","futures":rows,
                  "stocks":self.window.universe[RU_STOCKS],"ranking_status":"MOEX: подтверждено"}
-        with patch.object(self.window,"_request_screener_scan"), \
-             patch.object(self.window.futures_list_cache,"load",return_value={}), \
+        with patch.object(self.window.futures_list_cache,"load",return_value={}), \
              patch.object(self.window,"_load"), patch.object(self.window,"_start_stream"):
             self.window._catalog_loaded(payload)
             self.assertIsNone(self.window._catalog_success_slot)
@@ -603,50 +594,6 @@ class TestFinamGui(unittest.TestCase):
         finally:
             self.window.stream=None
 
-    def test_minimized_stream_stores_candles_and_chart_catches_up_on_restore(self):
-        from datetime import datetime, timezone
-        from flowdesk.finam_stream import FinamEvent
-
-        self.select('SBER'); self.settle()
-        window = self.window
-        before = window.chart.analysis
-        calls = len(self.market.calls)
-        window._history_changed('SBER@MISX')
-        self.assertTrue(window.history_chart_timer.isActive())
-        window.showMinimized()
-        self.assertTrue(window.isMinimized())
-        self.assertFalse(window.history_chart_timer.isActive())
-
-        candle = before.candles[-1]
-        event = FinamEvent('candles', 'SBER', 'MISX', 1, datetime.now(timezone.utc),
-                           timeframe='H4', candles=(candle,))
-        window.pending_bars[('H4', candle.time)] = event
-        with patch.object(self.market, 'ingest_stream', create=True) as ingest, \
-             patch.object(self.market, 'stream_repair_required', create=True, return_value=False):
-            window._flush(); self.settle()
-            ingest.assert_called_once_with('SBER', 'MISX', (event,))
-            self.assertIs(window.chart.analysis, before)
-            self.assertEqual(len(self.market.calls), calls)
-            self.assertIn('SBER@MISX', window._history_dirty)
-
-            # Restoration must also work while a stream-only batch is active.
-            gate = threading.Event()
-            ingest.side_effect = lambda *args: gate.wait(4)
-            window.pending_bars[('H4', candle.time)] = event
-            window._flush()
-            loader = window.loader
-            self.assertIsNotNone(loader)
-            try:
-                window.showNormal()
-                self.assertIs(window.loader, loader)
-            finally:
-                gate.set()
-            self.settle()
-
-        self.assertEqual(self.market.calls[calls:], [('SBER', 'MISX', 'H4', False)])
-        self.assertIsNot(window.chart.analysis, before)
-        self.assertNotIn('SBER@MISX', window._history_dirty)
-
     def test_minimized_http_and_stream_repair_still_check_source(self):
         from datetime import datetime, timezone
         from flowdesk.finam_stream import FinamEvent
@@ -672,294 +619,6 @@ class TestFinamGui(unittest.TestCase):
             ('SBER', 'MISX', 'H4', True),
         ])
         self.assertIs(window.chart.analysis, before)
-
-    def test_screener_badges_have_one_visible_title_and_wider_sidebar(self):
-        from PySide6.QtCore import Qt
-        from PySide6.QtWidgets import QLabel
-        from flowdesk.finam_screener import ScanResult
-        from flowdesk.finam_universe import RU_STOCKS
-        self.app.processEvents()
-        pane=self.window.instrument_panel
-        self.assertGreaterEqual(pane.minimumWidth(),360)
-        self.assertGreater(pane.width(),290)
-        self.assertEqual(pane.maximumWidth(),600)
-        self.assertEqual(len(self.window.instrument_splitter.sizes()),2)
-        entry=next(i for i in self.window.universe[RU_STOCKS]
-                   if i.label=="SBER")
-        self.window.screen_results[entry.symbol]=ScanResult(
-            entry.symbol,(1,0,0,0))
-        self.window.screen_buttons["H4"].setChecked(True)
-        self.window._populate_universe()
-        self.app.processEvents()
-        row=next(self.window.examples.item(i) for i in
-                 range(self.window.examples.count())
-                 if self.window.examples.item(i).text().startswith("SBER ·"))
-        custom=self.window.examples.itemWidget(row)
-        self.assertIsNotNone(custom)
-        # The item keeps its real label for keyboard selection and accessibility,
-        # but Qt must not paint that text underneath the custom badge row.
-        self.assertEqual(row.foreground().color().alpha(),0)
-        self.assertIn("SBER",row.text())
-        labels=[label.text() for label in custom.findChildren(QLabel)]
-        self.assertEqual(sum(label.startswith("SBER ·") for label in labels),1)
-        self.assertIn("H4",labels)
-        self.assertIn("H4",labels)
-        self.assertEqual(row.data(Qt.ItemDataRole.UserRole),entry.symbol)
-        # Selection used to override transparent foreground with Qt's
-        # highlighted text palette and render the title a second time.
-        from flowdesk.finam_gui import SignalRowDelegate
-        self.assertIsInstance(self.window.examples.itemDelegate(),SignalRowDelegate)
-        self.assertTrue(row.data(Qt.ItemDataRole.UserRole + 2))
-        self.window.examples.setCurrentItem(row)
-        self.app.processEvents()
-        self.assertEqual(row.sizeHint().width(),0)
-        self.assertEqual(sum(label.text().startswith("SBER ·")
-            for label in custom.findChildren(QLabel)),1)
-        self.assertEqual(self.window.examples.horizontalScrollBarPolicy(),
-                         Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self.assertLessEqual(custom.width(),self.window.examples.viewport().width())
-        # Search has been removed; the marked FVG row remains visible.
-        self.assertFalse(hasattr(self.window,"search"))
-        self.assertFalse(row.isHidden())
-        self.window.screen_buttons["H4"].setChecked(True)
-        row=next(self.window.examples.item(i) for i in
-                 range(self.window.examples.count())
-                 if self.window.examples.item(i).text().startswith("SBER ·"))
-        self.assertEqual(row.foreground().color().alpha(),0)
-        self.assertIsNotNone(self.window.examples.itemWidget(row))
-
-    def test_unknown_badge_has_only_one_instrument_label(self):
-        from PySide6.QtCore import Qt
-        from PySide6.QtWidgets import QLabel
-        self.window.screen_buttons["D"].setChecked(True)
-        self.app.processEvents()
-        row=next(self.window.examples.item(i) for i in
-                 range(self.window.examples.count())
-                 if self.window.examples.item(i).text().startswith("SBER ·"))
-        widget=self.window.examples.itemWidget(row)
-        self.assertIsNotNone(widget)
-        self.assertEqual(row.foreground().color().alpha(),0)
-        labels=[label.text() for label in widget.findChildren(QLabel)]
-        self.assertEqual(sum(label.startswith("SBER ·") for label in labels),1)
-        self.assertEqual(sum(text.startswith("D:") for text in labels),1)
-        self.assertEqual(labels[-1],"D: ожидает проверки")
-
-    def test_embedded_fvg_filter_or_unknown_section_and_chart_persist(self):
-        from PySide6.QtWidgets import QLabel
-        from flowdesk.finam_screener import ScanResult
-        from flowdesk.finam_universe import RU_STOCKS
-        by_label={i.label:i for i in self.window.universe[RU_STOCKS]}
-        self.assertTrue(all(name in by_label for name in ("SBER","LKOH")))
-        sber,lkoh=by_label["SBER"],by_label["LKOH"]
-        self.assertEqual(tuple(self.window.screen_buttons),
-                         ("H4","D","W","M"))
-        self.assertFalse(any(b.isChecked() for b in
-                             self.window.screen_buttons.values()))
-        initial=[self.window.examples.item(i) for i in
-                 range(self.window.examples.count())]
-        self.assertEqual(len(initial),30)
-        self.window.screen_results[sber.symbol]=ScanResult(
-            sber.symbol,(1,0,0,0))
-        self.window.screen_results[lkoh.symbol]=ScanResult(
-            lkoh.symbol,(0,0,-1,0))
-        self.window._populate_universe()
-        self.select("LKOH")
-        self.settle()
-        analysis=self.window.chart.analysis
-        self.assertIsNotNone(analysis)
-        self.window.screen_buttons["H4"].setChecked(True)
-        rows=[self.window.examples.item(i) for i in
-              range(self.window.examples.count())]
-        visible=[row for row in rows if not row.isHidden()]
-        self.assertTrue(any("SBER · " in item.text() for item in visible))
-        self.assertFalse(any("LKOH · " in item.text() for item in visible))
-        self.assertTrue(any(item.text().startswith("НЕТ ДАННЫХ") for item in visible))
-        self.assertIs(self.window.chart.analysis,analysis)
-        self.assertEqual(self.window.current[0],"LKOH")
-        sber_row=next(row for row in visible if row.text().startswith("SBER"))
-        badges=[label.text() for label in
-                self.window.examples.itemWidget(sber_row).findChildren(QLabel)]
-        self.assertIn("H4",badges)
-        self.assertIn("H4",badges) # All badges, not only selected TF.
-        self.window.screen_buttons["W"].setChecked(True)
-        rows=[self.window.examples.item(i) for i in
-              range(self.window.examples.count())]
-        self.assertTrue(any("LKOH · " in row.text() for row in rows
-                            if not row.isHidden()))
-        self.window.screen_buttons["H4"].setChecked(False)
-        self.window.screen_buttons["W"].setChecked(False)
-        self.assertEqual(self.window.examples.count(),30)
-        self.assertIs(self.window.chart.analysis,analysis)
-
-    def test_scanner_missing_history_stays_neutral_not_short(self):
-        from PySide6.QtWidgets import QLabel
-        from flowdesk.finam_screener import ScanResult
-        from flowdesk.finam_universe import RU_STOCKS
-        sber=next(i for i in self.window.universe[RU_STOCKS]
-                  if i.label=="SBER")
-        self.window.screen_results[sber.symbol]=ScanResult(
-            sber.symbol,(None,None,None,None))
-        self.window.screen_buttons["D"].setChecked(True)
-        visible=[self.window.examples.item(i) for i in
-                 range(self.window.examples.count())
-                 if not self.window.examples.item(i).isHidden()]
-        sber_row=next(row for row in visible if row.text().startswith("SBER"))
-        tags=[label.text() for label in
-              self.window.examples.itemWidget(sber_row).findChildren(QLabel)]
-        self.assertEqual(tags[-1],"D: ожидает проверки")
-        self.assertNotIn("D",tags)
-
-    def test_ru_si_eu_are_scheduled_before_other_scan_instruments(self):
-        from unittest.mock import MagicMock
-        self.mixed_case_currency_futures()
-        self.window.catalog_ready=True
-        with (patch("flowdesk.finam_gui.read_secret",return_value="local"),
-              patch("flowdesk.finam_gui.FinamScreenerWorker") as worker_class):
-            worker=MagicMock()
-            worker_class.return_value=worker
-            self.window._start_screener()
-            instruments=worker_class.call_args.args[1]
-            self.assertEqual([entry.label for entry in instruments[:2]],
-                             ["SIZ2026","EUZ2026"])
-            self.assertIn("SIZ6@RTSX",self.window.screener_pending)
-            self.assertIn("EUZ6@RTSX",self.window.screener_pending)
-            self.window.screener_worker=None
-
-    def test_screener_accepts_normalized_si_eu_results_from_catalog_entries(self):
-        from flowdesk.finam_screener import ScanResult
-        entries=self.mixed_case_currency_futures()
-        self.window.screen_buttons["H4"].setChecked(True)
-        self.window.screener_pending={entry.symbol.upper() for entry in entries}
-        for entry,direction in zip(entries,(1,-1)):
-            result=ScanResult(entry.symbol.upper(),(direction,0,0,0))
-            self.window._screener_row(result)
-            with self.subTest(symbol=entry.symbol):
-                self.assertIs(self.window.screen_results.get(result.symbol),result)
-                self.assertNotIn(result.symbol,self.window.screener_pending)
-                self.assertEqual(self.window._screen_outcome(entry,["H4"]),"matched")
-        self.assertFalse(self.window.screener_pending)
-
-    def test_unfinished_si_eu_get_explicit_retry_reason_after_scan(self):
-        from unittest.mock import MagicMock
-        from PySide6.QtCore import Qt
-        from PySide6.QtWidgets import QLabel
-        entries=self.mixed_case_currency_futures()
-        self.window.screen_buttons["H4"].setChecked(True)
-        worker=MagicMock()
-        self.window.screener_worker=worker
-        self.window.screener_pending={entry.symbol.upper() for entry in entries}
-        with patch.object(self.window,"sender",return_value=worker):
-            self.window._screener_finished()
-        for entry in entries:
-            with self.subTest(symbol=entry.symbol):
-                result=self.window.screen_results.get(entry.symbol.upper())
-                self.assertIsNotNone(result)
-                self.assertEqual(result.error_code,"scan_incomplete")
-                row=next(self.window.examples.item(i) for i in
-                         range(self.window.examples.count()) if
-                         self.window.examples.item(i).data(Qt.ItemDataRole.UserRole)==entry.symbol)
-                labels=self.window.examples.itemWidget(row).findChildren(QLabel)
-                self.assertTrue(any("проверка не завершена" in label.text()
-                                    for label in labels))
-                self.assertFalse(any("ожидает проверки" in label.text()
-                                     for label in labels))
-        self.assertFalse(self.window.screener_pending)
-        self.assertIsNone(self.window.screener_worker)
-        worker.deleteLater.assert_called_once()
-
-    def test_no_filter_shows_all_30_instruments_without_any_tf_badges(self):
-        from PySide6.QtWidgets import QLabel
-        from flowdesk.finam_screener import ScanResult
-        from flowdesk.finam_universe import RU_STOCKS
-        sber=next(item for item in self.window.universe[RU_STOCKS]
-                  if item.label=="SBER")
-        self.window.screen_results[sber.symbol]=ScanResult(
-            sber.symbol,(1,1,-1,-1))
-        self.window._populate_universe()
-        self.assertFalse(any(button.isChecked() for button in
-                             self.window.screen_buttons.values()))
-        self.assertEqual(self.window.examples.count(),30)
-        row=next(self.window.examples.item(i) for i in
-                 range(self.window.examples.count())
-                 if self.window.examples.item(i).text().startswith("SBER ·"))
-        self.assertIsNone(self.window.examples.itemWidget(row))
-        self.assertNotIn("нет данных",[self.window.examples.item(i).text()
-                          for i in range(self.window.examples.count())])
-        self.assertEqual(self.window.examples.objectName(),"instrumentList")
-
-        self.assertIn("border:2px solid #687383",self.window.centralWidget().styleSheet())
-        self.assertIn("border:1px solid #86baf0",self.window.centralWidget().styleSheet())
-        self.window.screen_buttons["W"].setChecked(True)
-        row=next(self.window.examples.item(i) for i in
-                 range(self.window.examples.count())
-                 if self.window.examples.item(i).text().startswith("SBER ·"))
-        widget=self.window.examples.itemWidget(row)
-        self.assertIsNotNone(widget)
-        badges=[label.text() for label in widget.findChildren(QLabel)]
-        self.assertIn("H4",badges)
-        self.assertIn("H4",badges)
-        self.assertIn("M",badges)
-        self.window.screen_buttons["W"].setChecked(False)
-        row=next(self.window.examples.item(i) for i in
-                 range(self.window.examples.count())
-                 if self.window.examples.item(i).text().startswith("SBER ·"))
-        self.assertIsNone(self.window.examples.itemWidget(row))
-
-    def test_unformed_selected_flow_is_excluded_without_unknown_row(self):
-        from flowdesk.finam_screener import ScanResult
-        from flowdesk.finam_universe import RU_STOCKS
-        entry=next(row for row in self.window.universe[RU_STOCKS] if row.label=='SBER')
-        self.window.screen_results[entry.symbol]=ScanResult(entry.symbol,(0,-1,0,None),
-            missing_reasons=("","","","поток ещё не сформирован"))
-        self.window.screen_buttons['M'].setChecked(True)
-        self.assertEqual(self.window._screen_outcome(entry,('M',)),'excluded')
-        self.assertFalse(any(self.window.examples.item(i).text().startswith('SBER ·')
-                             for i in range(self.window.examples.count())))
-        self.window.screen_buttons['D'].setChecked(True)
-        rows=[self.window.examples.item(i) for i in range(self.window.examples.count())
-              if self.window.examples.item(i).text().startswith('SBER ·')]
-        self.assertEqual(len(rows),1)
-        from PySide6.QtWidgets import QLabel
-        labels=self.window.examples.itemWidget(rows[0]).findChildren(QLabel)
-        self.assertIn('D',[label.text() for label in labels])
-        self.assertFalse(any('сформирован' in label.text() for label in labels))
-        self.assertFalse(any(label.objectName()=='screenerMissing' for label in labels))
-
-    def test_missing_source_is_still_distinct_from_an_unformed_flow(self):
-        from flowdesk.finam_screener import ScanResult
-        from flowdesk.finam_universe import RU_STOCKS
-        entry=self.window.universe[RU_STOCKS][0]
-        self.window.screen_results[entry.symbol]=ScanResult(entry.symbol,(0,0,0,None),
-            missing_reasons=("","","","нет свечей; нет доступа Finam (403)"))
-        self.assertEqual(self.window._screen_outcome(entry,('M',)),'unknown')
-
-    def test_unformed_tf_has_no_row_or_explanation_even_with_other_tf_signal(self):
-        from PySide6.QtWidgets import QLabel
-        from flowdesk.finam_screener import ScanResult
-        from flowdesk.finam_universe import US_FUTURES, Item
-        original=self.window.universe[US_FUTURES][0]
-        entry=Item(original.label,original.name,original.group,
-                   "GCZ26@XCEC",True,"Finam GetAsset")
-        self.window.universe[US_FUTURES][0]=entry
-        self.window.screen_results[entry.symbol]=ScanResult(
-            entry.symbol,(1,1,None,None),
-            missing_reasons=("","","поток ещё не сформирован","нет подтверждённого состояния"))
-        self.window.screen_buttons["W"].setChecked(True)
-        self.window.screen_buttons["M"].setChecked(True)
-        self.assertFalse(any(self.window.examples.item(i).text().startswith(entry.label+" ·")
-                             for i in range(self.window.examples.count())))
-        self.window.screen_buttons["H4"].setChecked(True)
-        row=next(self.window.examples.item(i) for i in
-                 range(self.window.examples.count())
-                 if self.window.examples.item(i).text().startswith(entry.label+" ·"))
-        widget=self.window.examples.itemWidget(row)
-        labels=widget.findChildren(QLabel)
-        badge_labels=[label.text() for label in labels]
-        self.assertIn("H4",badge_labels)
-        self.assertIn("D",badge_labels)
-        self.assertFalse(any(label.objectName()=="screenerMissing" for label in labels))
-        self.assertFalse(any("сформирован" in label.text() or
-                             "нет подтверждённого" in label.text() for label in labels))
 
     def test_known_future_expiry_is_visible_in_compact_sidebar(self):
         from flowdesk.finam_universe import Item, US_FUTURES
@@ -1035,22 +694,6 @@ class TestFinamGui(unittest.TestCase):
         finally:
             other.close();other.deleteLater()
 
-    def test_catalog_can_update_finam_without_repeating_moex_ranking(self):
-        from unittest.mock import MagicMock
-        self.market.api=MagicMock()
-        created=[]
-        def make(*args,**kwargs):
-            created.append(kwargs['refresh_ranking'])
-            return MagicMock()
-        with patch('flowdesk.finam_gui.read_secret',return_value='test'), \
-             patch('flowdesk.finam_gui.FinamCatalogWorker',side_effect=make):
-            self.window._refresh_catalog(force=True)
-            self.window.catalog_worker=None
-            self.window._refresh_catalog(force=True)
-            self.window.catalog_worker=None
-        self.assertEqual(created,[True,False])
-        self.assertEqual(self.window.screener_timer.interval(),300000)
-
     def test_switching_instruments_waits_until_the_old_socket_has_closed(self):
         from PySide6.QtCore import QObject,Signal
         class Stream(QObject):
@@ -1077,22 +720,3 @@ class TestFinamGui(unittest.TestCase):
             self.assertEqual(len(created),2)
             self.assertEqual(self.window.stream.ticker,'LKOH')
             last=self.window.stream;self.window._stop_stream();last.finished.emit()
-
-    def test_screener_requests_are_coalesced_to_five_minutes(self):
-        from unittest.mock import MagicMock
-        self.window.catalog_ready=True
-        with patch('flowdesk.finam_gui.read_secret',return_value='test'), \
-             patch('flowdesk.finam_gui.FinamScreenerWorker',return_value=MagicMock()) as make, \
-             patch('flowdesk.finam_gui.monotonic',return_value=100) as clock:
-            self.window._start_screener()
-            self.assertEqual(make.call_count,1)
-            self.window.screener_worker=None
-            clock.return_value=200
-            self.window._start_screener()
-            self.assertEqual(make.call_count,1)
-            self.assertGreaterEqual(self.window.screener_timer.interval(),200000)
-            clock.return_value=401
-            self.window._start_screener()
-            self.assertEqual(make.call_count,2)
-            self.assertEqual(self.window.screener_timer.interval(),300000)
-            self.window.screener_worker=None
