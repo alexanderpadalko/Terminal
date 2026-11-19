@@ -311,7 +311,7 @@ class FinamWindow(QMainWindow):
         if entry.verified and "экспирация не подтверждена" in entry.source:
             state+=" · эксп. ?"
         elif entry.verified and group!=RU_STOCKS:
-            known=re.search(r"(?:действует до |новая дата )(\\d{4}-\\d{2}-\\d{2})",
+            known=re.search(r"(?:действует до |новая дата )(\d{4}-\d{2}-\d{2})",
                             entry.source)
             if known:
                 stamp=known.group(1)
