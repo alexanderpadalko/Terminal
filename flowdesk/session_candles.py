@@ -17,6 +17,75 @@ UTC=timezone.utc
 AGGREGATION_VERSION='session-ohlcv-2-history'
 LOWER=('M1','M5','H1')
 HIGHER=('H4','D1','W1','MN1')
+MAX_CLOSED_BUCKETS = 120_000
+LOWER_INTERVALS = {'M1': timedelta(minutes=1), 'M5': timedelta(minutes=5), 'H1': timedelta(hours=1)}
+MAX_LOWER_INTERVAL = max(LOWER_INTERVALS.values())
+
+
+class ClosedBucketCache:
+    """Reuse complete lower-source aggregates for one selected chart.
+
+    Before each build the caller must rebase against a consistent source
+    snapshot. None denotes unknown changes; bounded edits include both ends.
+    Coverage changes with unknown extent also require a clear.
+    """
+
+    def __init__(self):
+        self._entries = {}
+        self._latest_end = None
+        self._policy = None
+        self.observed = None
+
+    def rebase(self, policy_key, observed, changes=None):
+        reset = (changes is None or self._policy != policy_key or
+                 self.observed is None or observed < self.observed)
+        if reset:
+            self._entries.clear()
+            self._latest_end = None
+        elif self._entries:
+            self._invalidate(changes)
+        self._policy = policy_key
+        self.observed = observed
+
+    def _invalidate(self, changes):
+        ranges = []
+        for timeframe, start, end in changes:
+            if timeframe is not None and timeframe not in LOWER:
+                continue
+            if (start is None or end is None or start.utcoffset() is None or
+                    end.utcoffset() is None or end < start):
+                self._entries.clear()
+                self._latest_end = None
+                return
+            ranges.append((start, end + MAX_LOWER_INTERVAL))
+        if not ranges or self._latest_end <= min(start for start, _ in ranges):
+            return
+        # A preceding source bar can overlap the opening of a segment. All
+        # lower intervals are bounded by MAX_LOWER_INTERVAL, including that bar.
+        kept = {}
+        latest_end = None
+        for index, (key, result) in enumerate(self._entries.items()):
+            if index % 1024 == 0:
+                checkpoint()
+            pieces = key[0]
+            end = pieces[-1][1]
+            if any(left < end and right >= pieces[0][0] for left, right in ranges):
+                continue
+            kept[key] = result
+            latest_end = end if latest_end is None else max(latest_end, end)
+        self._entries = kept
+        self._latest_end = latest_end
+
+    def lookup(self, key):
+        return self._entries.get(key)
+
+    def remember(self, key, result):
+        # Keep the stable historical prefix if the archive outgrows the
+        # budget, so sequential walking never evicts all prior cache hits.
+        if len(self._entries) < MAX_CLOSED_BUCKETS:
+            self._entries[key] = result
+            end = key[0][-1][1]
+            self._latest_end = end if self._latest_end is None else max(self._latest_end, end)
 
 
 @dataclass
@@ -45,10 +114,10 @@ def _covered(intervals,start,end):
 
 
 class _LowerSource:
-    def __init__(self,series,coverage,observed_at,observed,calendar):
+    def __init__(self,series,coverage,observed_at,observed,calendar,*,bucket_cache=None):
         self.series={tf:normalize(series.get(tf,[])) for tf in LOWER}
         for tf,bars in self.series.items():
-            limit=timedelta(minutes={'M1':1,'M5':5,'H1':60}[tf])
+            limit=LOWER_INTERVALS[tf]
             for index,bar in enumerate(bars):
                 if index % 1024 == 0:
                     checkpoint()
@@ -59,9 +128,21 @@ class _LowerSource:
         self.observed_at=observed_at
         self.observed=observed
         self.calendar=calendar
+        self.bucket_cache = bucket_cache if bucket_cache is not None and bucket_cache.observed == observed else None
 
     def bucket(self,pieces,session_end,*,verified_closes=()):
         """Use one complete source TF; never cut an already aggregated price."""
+        if self.bucket_cache is None or pieces[-1][1] > self.observed:
+            return self._bucket(pieces, session_end, verified_closes=verified_closes)
+        key = (tuple(pieces), session_end, tuple(verified_closes))
+        cached = self.bucket_cache.lookup(key)
+        if cached is not None:
+            return cached
+        result = self._bucket(pieces, session_end, verified_closes=verified_closes)
+        self.bucket_cache.remember(key, result)
+        return result
+
+    def _bucket(self,pieces,session_end,*,verified_closes):
         start,end=pieces[0][0],pieces[-1][1]
         if start>=self.observed:return None,None
         needed=[(a,min(b,self.observed)) for a,b in pieces if a<self.observed]
@@ -135,7 +216,7 @@ def _period(day,tf):
     return first,following-timedelta(days=1)
 
 
-def build_session_series(raw,calendar,observed,*,coverage=None,observed_at=None):
+def build_session_series(raw,calendar,observed,*,coverage=None,observed_at=None,bucket_cache=None):
     """Deterministic full/repeated/incremental result for one source snapshot.
 
     A period missing its start, trading day, calendar or lower coverage is
@@ -149,7 +230,7 @@ def build_session_series(raw,calendar,observed,*,coverage=None,observed_at=None)
     coverage=coverage or {};observed_at=observed_at or {}
     output={tf:normalize(bars) for tf,bars in raw.items() if tf not in (*HIGHER,'H1')}
     issues={};origins={tf:'session_lower' for tf in HIGHER}
-    lower=_LowerSource(raw,coverage,observed_at,observed,calendar)
+    lower=_LowerSource(raw,coverage,observed_at,observed,calendar,bucket_cache=bucket_cache)
     starts=[b.time for tf in LOWER for b in lower.series[tf] if b.time<=observed]
     intraday_start=min(starts) if starts else observed
     crypto=calendar.profile=='CRYPTO_UTC'

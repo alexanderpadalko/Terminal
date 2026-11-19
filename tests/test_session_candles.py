@@ -14,7 +14,7 @@ from flowdesk.diagnostics_log import log_candle_policy
 from flowdesk.finam_api import FinamAPI,parse_instant,finam_bar
 from flowdesk.finam_market import FinamMarketService
 from flowdesk.market_data import Candle,candle_close_time,normalize
-from flowdesk.session_candles import build_session_series
+from flowdesk.session_candles import ClosedBucketCache, _LowerSource, build_session_series
 from flowdesk.session_store import record_coverage
 from tools.compare_session_csv import compare,strict_csv
 from flowdesk.trading_calendar import CalendarUnavailable,TradingCalendar,TradingSession,calendar_for
@@ -143,6 +143,72 @@ class TestTradingSessions(unittest.TestCase):
 class TestSessionAggregation(unittest.TestCase):
     def setUp(self):
         self.cal=calendar_for('SBER@MISX');self.s=self.cal.session(date(2026,11,12));self.rows=lower(self.s)
+
+    def test_closed_buckets_reuse_unchanged_history_and_replace_a_correction(self):
+        cache = ClosedBucketCache()
+        cache.rebase(self.cal.revision, self.s.end)
+        current = build_session_series({'M5': self.rows}, self.cal, self.s.end, bucket_cache=cache)
+        later = self.s.end + timedelta(minutes=1)
+        cache.rebase(self.cal.revision, later, ())
+        with patch.object(_LowerSource, '_bucket', side_effect=AssertionError('history replayed')):
+            self.assertEqual(build_session_series({'M5': self.rows}, self.cal, later, bucket_cache=cache), current)
+
+        corrected = replace(self.rows[0], high=999)
+        rows = {'M5': [corrected, *self.rows[1:]]}
+        cache.rebase(self.cal.revision, later, [('M5', corrected.time, corrected.time)])
+        updated = build_session_series(rows, self.cal, later, bucket_cache=cache)
+        self.assertEqual(updated, build_session_series(rows, self.cal, later))
+        self.assertEqual(updated.series['H4'][0].high, 999)
+        self.assertIs(updated.series['H4'][-1], current.series['H4'][-1])
+
+    def test_forming_bucket_cannot_be_reused_after_close(self):
+        start = self.s.start
+        end = start + timedelta(hours=2)
+        observed = end - timedelta(minutes=30)
+        rows = {'H1': lower(self.s, 60)[:2]}
+        observations = {('H1', rows['H1'][1].time): observed}
+        pieces = ((start, end),)
+        cache = ClosedBucketCache()
+        cache.rebase(self.cal.revision, observed)
+        forming = _LowerSource(rows, {}, observations, observed, self.cal, bucket_cache=cache)
+        self.assertIsNotNone(forming.bucket(pieces, self.s.end)[0])
+        cache.rebase(self.cal.revision, end, ())
+        closed = _LowerSource(rows, {}, observations, end, self.cal, bucket_cache=cache)
+        self.assertEqual(closed.bucket(pieces, self.s.end), (None, None))
+
+    def test_coverage_change_can_recompute_cached_missing_and_empty_buckets(self):
+        start = self.s.start
+        end = start + timedelta(minutes=5)
+        pieces = ((start, end),)
+        rows = {'M5': self.rows[1:2]}
+        cache = ClosedBucketCache()
+        cache.rebase(self.cal.revision, end)
+        raw = _LowerSource(rows, {}, {}, end, self.cal, bucket_cache=cache)
+        self.assertEqual(raw.bucket(pieces, self.s.end), (None, None))
+        with patch.object(_LowerSource, '_bucket', side_effect=AssertionError('missing result replayed')):
+            self.assertEqual(raw.bucket(pieces, self.s.end), (None, None))
+
+        cache.rebase(self.cal.revision, end, [(None, start, end)])
+        covered = _LowerSource(rows, {'M5': [(start, end)]}, {}, end, self.cal, bucket_cache=cache)
+        self.assertEqual(covered.bucket(pieces, self.s.end), (None, 'no_trades'))
+        with patch.object(_LowerSource, '_bucket', side_effect=AssertionError('empty result replayed')):
+            self.assertEqual(covered.bucket(pieces, self.s.end), (None, 'no_trades'))
+
+    def test_rebase_includes_the_source_bar_before_a_session_open(self):
+        start = self.s.start
+        end = start + timedelta(hours=1)
+        pieces = ((start, end),)
+        rows = {'H1': lower(self.s, 60)[:1]}
+        cache = ClosedBucketCache()
+        cache.rebase(self.cal.revision, end)
+        raw = _LowerSource(rows, {}, {}, end, self.cal, bucket_cache=cache)
+        self.assertIsNotNone(raw.bucket(pieces, self.s.end)[0])
+
+        overlap = replace(rows['H1'][0], time=start - timedelta(minutes=30),
+                          scheduled_close=start + timedelta(minutes=30))
+        cache.rebase(self.cal.revision, end, [('H1', overlap.time, overlap.time)])
+        corrected = _LowerSource({'H1': [overlap, *rows['H1']]}, {}, {}, end, self.cal, bucket_cache=cache)
+        self.assertEqual(corrected.bucket(pieces, self.s.end), (None, None))
 
     def test_short_session_tail_and_native_daily_priority_when_verified(self):
         native=Candle(datetime(2026,11,12,5,tzinfo=UTC),*prices(self.rows),scheduled_close=datetime(2026,11,13,5,tzinfo=UTC))

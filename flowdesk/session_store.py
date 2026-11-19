@@ -82,13 +82,16 @@ def record_coverage(service,symbol,tf,start,end):
         for left,right in windows:
             if merged and left<=merged[-1][1]:merged[-1]=(merged[-1][0],max(merged[-1][1],right))
             else:merged.append((left,right))
+        updated=[(left.isoformat(),right.isoformat()) for left,right in merged]
+        if updated==sorted(rows):
+            return
         db.execute('DELETE FROM candle_source_coverage WHERE symbol=? AND tf=?',(symbol,tf))
         db.executemany('INSERT INTO candle_source_coverage VALUES(?,?,?,?)',
-            ((symbol,tf,a.isoformat(),b.isoformat()) for a,b in merged))
+            ((symbol,tf,left,right) for left,right in updated))
         db.execute('''INSERT INTO candle_source_revisions VALUES(?,1)
             ON CONFLICT(symbol) DO UPDATE SET revision=revision+1''',(symbol,))
         if getattr(service,'_chart_sources',None) is not None and service._chart_sources.symbol==symbol:
-            service._commit_source_change(db,symbol)
+            service._commit_source_change(db,symbol,start=start.isoformat(),end=end.isoformat())
 
 
 def record_response(service,symbol,tf,bars,start,end,observed):
@@ -107,7 +110,7 @@ def _candle(row):
         trading_date=date.fromisoformat(row['trading_date']) if row.get('trading_date') else None)
 
 
-def prepare(service,symbol,raw,observed):
+def prepare(service,symbol,raw,observed,*,bucket_cache=None,bucket_changes=None):
     if not getattr(service.api,'session_candles',False):return raw
     primary_native=native_higher_enabled(service.api)
     pilot_requested=primary_native and bool(futures.product(symbol))
@@ -126,6 +129,8 @@ def prepare(service,symbol,raw,observed):
         if pilot_requested and not futures.enabled(symbol,calendar):
             raise CalendarUnavailable('instrument_calendar_unknown')
     except CalendarUnavailable:
+        if bucket_cache is not None:
+            bucket_cache.rebase((symbol,None),observed)
         result={tf:bars for tf,bars in raw.items() if tf not in ('H4',*NATIVE_HIGHER)}
         issues={tf:'instrument_calendar_unknown' for tf in ('H4',*NATIVE_HIGHER)}
         if primary_native and not (pilot_requested or ru):
@@ -146,6 +151,8 @@ def prepare(service,symbol,raw,observed):
     ru_progress=state.get('moex_progress') if state else None
     if ru:versions+=(moex.POLICY,moex.REVISION,ru_progress)
     policy=hashlib.sha256(repr(versions).encode()).hexdigest()
+    if bucket_cache is not None:
+        bucket_cache.rebase((symbol,policy),observed,bucket_changes)
     # History retention changes H1/H4 and the archive-mode flag, but must not
     # discard an already coherent Last/Open family during a source outage.
     # Accept only precisely matching calendar/family policies, including the
@@ -192,7 +199,8 @@ def prepare(service,symbol,raw,observed):
                     checkpoint()
                 observed_at.setdefault((tf,bar.time),unknown)
     try:
-        built=build_session_series(raw,calendar,observed,coverage=coverage,observed_at=observed_at)
+        built=build_session_series(raw,calendar,observed,coverage=coverage,observed_at=observed_at,
+                                   bucket_cache=bucket_cache)
     except (ValueError,OverflowError):
         if not primary_native:raise
         built=SessionSeries({tf:bars for tf,bars in raw.items() if tf in ('M1','M5')},

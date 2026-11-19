@@ -1,7 +1,7 @@
 """Resource budgets and exact replay parity without shortening any history."""
 from contextlib import closing
 from dataclasses import replace
-from datetime import datetime,timedelta,timezone
+from datetime import date,datetime,timedelta,timezone
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -14,9 +14,13 @@ from flowdesk.finam_market import FinamMarketService
 from flowdesk.finam_screener import scan_one
 from flowdesk.market_data import Candle
 from flowdesk.pipeline import analyze_timeframes
+from flowdesk.session_candles import _LowerSource
+from flowdesk.session_store import record_coverage
 from flowdesk.settings import IndicatorSettings
+from flowdesk.trading_calendar import calendar_for
 from test_history_retention import hours
 from test_finam_optimization import Feed,NOW
+from test_session_candles import lower
 
 
 def numeric(test,a,b):
@@ -100,6 +104,40 @@ class ResourceTests(unittest.TestCase):
         with patch.object(self.service,'_series',wraps=self.service._series) as read:
             scan_one(self.service,'TEST','RTSX',self.settings)
         self.assertEqual(read.call_count,1)
+
+    def test_chart_reuses_unaffected_buckets_and_matches_full_after_old_correction(self):
+        symbol='SBER@MISX'
+        calendar=calendar_for(symbol)
+        sessions=[calendar.session(date(2026,11,day)) for day in (17,18,19)]
+        observed=sessions[-1].end+timedelta(minutes=2)
+        api=SimpleNamespace(session_candles=True,market_delay_minutes=lambda _:0)
+        market=FinamMarketService(Path(self.tmp.name)/'stock.sqlite',api=api,clock=lambda:observed)
+        sources=[bar for session in sessions for bar in lower(session)]
+        market._upsert(symbol,'M5',sources)
+        record_coverage(market,symbol,'M5',sessions[0].start,sessions[-1].end)
+        bucket=_LowerSource._bucket
+        with patch.object(_LowerSource,'_bucket',autospec=True,side_effect=bucket) as calls:
+            first,_,_=market.view('SBER','MISX','D1')
+            cold_calls=calls.call_count
+            calls.reset_mock()
+            # The correction affects the first trading day of the loaded range.
+            corrected=replace(sources[0],high=1000)
+            market._upsert(symbol,'M5',[corrected])
+            updated,parents,_=market.view('SBER','MISX','D1')
+            self.assertGreater(calls.call_count,0)
+            self.assertLess(calls.call_count,cold_calls)
+        self.assertNotEqual(updated.candles,first.candles)
+
+        with closing(market._connection()) as db,db:
+            db.execute('DELETE FROM session_series_cache WHERE symbol=?',(symbol,))
+        fresh_market=FinamMarketService(market.path,api=api,clock=lambda:observed)
+        fresh,fresh_parents,_=fresh_market.view('SBER','MISX','D1')
+        numeric(self,updated,fresh)
+        self.assertEqual(updated.session_info,fresh.session_info)
+        self.assertEqual(set(parents),set(fresh_parents))
+        for tf in parents:
+            numeric(self,parents[tf],fresh_parents[tf])
+        numeric(self,updated.summary_sources['H4'],fresh.summary_sources['H4'])
 
     def test_archive_pacing_is_interruptible_and_defaults_to_one_worker(self):
         entry=SimpleNamespace(symbol='TEST@RTSX',verified=True)

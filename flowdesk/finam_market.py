@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections import OrderedDict
 from contextlib import closing, nullcontext, contextmanager
 from datetime import datetime, timedelta, timezone
+from itertools import chain
 from pathlib import Path
 import sqlite3
 import threading
@@ -23,12 +24,29 @@ from . import moex_trading_family as moex
 from .calculation_store import CalculationStore
 from .chart_source_cache import ChartSourceCache, read_frames
 from .cancellation import Cancelled, checkpoint, is_cancelled, scope as cancellation_scope
+from .session_candles import ClosedBucketCache
 
 TTL_SECONDS = {"M1":60,"M5":300,"H1":300,"H4":900,"D1":1800,"W1":3600,"MN1":14400}
 STREAM_VERIFY_SECONDS = HTTP_REFRESH_SECONDS
 FULL_VERIFY_SECONDS = 86400
 ANALYSIS_CACHE_ENTRIES = 4
 ANALYSIS_CACHE_UNITS = 100000
+
+
+class _ObservationRows:
+    def __init__(self, frames):
+        self.frames = tuple(rows for _, rows, _ in frames.values())
+
+    def __iter__(self):
+        return chain.from_iterable(self.frames)
+
+
+class _ChartPreparation:
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.revision = None
+        self.buckets = ClosedBucketCache()
+
 
 class FinamMarketService:
     @property
@@ -46,6 +64,7 @@ class FinamMarketService:
         self.calculations=CalculationStore(self.path.with_name(self.path.stem+'_analysis_v1.sqlite3'))
         self._active_analysis_key = None
         self._chart_sources = ChartSourceCache()
+        self._chart_preparation = None
         self._source_repair_attempts = {}
         self._source_repair_checked = {}
         self._pull_locks = {}
@@ -124,19 +143,21 @@ class FinamMarketService:
                 observed=self.clock()-timedelta(minutes=self.api.market_delay_minutes(symbol.rsplit('@',1)[1]))
                 revised=session_store.changed(db,symbol,timeframe,bars,observed,replace=changed or source=='http')
                 if revised and symbol==self._chart_sources.symbol and timeframe in SOURCE_TIMEFRAMES:
-                    start=min(b.time.isoformat() for b in bars) if all(
-                        b.time.utcoffset()==timedelta(0) for b in bars) else None
-                    self._commit_source_change(db,symbol,timeframe,start)
+                    start=end=None
+                    if all(b.time.utcoffset()==timedelta(0) for b in bars):
+                        start=min(b.time for b in bars).isoformat()
+                        end=max(b.time for b in bars).isoformat()
+                    self._commit_source_change(db,symbol,timeframe,start,end)
             # Fingerprints validate corrections on the next calculation.
             # Keep unchanged TF/block results available for selective reuse.
             return changed
 
-    def _commit_source_change(self,db,symbol,frame=None,start=None):
+    def _commit_source_change(self,db,symbol,frame=None,start=None,end=None):
         # The service lock covers both the SQLite commit and the in-memory
         # record. A reader can never see an uncommitted delta in its input.
         revision=db.execute('SELECT revision FROM candle_source_revisions WHERE symbol=?',(symbol,)).fetchone()[0]
         db.commit()
-        self._chart_sources.record(symbol,revision,frame,start)
+        self._chart_sources.record(symbol,revision,frame,start,end)
 
     def _series(self,symbol,*,chart=False):
         snapshot=getattr(self._scan_local,'snapshot',None)
@@ -185,16 +206,25 @@ class FinamMarketService:
             revision=state['revision']
             with self.lock:
                 saved,changes=self._chart_sources.inputs(symbol,revision)
+                preparation=self._chart_preparation if self._chart_sources.symbol==symbol else None
             frames=read_frames(db,symbol,saved,changes)
         checkpoint()
         with self.lock:
-            self._chart_sources.publish(symbol,revision,frames)
-        state['observations']=[row for _,observations,_ in frames.values() for row in observations]
-        return session_store.SourceSeries({tf:data[0] for tf,data in frames.items() if data[0]},state)
+            if preparation is self._chart_preparation:
+                self._chart_sources.publish(symbol,revision,frames)
+        state['observations']=_ObservationRows(frames)
+        raw=session_store.SourceSeries({tf:data[0] for tf,data in frames.items() if data[0]},state)
+        raw.chart_preparation=preparation
+        return raw
+
+    def _select_chart_sources(self,symbol):
+        if symbol!=self._chart_sources.symbol:
+            self._chart_sources.select(symbol)
+            self._chart_preparation=_ChartPreparation() if symbol is not None else None
 
     def release_chart_sources(self):
         with self.lock:
-            self._chart_sources.select(None)
+            self._select_chart_sources(None)
 
     @contextmanager
     def http_scan(self):
@@ -207,7 +237,28 @@ class FinamMarketService:
         cleaned=exclude_stock_closing_auction(raw,symbol.rsplit('@',1)[1])
         if hasattr(raw,'source_state'):
             cleaned=session_store.SourceSeries(cleaned,raw.source_state)
-        return session_store.prepare(self,symbol,cleaned,observed)
+        preparation=getattr(raw,'chart_preparation',None)
+        if preparation is None:
+            return session_store.prepare(self,symbol,cleaned,observed)
+        revision=raw.source_state['revision']
+        self._acquire(preparation.lock,is_cancelled)
+        try:
+            changes=None
+            with self.lock:
+                if preparation is self._chart_preparation and preparation.revision is not None:
+                    changes=self._chart_sources.changes_since(symbol,preparation.revision,revision)
+            ranges=None
+            if changes is not None and all(start is not None and end is not None for _,_,start,end in changes):
+                ranges=tuple((frame,datetime.fromisoformat(start),datetime.fromisoformat(end))
+                             for _,frame,start,end in changes)
+            # An interrupted or failed preparation must revalidate the bucket cache on retry.
+            preparation.revision=None
+            result=session_store.prepare(self,symbol,cleaned,observed,
+                                         bucket_cache=preparation.buckets,bucket_changes=ranges)
+            preparation.revision=revision
+            return result
+        finally:
+            preparation.lock.release()
 
     def repair_source_evidence(self,symbol,raw,observed,*,cancelled=lambda:False,priority=0):
         from .source_repair import repair_source_evidence
@@ -221,7 +272,7 @@ class FinamMarketService:
             self._repair_tried.clear()
             self._stream_updates.clear()
             self.analysis_cache.clear()
-            self._chart_sources.select(None)
+            self._select_chart_sources(None)
             self._source_repair_attempts={}
             self._source_repair_checked={}
             db.execute("DELETE FROM finam_pulls")
@@ -508,7 +559,7 @@ class FinamMarketService:
         if timeframe not in DISPLAY_TIMEFRAMES:raise ValueError("Таймфрейм недоступен в терминале")
         with self.lock:
             self._active_analysis_key=(symbol,timeframe)
-            self._chart_sources.select(symbol)
+            self._select_chart_sources(symbol)
         settings=settings or IndicatorSettings()
         progress=progress or (lambda message:None)
         errors={}
