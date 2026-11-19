@@ -91,8 +91,9 @@ def check_finam_runtime(output):
         result['moex_additions']=all(
             any(c.display==label and c.mics==('RTSX',) for c in RU_CONTRACTS)
             and calendar_for(symbol).profile=='MOEX_FUTURE_FULL'
-            for label,symbol in (('IRUS.P','IMOEXF@RTSX'),('GDZ2026','GDZ6@RTSX'),
-                ('SVZ2026','SVZ6@RTSX'),('BRZ2026','BRZ6@RTSX'),('NGX2026','NGX6@RTSX')))
+            for label,symbol in (('IRUS.P','IMOEXF@RTSX'),('MMZ2026','MMZ6@RTSX'),
+                ('GNZ2026','GNZ6@RTSX'),('S1Z2026','S1Z6@RTSX'),
+                ('BMZ2026','BMZ6@RTSX'),('NRX2026','NRX6@RTSX')))
         terminal_sources={tf:[Candle(observed-timedelta(hours=i),100,102,99,101,1,
                               scheduled_close=observed-timedelta(hours=i-1))
                               for i in range(12,0,-1)] for tf in (*DISPLAY_TIMEFRAMES,'H1','M1')}

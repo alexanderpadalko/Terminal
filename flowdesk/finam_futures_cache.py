@@ -54,11 +54,11 @@ class FuturesListCache:
         ticker = symbol.split("@", 1)[0].upper()
         # A local file is not authoritative: prohibit a different root,
         # another instrument type, or a different contract in the snapshot.
-        term = re.fullmatch(r"([A-Z]+)[FGHJKMNQUVXZ][0-9]{1,4}", ticker)
+        term = re.fullmatch(r"([A-Z][A-Z0-9]*)[FGHJKMNQUVXZ][0-9]{1,4}", ticker)
         valid_roots = {
             match.group(1) for alias in contract.aliases
             if (match := re.fullmatch(
-                r"([A-Z]+)[FGHJKMNQUVXZ][0-9]{1,4}", alias.upper()))
+                r"([A-Z][A-Z0-9]*)[FGHJKMNQUVXZ][0-9]{1,4}", alias.upper()))
         }
         if valid_roots:
             if term is None or term.group(1) not in valid_roots:

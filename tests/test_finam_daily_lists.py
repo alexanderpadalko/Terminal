@@ -44,6 +44,30 @@ class DailyFuturesListsTest(unittest.TestCase):
         self.assertEqual(rows[RU_FUTURES+":"+RU_CONTRACTS[0].display].symbol,"SiZ6@RTSX")
         self.assertIn("сохранённый список",rows[US_FUTURES+":"+US_CONTRACTS[0].display].source)
 
+    def test_numeric_root_mini_silver_cache_and_daily_completion(self):
+        contract=next(c for c in RU_CONTRACTS if c.display=="S1Z2026")
+        item=Item(contract.display,contract.name,contract.group,
+                  "S1Z6@RTSX",True,
+                  "действует до 2026-12-18 · Finam GetAsset")
+        rows={**self.rows,RU_FUTURES+":"+contract.display:item}
+        self.cache.save(rows,now=self.now)
+        restored=self.cache.load(now=self.now)
+        self.assertEqual(restored[RU_FUTURES+":"+contract.display].symbol,
+                         "S1Z6@RTSX")
+        standard=Item(contract.display,contract.name,contract.group,
+                      "SVZ6@RTSX",True,item.source)
+        self.assertIsNone(self.cache._safe_item(contract,{
+            "label":standard.label,"symbol":standard.symbol,"verified":True,
+            "source":standard.source},self.now.date()))
+        # All futures, including numeric-root mini silver, can complete the
+        # daily catalog check only when their exact expiry was confirmed.
+        complete={c.group+":"+c.display:Item(c.display,c.name,c.group,
+                  c.aliases[-1]+"@"+c.mics[0],True,
+                  "вечный контракт, без ролловера" if ".P" in c.display else
+                  "действует до 2027-12-18 · Finam GetAsset")
+                  for c in (*US_CONTRACTS,*RU_CONTRACTS)}
+        self.assertTrue(FuturesListCache.complete(complete,now=self.now))
+
     def test_outage_does_not_erase_existing_verified_entries(self):
         self.cache.save(self.rows,now=self.now)
         self.cache.save({},now=self.now+timedelta(hours=2))
