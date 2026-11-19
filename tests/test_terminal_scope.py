@@ -67,7 +67,7 @@ class TerminalScopeTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             analyze_timeframes(series,'M1',asof=NOW,terminal=True)
         with self.assertRaises(ValueError):
-            analyze_timeframes(series,'H1',asof=NOW,terminal=True)
+            analyze_timeframes(series,'H4',asof=NOW,terminal=True)
 
     def test_m5_skips_pair_engine_and_keeps_candles_zigzag_and_fvg(self):
         source=bars(5)
@@ -83,8 +83,8 @@ class TerminalScopeTests(unittest.TestCase):
     def test_remaining_flows_and_zigzag_match_reference_calculations(self):
         series={tf:bars(step) for tf,step in
                 [('H1',60),('D1',1440),('W1',10080),('MN1',43200)]}
-        active,parents=analyze_timeframes(series,'H4',asof=NOW,terminal=True)
-        reference,original=analyze_timeframes(series,'H4',asof=NOW)
+        active,parents=analyze_timeframes(series,'H1',asof=NOW,terminal=True)
+        reference,original=analyze_timeframes(series,'H1',asof=NOW)
         for frame,current in {'H1':active,**parents}.items():
             before={'H1':reference,**original}[frame]
             self.assertEqual(current.reference_version,before.reference_version)
