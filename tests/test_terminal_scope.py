@@ -42,7 +42,7 @@ class TerminalScopeTests(unittest.TestCase):
         main, _ = analyze_timeframes({'M5': rows}, 'M5', asof=NOW, terminal=True)
         self.assertEqual(main.candles, rows)
 
-    def test_pipeline_never_analyzes_h1_m1_or_market_block(self):
+    def test_pipeline_never_analyzes_h4_m1_or_market_block(self):
         series={tf:bars(step) for tf,step in
                 [('M1',1),('M5',5),('H1',60),('H4',240),('D1',1440),('W1',10080),('MN1',43200)]}
         calls=[]
@@ -82,11 +82,11 @@ class TerminalScopeTests(unittest.TestCase):
 
     def test_remaining_flows_and_zigzag_match_reference_calculations(self):
         series={tf:bars(step) for tf,step in
-                [('H1',60),('H4',240),('D1',1440),('W1',10080),('MN1',43200)]}
+                [('H1',60),('D1',1440),('W1',10080),('MN1',43200)]}
         active,parents=analyze_timeframes(series,'H4',asof=NOW,terminal=True)
         reference,original=analyze_timeframes(series,'H4',asof=NOW)
-        for frame,current in {'H4':active,**parents}.items():
-            before={'H4':reference,**original}[frame]
+        for frame,current in {'H1':active,**parents}.items():
+            before={'H1':reference,**original}[frame]
             self.assertEqual(current.reference_version,before.reference_version)
             for field in ('candles','segments','flows','pairs','fvg','liquidity_audit'):
                 self.assertEqual(getattr(current,field),getattr(before,field),(frame,field))
@@ -139,7 +139,7 @@ class TerminalScopeTests(unittest.TestCase):
             self.assertFalse(active.flows)
             self.assertFalse(active.market)
 
-    def test_m1_h1_not_loaded_requested_or_subscribed_old_rows_preserved(self):
+    def test_m1_h4_not_loaded_requested_or_subscribed_old_rows_preserved(self):
         from contextlib import closing
         from flowdesk.finam_market import FinamMarketService
         from flowdesk.finam_api import FinamAPI
@@ -151,22 +151,22 @@ class TerminalScopeTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             service=FinamMarketService(Path(folder)/'cache.sqlite',api=api,clock=lambda:NOW)
             service._upsert('SBER@MISX','M1',bars(1))
-            service._upsert('SBER@MISX','H1',bars(60))
-            service.refresh_series('SBER@MISX',('M1','H1',*SOURCE_TIMEFRAMES))
+            service._upsert('SBER@MISX','H4',bars(240))
+            service.refresh_series('SBER@MISX',('M1','H4',*SOURCE_TIMEFRAMES))
             self.assertNotIn('M1',service._series('SBER@MISX'))
-            self.assertNotIn('H1',service._series('SBER@MISX'))
+            self.assertNotIn('H4',service._series('SBER@MISX'))
             self.assertNotIn('M1',{tf for _,tf in api.calls})
-            self.assertNotIn('H1',{tf for _,tf in api.calls})
+            self.assertNotIn('H4',{tf for _,tf in api.calls})
             with closing(service._connection()) as db:
                 self.assertEqual(db.execute("SELECT COUNT(*) FROM candles WHERE tf='M1'").fetchone()[0],12)
             with self.assertRaises(ValueError):
                 service.view('SBER','MISX','M1')
             with self.assertRaises(ValueError):
-                service.view('SBER','MISX','H1')
+                service.view('SBER','MISX','H4')
         self.assertNotIn('M1',FRAMES)
-        self.assertNotIn('H1',FRAMES)
+        self.assertNotIn('H4',FRAMES)
         self.assertNotIn('M1',FinamAPI.stream_frames)
-        self.assertNotIn('H1',FinamAPI.stream_frames)
+        self.assertNotIn('H4',FinamAPI.stream_frames)
         self.assertEqual(FinamAPI.stream_frames,SOURCE_TIMEFRAMES)
 
     def test_terminal_settings_remove_market_and_retired_frame_controls(self):
@@ -188,17 +188,17 @@ class TerminalScopeTests(unittest.TestCase):
             self.assertFalse(restored.enableMarketStructureInput)
         finally:dialog.close()
 
-    def test_hourly_retired_and_native_h4_visible(self):
+    def test_native_hourly_visible_and_h4_retired(self):
         from PySide6.QtWidgets import QApplication
         from flowdesk.gui import TimeframeBar
         from flowdesk.chart_indicators import summary_rows
         app=QApplication.instance() or QApplication([])
         bar=TimeframeBar(frames=DISPLAY_TIMEFRAMES)
         self.assertEqual(tuple(bar.buttons),DISPLAY_TIMEFRAMES)
-        self.assertNotIn('H1',bar.buttons)
-        self.assertIn('H4',bar.buttons)
+        self.assertIn('H1',bar.buttons)
+        self.assertNotIn('H4',bar.buttons)
         self.assertNotIn('M1',bar.buttons)
-        self.assertEqual(bar.currentText(),'H4')
-        main,_=analyze_timeframes({'H4':bars(240)},'H4',asof=NOW,terminal=True)
+        self.assertEqual(bar.currentText(),'H1')
+        main,_=analyze_timeframes({'H1':bars(60)},'H1',asof=NOW,terminal=True)
         self.assertEqual(tuple(row['timeframe'] for row in summary_rows(main,FLOW_TIMEFRAMES)),FLOW_TIMEFRAMES)
         bar.close()
