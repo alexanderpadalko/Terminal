@@ -4,6 +4,11 @@
 
 ## Актуальная версия
 
+### Успешный релиз native Finam H4 без H1 (19.11.2026)
+
+- [Коммит bd04692](https://github.com/alexanderpadalko/Terminal/commit/bd046924b5fb6ff42d5d7d5e72e5e1238ef28979) прошёл [Windows CI 44616507893](https://github.com/alexanderpadalko/Terminal/actions/runs/44616507893) (**SUCCESS**, все 788 offline-тестов, системные и расширенные аудиты, упаковка EXE и проверка запуска/выхода без Finam secret). [Windows x64 ZIP UNSIGNED](https://github.com/alexanderpadalko/Terminal/actions/runs/44616507893/artifacts/14575197134), 49 461 936 байт. [Test Evidence](https://github.com/alexanderpadalko/Terminal/actions/runs/44616507893/artifacts/14574544474). Проверено, что обе публикации принадлежат этому commit SHA.
+- Рабочие M5/H4/D1/W1/MN1 — только исходные OHLCV Finam, ни одна H4 больше не создаётся из H1/M5. Из активного набора и интерфейса удалён H1, старые H1 SQLite не уничтожены. Для сохранения старых тестов исторических сборщиков в offline режиме оставлен `LEGACY_SOURCE_TIMEFRAMES`: производственный Finam `native_all_frames=True` никогда не выбирает этот набор. Отсутствие закрытого H4 провайдера не маскируется синтетикой. Дополнительные запросы Finam только по выбранному инструменту; скринера, обновления акций, проверки экспираций и ролловера нет.
+
 ### Пять прямых источников Finam, H1 удалён (19.11.2026)
 
 - **Последнее решение пользователя:** FlowDesk запрашивает и подписывается на готовые **M5, H4, D1, W1, MN1** Finam. Все OHLCV берутся только из источника; H4 больше **не собирается из H1/M5**, D/W/M не группируются и не переписываются. H1 исключён из кнопок, активных HTTP-запросов, WebSocket, chart-source cache и фонового архива. Ранее сохранённые H1/H4 в SQLite не стираются; старые H1 просто игнорируются.
