@@ -131,7 +131,7 @@ class ResourceTests(unittest.TestCase):
         self.assertEqual(set(parents),set(fresh_parents))
         for tf in parents:
             numeric(self,parents[tf],fresh_parents[tf])
-        numeric(self,updated.summary_sources['H4'],fresh.summary_sources['H4'])
+        numeric(self,updated.summary_sources['H1'],fresh.summary_sources['H1'])
 
     def test_archive_pacing_is_interruptible_and_defaults_to_one_worker(self):
         entry=SimpleNamespace(symbol='TEST@RTSX',verified=True)
