@@ -403,9 +403,9 @@ class TestFinamGui(unittest.TestCase):
         rows=[Candle(start+timedelta(hours=i),101+i,105+i,98+i,103+i,10,
                      scheduled_close=start+timedelta(hours=i+1)) for i in range(4)]
         chart=self.window.chart
-        with patch('flowdesk.gui.vwap_series',side_effect=AssertionError('VWAP computed')), \\
-             patch('flowdesk.gui.select_fvg_display',side_effect=AssertionError('FVG computed')), \\
-             patch('flowdesk.gui.select_flow_display',side_effect=AssertionError('flow computed')), \\
+        with patch('flowdesk.gui.vwap_series',side_effect=AssertionError('VWAP computed')), \
+             patch('flowdesk.gui.select_fvg_display',side_effect=AssertionError('FVG computed')), \
+             patch('flowdesk.gui.select_flow_display',side_effect=AssertionError('flow computed')), \
              patch('flowdesk.gui.inside_mother_bars',side_effect=AssertionError('inside computed')):
             chart.set_analysis(Analysis(rows,[],[],[],[],'H1',asof=start+timedelta(hours=4)))
             chart.repaint()
