@@ -23,7 +23,7 @@ import tracemalloc
 
 from flowdesk.terminal_policy import SOURCE_TIMEFRAMES
 FRAMES = SOURCE_TIMEFRAMES
-STEPS = {"M5": 5, "H4": 240,
+STEPS = {"M5": 5, "H1": 60,
          "D1": 1440, "W1": 10080, "MN1": 43200}
 
 
@@ -51,8 +51,8 @@ def provider_isolation(root):
     except ValueError:pass
     else:raise AssertionError("Retired crypto connection enabled")
     require(not (root/"binance_candles_v1.sqlite3").exists(),"Retired crypto database created")
-    finam._upsert("EDZ6@RTSX","H4",[Candle(datetime(2026,11,17,tzinfo=timezone.utc),1,2,.5,1,1)])
-    require(len(finam._series("EDZ6@RTSX")["H4"])==1,"ED history lost")
+    finam._upsert("EDZ6@RTSX","H1",[Candle(datetime(2026,11,17,tzinfo=timezone.utc),1,2,.5,1,1)])
+    require(len(finam._series("EDZ6@RTSX")["H1"])==1,"ED history lost")
     return {"status":"PASS","providers":["Finam"],"frames":len(FRAMES),
             "ed_source":"Finam","retired_crypto_connection_rejected":True,
             "retired_crypto_database_created":False}
