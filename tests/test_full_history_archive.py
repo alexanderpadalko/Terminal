@@ -10,7 +10,7 @@ from unittest.mock import patch
 from flowdesk.finam_api import FinamAPIError, DEPTH_DAYS
 from flowdesk.finam_market import FinamMarketService
 from flowdesk.market_data import Candle
-from flowdesk.history_archive import backfill_window, HistoryArchiveWorker, VERSION, FLOOR, FRAMES
+from flowdesk.history_archive import backfill_window, HistoryArchiveWorker, VERSION, FLOOR, FRAMES, LEGACY_FRAMES
 
 UTC=timezone.utc
 NOW=datetime(2026,11,16,12,tzinfo=UTC)
@@ -40,10 +40,11 @@ class FullArchiveTests(unittest.TestCase):
         self.service=FinamMarketService(self.path,api=self.api,clock=lambda:NOW)
         self.symbol='CRZ6@RTSX'
 
-    def test_all_seven_frames_move_and_resume_after_restart(self):
-        for _ in FRAMES:
+    def test_legacy_archive_frames_move_and_resume_after_restart(self):
+        self.assertNotIn('H1',FRAMES)  # Production history never archives H1.
+        for _ in LEGACY_FRAMES:
             backfill_window(self.service,self.symbol)
-        self.assertEqual([c[1] for c in self.api.calls],list(FRAMES))
+        self.assertEqual([c[1] for c in self.api.calls],list(LEGACY_FRAMES))
         self.assertTrue(all(c[0]==self.symbol and c[3]-c[2]==timedelta(days=DEPTH_DAYS[c[1]])
                             for c in self.api.calls))
         before=self.service.load_history_progress()
