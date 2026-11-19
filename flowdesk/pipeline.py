@@ -46,7 +46,17 @@ def analyze_timeframes(series: dict[str, list[Candle]], display_tf: str,
     source candle. Each source retains its own provenance when CSV replaces
     a higher timeframe from an MOEX bundle.
     """
-    frames=DISPLAY_TIMEFRAMES if terminal else TIMEFRAMES
+    frames=(tuple(tf for tf in DISPLAY_TIMEFRAMES if tf!='H1') if terminal
+            else TIMEFRAMES)
+    if terminal and display_tf=='H1':
+        # Reuse the existing chart pipeline but skip all indicator engines.
+        if not series.get('H1'):
+            raise ValueError("Нет свечей выбранного таймфрейма")
+        bars=normalize(series['H1'])
+        observed=asof if asof is not None else datetime.now(timezone.utc)
+        return (Analysis(bars,[],[],[],[],'H1',asof=observed,
+                         flow_status='DISABLED',
+                         flow_source_note='Только свечи Finam'),{})
     if display_tf not in frames or not series.get(display_tf):
         raise ValueError("Нет свечей выбранного таймфрейма")
     asof = asof if asof is not None else datetime.now(timezone.utc)

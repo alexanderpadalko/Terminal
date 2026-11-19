@@ -233,7 +233,10 @@ class FinamMarketService:
         try:yield
         finally:self._scan_local.snapshot=previous
 
-    def prepare_series(self,symbol,raw,observed):
+    def prepare_series(self,symbol,raw,observed,*,display_tf=None):
+        if display_tf=='H1':
+            # Only the selected native H1 candles; do not aggregate H4/D/W/M.
+            return {'H1':list(raw.get('H1',()))}
         # Direct Finam M5 means retaining even a mixed auction bar as-is.
         direct=bool(getattr(self.api,'h1_only_h4_native_dwm',False))
         cleaned=raw if direct else exclude_stock_closing_auction(raw,symbol.rsplit('@',1)[1])
@@ -454,6 +457,10 @@ class FinamMarketService:
 
     def analyze_cached(self,symbol,timeframe,series,settings,observed,*,terminal=True):
         """Active product scope by default; terminal=False is offline reference only."""
+        if terminal and timeframe=='H1':
+            # Same analysis entry point, no technical replay or persisted calculations.
+            return analyze_timeframes({'H1':series.get('H1',())},'H1',
+                                      asof=observed,terminal=True)
         if terminal and timeframe not in DISPLAY_TIMEFRAMES:
             raise ValueError('Таймфрейм недоступен в терминале')
         lock=self._key_lock(self._analysis_locks,(symbol,timeframe))
@@ -572,13 +579,14 @@ class FinamMarketService:
         if allow_http:
             progress(self.provider_name+": сверка последних свечей")
             errors=self.refresh_series(symbol,(timeframe,),cancelled=cancelled)
-            if (self._tail(symbol,timeframe,1) or self._tail(symbol,'M5',1)
-                    or self._tail(symbol,'H1',1)):
+            if (timeframe!='H1' and
+                    (self._tail(symbol,timeframe,1) or self._tail(symbol,'M5',1)
+                     or self._tail(symbol,'H1',1))):
                 errors.update(self.refresh_series(symbol,(tf for tf in SOURCE_TIMEFRAMES if tf!=timeframe),cancelled=cancelled))
         delay=self.api.market_delay_minutes(mic)
         observed=self.clock()-timedelta(minutes=delay)
         raw=self._series(symbol,chart=True)
-        if (allow_http and 'H1' not in errors and
+        if (allow_http and timeframe!='H1' and 'H1' not in errors and
                 self.repair_source_evidence(symbol,raw,observed,cancelled=cancelled)):
             raw=self._series(symbol,chart=True)
             observed=self.clock()-timedelta(minutes=self.api.market_delay_minutes(mic))
@@ -600,7 +608,7 @@ class FinamMarketService:
                 raise FinamAPIError(reason,http_status=code if type(code) is int and 100<=code<=599 else None) from None
             raw=self._series(symbol,chart=True)
             observed=self.clock()-timedelta(minutes=delay)
-        series=self.prepare_series(symbol,raw,observed)
+        series=self.prepare_series(symbol,raw,observed,display_tf=timeframe)
         if not series.get(timeframe):
             issue=getattr(series,'session_metadata',{}).get('issues',{}).get(timeframe)
             reason=("нет полных исходных свечей или подтверждённого календаря сессии" if issue
@@ -616,7 +624,8 @@ class FinamMarketService:
                     'calendar_source_conflict':'дата исходной свечи противоречит календарю торгов',
                 }.get(issue,reason)
             raise RuntimeError(f"{self.provider_name} · {symbol} · {timeframe}: {reason}")
-        progress("Finam: расчёт потоков v2.11")
+        progress("Finam: только свечи H1" if timeframe=='H1'
+                 else "Finam: расчёт потоков v2.11")
         main,parents=self.analyze_cached(symbol,timeframe,series,settings,observed,terminal=True)
         with self.lock:
             prior=self.latest_stream_at.get(symbol)
